@@ -6,6 +6,8 @@
 set -u
 M=02:ca:fe:00:00:2a; MU=02:CA:FE:00:00:2A; NATID=1101700000010
 X="ip netns exec cte"; CJ=/tmp/ft-cj; PASS=0; FAIL=0
+# บัญชี SSH ของช่าง: เครื่องติดตั้งเอง = ras · เครื่องที่ติดตั้งจาก image = cafeadmin (ไม่มี ras)
+SU=${FT_SSH_USER:-$(id -u cafeadmin >/dev/null 2>&1 && echo cafeadmin || echo ras)}; SH=$(getent passwd "$SU" | cut -d: -f6)
 cd /opt/cafe-wifi
 ENVV="env $(grep -v '^#' /etc/cafe-wifi/secrets.env | xargs) PYTHONPATH=/opt/cafe-wifi"
 SSHP=$(grep ^SSH_ALT_PORT= /etc/cafe-wifi/secrets.env | cut -d= -f2)
@@ -19,7 +21,7 @@ cleanup() {
   # ห้าม DELETE: ถ้าบัญชีนี้เคยกดอนุมัติ voucher จะอ้างถึง (fk_voucher_staff) ลบไม่ได้แล้วค้าง "เปิดใช้งาน" อยู่
   # (เกิดจริง 2026-10-03 -> ค้างเปิดอยู่ ~21 ชม.) -- ปิดใช้งาน + สุ่มรหัสใหม่ทิ้งแทน
   sq "UPDATE staff SET is_active=0, password_hash=SHA2(UUID(),256), password_changed_at=NOW() WHERE username='ft-staff'" 2>/dev/null
-  sed -i '/cafe-fulltest-key/d' /home/ras/.ssh/authorized_keys 2>/dev/null; rm -f /tmp/ftkey /tmp/ftkey.pub $CJ /tmp/ft.*
+  sed -i '/cafe-fulltest-key/d' $SH/.ssh/authorized_keys 2>/dev/null; rm -f /tmp/ftkey /tmp/ftkey.pub $CJ /tmp/ft.*
   sq "DELETE FROM rate_attempt WHERE bucket IN ('login:10.10.0.177','login-user:ft-staff')" 2>/dev/null
   /root/cafe-client-test/client.sh down cte >/dev/null 2>&1; ndsctl deauth $M >/dev/null 2>&1
 }
@@ -108,12 +110,12 @@ $ENVV ./venv/bin/python -m tools.enforce_voucher_expiry >/dev/null 2>&1
 chk "ตัวตรวจย้อนทางตัดเครื่องนั้น (ออกเน็ตไม่ได้แล้ว)" "$($X curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com/)" 307
 chk "ลง audit orphan_deauth" "$(sq "SELECT COUNT(*)>0 FROM audit_log WHERE action='orphan_deauth' AND target='$MU' AND ts > NOW() - INTERVAL 2 MINUTE")" 1
 
-echo "== 6. SSH จากวงลูกค้า (พอร์ต $SSHP)"
+echo "== 6. SSH จากวงลูกค้า (พอร์ต $SSHP, ผู้ใช้ $SU)"
 O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=6 -o LogLevel=ERROR -o BatchMode=yes"
 chk "พอร์ต 22 จากวงลูกค้าถูกบล็อก" "$($X timeout 5 bash -c '</dev/tcp/10.10.0.1/22' 2>/dev/null && echo open || echo blocked)" blocked
-has "รหัสผ่านถูกปฏิเสธ (key เท่านั้น)" "$($X ssh $O -o PreferredAuthentications=password -o PubkeyAuthentication=no -p $SSHP ras@10.10.0.1 true 2>&1)" "publickey"
-ssh-keygen -q -t ed25519 -N '' -C cafe-fulltest-key -f /tmp/ftkey; cat /tmp/ftkey.pub >> /home/ras/.ssh/authorized_keys
-chk "SSH key เข้าได้" "$($X ssh $O -i /tmp/ftkey -p $SSHP ras@10.10.0.1 'echo ok' 2>&1)" ok
+has "รหัสผ่านถูกปฏิเสธ (key เท่านั้น)" "$($X ssh $O -o PreferredAuthentications=password -o PubkeyAuthentication=no -p $SSHP $SU@10.10.0.1 true 2>&1)" "publickey"
+ssh-keygen -q -t ed25519 -N '' -C cafe-fulltest-key -f /tmp/ftkey; cat /tmp/ftkey.pub >> $SH/.ssh/authorized_keys
+chk "SSH key เข้าได้" "$($X ssh $O -i /tmp/ftkey -p $SSHP $SU@10.10.0.1 'echo ok' 2>&1)" ok
 
 echo "== 7. log / หลักฐาน / ความปลอดภัย"
 lq=$($A "https://admin.cafe.wifi/logs?range=1h&q=Lab-cte-Phone")

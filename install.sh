@@ -1570,7 +1570,12 @@ NFT
   # แต่ถ้าเซสชันหลุดแล้วเชื่อมต่อใหม่ไม่ได้จะเข้าเครื่องไม่ได้อีกเลย -- ตั้งเวลาล้างกฎอัตโนมัติ
   # ไว้ก่อน ถ้าตรวจสอบแล้วว่ายัง SSH เข้าได้ปกติ ให้ยกเลิกด้วยคำสั่งที่พิมพ์ไว้ด้านล่าง
   local dead_man="${APP_NAME}-nft-failsafe"
-  if [[ "$INIT_SYS" == systemd ]] && command -v systemd-run >/dev/null 2>&1; then
+  # image: --stage site ถูกรันโดย web wizard (cafe-wifi-apply.service) ไม่มีใครอยู่ยกเลิก dead-man ->
+  # ไฟร์วอลล์ทั้งหมด (NAT, บล็อกพอร์ต 22 จากวงลูกค้า, notrack lo) ถูกล้างทิ้งเองหลัง 5 นาที
+  # ลูกค้าที่อนุมัติแล้วออกเน็ตไม่ได้ (เจอจริงบนการ์ด B 2026-10-04) -- ตั้งเฉพาะเมื่อมีคนรันผ่าน SSH
+  if [[ "$STAGE" == site && -z "${SSH_CONNECTION:-}${SUDO_USER:-}" ]]; then
+    info "รันโดย setup wizard (ไม่ได้มาจาก SSH) -- ไม่ตั้ง dead-man switch"
+  elif [[ "$INIT_SYS" == systemd ]] && command -v systemd-run >/dev/null 2>&1; then
     run_sh "systemctl reset-failed '${dead_man}.service' >/dev/null 2>&1 || true"
     run_sh "systemd-run --unit='${dead_man}' --on-active=300 /usr/sbin/nft flush ruleset >/dev/null 2>&1 || true"
     warn "ตั้ง dead-man switch ไว้แล้ว: ถ้าไม่ยกเลิก nftables จะถูกล้างอัตโนมัติใน 5 นาที"

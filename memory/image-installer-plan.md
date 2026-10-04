@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T08:40:32.462Z
+  modified: 2026-10-04T11:11:34.774Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -45,6 +45,33 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
   - Docker Desktop binfmt registers `aarch64` with flags POCF, so pi-gen works without `dpkg-reconfigure`.
   - The Windows test suite has 10 pre-existing failures (backup_db / logger_restart / sysinfo), unrelated to this work.
   - `lab_fulltest.sh` assumes user `ras`, but the image's tech user is `cafeadmin` (SSH key only).
+
+**First real boot on card B (2026-10-04):**
+- The image boots and avahi is up.
+- firstboot hung for 15 minutes in `configure_ssh`. Cause: `systemctl reload ssh` waited on ssh.service, which was itself ordered after firstboot (`Before=ssh.service`), so the two deadlocked.
+  - Fixed in 6e84af1 (`--no-block try-reload-or-restart`, plus a TERM trap so the LED shows the error pattern instead of fast-blinking forever).
+  - Applied by hand on the Pi, then firstboot was re-run. It took 16 s and the secret hashes were unchanged, which is good rerun evidence.
+- The wizard is reachable at http://cafewifi.local (172.20.18.61). The Pi at that address runs card B and is reachable as `ssh cafeadmin@172.20.18.61` with the laptop key; known_hosts was kept in scratchpad.
+- Lab gotcha: Aruba `dhcpv4-snooping` inserts option 82, and the lab router silently ignores those DISCOVERs (giaddr=0). Even trusting 1/1/24 did not help, so run `no dhcpv4-snooping` while testing the image.
+- To simulate "router DHCP off" for IMG-06, re-enable snooping with trust on 1/1/6 only.
+- Never use a Pi on card A as the test target.
+- **The wizard passed end-to-end on card B at 16:48:**
+  - The user ran steps ①–⑤ (router check passed with snooping re-enabled).
+  - apply → `--stage site` finished.
+  - All 10 services came up active (mariadb, nginx, dnsmasq, nftables, opennds, cafe-admin, cafe-fas, cafe-logger, netsetup, chrony).
+  - Addresses: eth0 172.20.18.61/24, cafe-wifi-cli0 10.10.0.1/24.
+  - `.site-done` is set, the setup code and SETUP-CODE.txt were removed, the wizard is disabled, and the LED is back to mmc0.
+  - Next: phone portal flow, then `lab_fulltest` (adapt it for user `cafeadmin`).
+- **IMG-08 passed 49/49 on card B (18:10).**
+  - Before the fix it was 43/49. The nftables dead-man switch (`cafe-wifi-nft-failsafe`) flushed the entire firewall 5 minutes after apply, because no human was there to cancel it. That broke NAT, opened port 22 to customers, and dropped `lo` notrack.
+  - Fixed in `install.sh`: skip the dead-man switch when `--stage site` runs without `SSH_CONNECTION`/`SUDO_USER`.
+  - Manual recovery on a live Pi: `nft -f /etc/nftables.conf`, then `systemctl restart opennds` (the flush also removes the nds tables), then `conntrack -D -s 127.0.0.1` to clear stale lo entries.
+  - `lab_fulltest` now picks `cafeadmin` automatically (`FT_SSH_USER` overrides).
+  - A fresh install has no `backup-status.json` until `cafe-maintenance` runs (03:30), so for the test run `systemctl start cafe-maintenance` first.
+  - Results are logged in `docs/hardware-test-log.md` §3.15.
+- Image todo:
+  - add an IPv4 link-local fallback and make the wizard listen on [::] (it was unreachable while there was no DHCP)
+  - rebuild with 6e84af1
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.
