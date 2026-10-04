@@ -131,9 +131,13 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 - `lab_fulltest.sh` broke on shop names with spaces (it used `env $(xargs)`). Fixed with a `penv` line reader.
 - The wizard needs port 24 up for the IMG-06 ❌ side, because the router sits behind 1/1/24. So for IMG-03, cut the port before first boot finishes and again just before Save.
 
+**Released 2026-10-05:** https://github.com/lenulk/Cafe-wifi-Image/releases/tag/v1.0.1
+- The tag is the full SHA 7bac6b35. `gh --target` rejects a short SHA with 422.
+- The GitHub digest matches the local sha256, and an anonymous download works.
+- The README (ae0c87e) points to v1.0.1.
+- The auto-mode classifier blocks `gh release create` until the user explicitly grants permission in chat.
+
 Remaining work:
-- Ask the user, then make the GitHub release v1.0.1.
-- Update the README download link and SHA, plus the test table.
 - IMG-09 factory reset is deferred to a later version. The workaround is reflash + `restore_keys` + DB restore.
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
