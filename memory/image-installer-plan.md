@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T06:22:59.425Z
+  modified: 2026-10-04T07:01:34.095Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -17,6 +17,8 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 - Imager can't add custom fields → `prepare-sd.ps1` writes cafewifi.conf + setup code to bootfs.
 
 **Progress 2026-10-04:** M1 coded in install.sh (uncommitted at time of writing): `--stage`, `in_stage()`, `enable_offline_systemctl()` (exported systemctl wrapper used for *every* `--stage build`, even on live systemd), split `configure_opennds`/`make_tls_cert`/`start_nginx`, install.sh copied to /opt/cafe-wifi. Verified only by WSL dry-run (`--stage all` command list identical to old version except intended additions) — NOT yet run on the Pi. Gotcha: `sed s|..|$kv|` breaks on shop names with `&`/`|` → replaced with bash line rewrite. Docker Desktop installed via winget on the laptop (user must launch + accept license). User has 1 Pi + 2 SD cards: card A (working system, never flash), card B for image tests.
+
+**Repo layout decided 2026-10-04:** user considers the main project complete and does not want it touched. `master` is frozen and tagged `v1.0`; M1 was removed from master's install.sh. M1 had been swept into the other chat's N45 commit 23fd46e by a blanket commit. All image work happens on branch **`image`** in the same repo, and M1 lives only there. Never commit image work to master. Only bring master into `image` with a merge; the M1 removal is already "reverted back" on `image`, so a merge will not drop M1.
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.
