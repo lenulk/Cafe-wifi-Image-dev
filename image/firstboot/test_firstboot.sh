@@ -153,7 +153,7 @@ check "R4 ยังไม่บูตแรก ไม่รีบูต" test ! 
 echo "B. install.sh gen_secrets / make_tls_cert (ตัวจริง)"
 LIB="${T}/install-lib.sh"
 # ตัด main "$@" บรรทัดสุดท้ายออก แล้วย้าย ETC_DIR ไปโฟลเดอร์ชั่วคราว
-sed -e '$d' -e "s#^readonly ETC_DIR=.*#ETC_DIR='${T}/betc'#" "${ROOT}/install.sh" > "$LIB"
+sed -e '$d' -e "s#^readonly ETC_DIR=.*#ETC_DIR='${T}/betc'#" -e "s#^readonly CA_PUBLIC_DIR=.*#CA_PUBLIC_DIR='${T}/ca'#" "${ROOT}/install.sh" > "$LIB"
 run_lib() {  # run_lib "<คำสั่ง bash หลัง source>"
   bash -c "
     set -Eeuo pipefail
@@ -204,6 +204,16 @@ check "B5 รันซ้ำไม่ออกใหม่" test "$(openssl x509
 run_lib "install() { mkdir -p \"\${@: -1}\"; }; make_tls_cert"
 check "B5 key ว่าง -> ออกใหม่" test "$(openssl x509 -in "${T}/betc/tls/server.crt" -noout -fingerprint)" != "$fp1"
 check "B5 key ใหม่คู่กับ crt" test "$(openssl x509 -in "${T}/betc/tls/server.crt" -noout -pubkey)" = "$(openssl pkey -in "${T}/betc/tls/server.key" -pubout)"
+
+# B6: ใบรับรองจำกัดชื่อ (พนักงานติดตั้งเป็น CA บนมือถือ) + ไฟล์สาธารณะให้ดาวน์โหลด · ใบเก่าที่ไม่จำกัดชื่อต้องออกใหม่
+crt="${T}/betc/tls/server.crt"
+check "B6 nameConstraints เฉพาะ cafe.wifi/IP ของ Pi" bash -c 'openssl x509 -in "$1" -noout -ext nameConstraints | grep -q "DNS:cafe.wifi" && openssl x509 -in "$1" -noout -ext nameConstraints | grep -q "IP:10.10.0.1/255.255.255.255"' _ "$crt"
+check "B6 pathlen:0 (ออกใบต่อไม่ได้)" bash -c 'openssl x509 -in "$1" -noout -ext basicConstraints | grep -q "pathlen:0"' _ "$crt"
+check "B6 เผยแพร่ใบรับรอง (ไม่มีกุญแจ)" bash -c 'cmp -s "$1" "$2" && ! grep -q PRIVATE "$2"' _ "$crt" "${T}/ca/cafe-wifi.crt"
+openssl req -x509 -nodes -newkey rsa:2048 -days 30 -keyout "${T}/betc/tls/server.key" -out "$crt" -subj "/CN=admin.cafe.wifi"   -addext "subjectAltName=DNS:admin.cafe.wifi,DNS:cafe.wifi,IP:10.10.0.1" >/dev/null 2>&1
+fp_old="$(openssl x509 -in "$crt" -noout -fingerprint)"
+run_lib "install() { mkdir -p \"\${@: -1}\"; }; make_tls_cert"
+check "B6 ใบเก่าไม่จำกัดชื่อ -> ออกใหม่" test "$(openssl x509 -in "$crt" -noout -fingerprint)" != "$fp_old"
 
 echo
 echo "ผ่าน ${pass} / $((pass+failn))"

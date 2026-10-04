@@ -347,3 +347,25 @@ def test_status_ssh_hint_uses_real_user_and_client_ip(client, monkeypatch):
         sess["role"] = "admin"
     html = client.get("/status").get_data(as_text=True)
     assert "ssh -p 41873 cafeadmin@10.20.0.1" in html and "ras@" not in html
+
+
+def test_status_shows_ca_download_and_fingerprint(client, monkeypatch, tmp_path):
+    """ติดตั้งใบรับรองครั้งเดียว -> Chrome Android เปิดหน้าแอดมินได้แม้ยังไม่อนุมัติ (ทดสอบมือถือจริง 2026-10-05)"""
+    import datetime
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "admin.cafe.wifi")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(1).not_valid_before(now).not_valid_after(now + datetime.timedelta(days=30))
+            .sign(key, hashes.SHA256()))
+    (tmp_path / "cafe-wifi.crt").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    monkeypatch.setenv("CA_PUBLIC_DIR", str(tmp_path))
+    monkeypatch.setenv("GATEWAY_IP", "10.20.0.1")
+    _login(client)
+    html = client.get("/status").get_data(as_text=True)
+    fp = cert.fingerprint(hashes.SHA256()).hex().upper()
+    assert "http://10.20.0.1:8080/cafe-wifi.crt" in html and fp[:2] + ":" + fp[2:4] in html
