@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T07:13:34.237Z
+  modified: 2026-10-04T08:40:32.462Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -32,6 +32,19 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
   - disable `dnsmasq` in the image (the Debian package self-enables)
   - wipe the §2 files
   - lock the pi-gen first user
+
+**M3–M6 status, 2026-10-04:**
+- M3: the image built successfully (`image/deploy/`, gitignored, 644 MB) and passed IMG-02 on the real `.img`. Built from the pi-gen tag `2026-09-15-raspios-trixie-arm64` in Docker Desktop via `image/build.ps1` (`-Reuse` skips stage0-2 using the docker volume `cafewifi-pigen-work`).
+- M4–M6 (`app/setup` wizard, `setup/apply.py`, `tools/check_router.py`, `prepare-sd.ps1`, `os_list.json`) pass unit tests only.
+- Nothing has been booted on a Pi yet.
+- M7 (factory reset + key backup) and the self-test were deferred.
+- Gotchas found:
+  - Docker CLI needs `C:\Program Files\Docker\Docker\resources\bin` on PATH (otherwise "docker-credential-desktop not found").
+  - The kali WSL distro has no docker; drive Docker from PowerShell.
+  - `docker pull` with `--platform arm64` retags the local `debian:trixie-slim`, so always pass `--platform linux/amd64`.
+  - Docker Desktop binfmt registers `aarch64` with flags POCF, so pi-gen works without `dpkg-reconfigure`.
+  - The Windows test suite has 10 pre-existing failures (backup_db / logger_restart / sysinfo), unrelated to this work.
+  - `lab_fulltest.sh` assumes user `ras`, but the image's tech user is `cafeadmin` (SSH key only).
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.

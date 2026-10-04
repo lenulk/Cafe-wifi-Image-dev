@@ -41,7 +41,9 @@ ver="$(cd "$SRC" && cat image/VERSION 2>/dev/null || echo dev)"
   cat "${SRC}/image/pigen/config"
   # รหัสผ่านทิ้งได้: pi-gen ต้องมีถ้าปิด user rename -- 01-firstboot ล็อกบัญชีนี้ทันที ไม่มีใครรู้ค่า
   echo "FIRST_USER_PASS='$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)'"
-  echo "IMG_FILENAME='cafe-wifi-${ver}-$(date +%Y%m%d)${CAFEWIFI_GIT:+-${CAFEWIFI_GIT}}'"
+  name="cafe-wifi-${ver}-$(date +%Y%m%d)${CAFEWIFI_GIT:+-${CAFEWIFI_GIT}}"
+  echo "IMG_FILENAME='${name}'"
+  echo "ARCHIVE_FILENAME='${name}'"     # ชื่อไฟล์ .img.xz (ไม่ตั้ง = image_<วันที่>-cafe-wifi ไม่มีเวอร์ชัน/commit)
   echo "WORK_DIR='${WORK}'"
   echo "DEPLOY_DIR='${OUT}'"
   echo "STAGE_LIST='stage0 stage1 stage2 /pi-gen/stage-cafewifi'"
