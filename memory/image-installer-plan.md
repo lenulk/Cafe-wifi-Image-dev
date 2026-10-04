@@ -18,7 +18,7 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 
 **Progress 2026-10-04:** M1 coded in install.sh (uncommitted at time of writing): `--stage`, `in_stage()`, `enable_offline_systemctl()` (exported systemctl wrapper used for *every* `--stage build`, even on live systemd), split `configure_opennds`/`make_tls_cert`/`start_nginx`, install.sh copied to /opt/cafe-wifi. Verified only by WSL dry-run (`--stage all` command list identical to old version except intended additions) — NOT yet run on the Pi. Gotcha: `sed s|..|$kv|` breaks on shop names with `&`/`|` → replaced with bash line rewrite. Docker Desktop installed via winget on the laptop (user must launch + accept license). User has 1 Pi + 2 SD cards: card A (working system, never flash), card B for image tests.
 
-**Repo layout decided 2026-10-04:** user considers the main project complete and does not want it touched. `master` is frozen and tagged `v1.0`; M1 was removed from master's install.sh. M1 had been swept into the other chat's N45 commit 23fd46e by a blanket commit. All image work happens on branch **`image`** in the same repo, and M1 lives only there. Never commit image work to master. Only bring master into `image` with a merge; the M1 removal is already "reverted back" on `image`, so a merge will not drop M1. **Push target:** the local `image` branch tracks remote `imagerepo` (https://github.com/lenulk/Cafe-wifi-Image.git, the user's own repo created 2026-10-04) as its `main` branch. Image work is pushed there, not to origin Cafe-wifi. Push it with `git push imagerepo image:main`, or a plain `git push` since `image` tracks it.
+**Repo layout decided 2026-10-04:** user considers the main project complete and does not want it touched. `master` is frozen and tagged `v1.0`; M1 was removed from master's install.sh. M1 had been swept into the other chat's N45 commit 23fd46e by a blanket commit. All image work happens on branch **`image`** in the same repo, and M1 lives only there. Never commit image work to master. Only bring master into `image` with a merge; the M1 removal is already "reverted back" on `image`, so a merge will not drop M1. **Push target:** changed 2026-10-05, see "Two repos" below. The local `image` branch tracks `dev/main`. A plain `git push` sends work to the PRIVATE dev repo. Never push the `image` branch to `public`.
 
 **M2 done in code 2026-10-04 (branch image):**
 - New files: `image/firstboot/cafe-wifi-firstboot.{sh,service}`, plus `test_firstboot.sh`. The tests run in WSL as non-root via `CAFEWIFI_*` env overrides and pass 41/41. Run them from PowerShell: `wsl.exe -d kali-linux -- bash <script>`.
@@ -142,3 +142,20 @@ Remaining work:
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.
+
+**Two repos (2026-10-05, user decision): public = product showcase, private = workspace.**
+- Remote `dev` → https://github.com/lenulk/Cafe-wifi-Image-dev (PRIVATE).
+  - This is the old public repo, renamed and made private. It holds the full history, the v1.0.0/v1.0.1 releases, memory/, the thesis, lab tools and the build.
+  - Local branch `image` tracks `dev/main`.
+- Remote `public` → https://github.com/lenulk/Cafe-wifi-Image (PUBLIC, recreated fresh).
+  - Its history is its own; the first commit 1d154f6 has 106 files.
+  - Release v1.0.1 was re-uploaded there and the digest matches.
+  - Old commit SHAs from the dev history return 404 publicly.
+- Publish with `bash image/publish-public.sh "<msg>"`, then `git push public public:main`.
+  - The script builds the branch `public` from an ALLOWLIST at HEAD: app, sql, install.sh, the runtime tools/*.py, image/{VERSION,prepare-sd.ps1,setup,firstboot/*.sh|.service}, and docs/{install-from-image,backup-usb,privacy-policy-th}.md.
+  - It also copies `image/public/README.md` and `image/public/gitignore`.
+  - There is no build how-to (the user asked for that).
+  - A new public file means editing ALLOW.
+  - Release notes and gh releases go on `lenulk/Cafe-wifi-Image`.
+- The desktop machine must run `git remote set-url` to point at the -dev repo. The repo is now private, so it needs a GitHub login.
+- Known bug for v1.0.2: `app/admin/templates/status.html` hardcodes `ssh -p … ras@10.10.0.1`. Image installs use the user `cafeadmin`, and the client IP is configurable.
