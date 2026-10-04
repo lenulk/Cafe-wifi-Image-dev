@@ -1,0 +1,60 @@
+== 1. ระบบพื้นฐาน
+  PASS service cafe-admin
+  PASS service cafe-fas
+  PASS service cafe-logger
+  PASS service opennds
+  PASS service dnsmasq
+  PASS service nginx
+  PASS service mariadb
+  PASS service chrony
+  PASS Pi resolve DNS ได้เอง (N40)
+  PASS นาฬิกาคลาด < 10ms (ม.26) [0.076ms]
+  PASS conntrack ไม่ติดตาม loopback (N43)
+== 2. ลูกค้าขอใช้งาน (เครื่องจำลองบนวงลูกค้า)
+  PASS ยังไม่ขอใช้งาน = ออกเน็ตไม่ได้
+  PASS หน้า portal มีช่องเลขบัตร 13 หลัก
+  PASS หน้า portal ไม่มีช่องทางไปหน้าแอดมิน
+  PASS เลขบัตรมีขีด ถูกปฏิเสธ
+  PASS ส่งคำขอด้วยเลขบัตรถูกต้อง
+  PASS หน้ารอแสดงรหัสคำขอ 4 ตัว [TXCM]
+  PASS คำขอเก็บชื่อเครื่อง/OS
+== 3. พนักงานเข้า https://admin.cafe.wifi จากวงลูกค้า แล้วอนุมัติ
+  PASS login ผ่าน https://admin.cafe.wifi (cert ตรงชื่อ)
+  PASS หน้า /
+  PASS หน้า /requests
+  PASS หน้า /customers
+  PASS หน้า /logs?range=today
+  PASS หน้า /reports
+  PASS หน้า /status
+  PASS หน้า /evidence
+  PASS หน้า /staff
+  PASS หน้าคำขอเห็นรหัส TXCM + ชื่อเครื่อง
+  PASS หน้าคำขอไม่มีเลขบัตรเต็ม
+  PASS 4 ตัวท้ายผิด อนุมัติไม่ได้
+  PASS อนุมัติสำเร็จ
+  PASS เครื่องได้รับสิทธิ์ใน 20 วิ
+  PASS ออกเน็ตได้หลังอนุมัติ
+  PASS ลูกค้าเห็นเวลาที่เหลือที่ cafe.wifi:8080
+== 4. ต่อเวลา / ปิดสิทธิ์
+  PASS ต่อเวลา +30 น. เลื่อนเวลาตัดของ openNDS [+30 นาที]
+  PASS เน็ตยังใช้ได้หลังต่อเวลา
+  PASS ปิดสิทธิ์แล้วเน็ตถูกตัด
+  PASS ลูกค้าเห็นว่าถูกปิดสิทธิ์
+== 5. openNDS คืนสิทธิ์เองแต่ไม่มีสิทธิ์ในฐานข้อมูล (N44)
+  PASS จำลอง: openNDS ปล่อยเครื่องไม่มีสิทธิ์ออนไลน์
+  PASS ตัวตรวจย้อนทางตัดเครื่องนั้น (ออกเน็ตไม่ได้แล้ว)
+  PASS ลง audit orphan_deauth
+== 6. SSH จากวงลูกค้า (พอร์ต 20952, ผู้ใช้ cafeadmin)
+  PASS พอร์ต 22 จากวงลูกค้าถูกบล็อก
+  PASS รหัสผ่านถูกปฏิเสธ (key เท่านั้น)
+  PASS SSH key เข้าได้
+== 7. log / หลักฐาน / ความปลอดภัย
+  PASS ค้น log ด้วยชื่อเครื่องเจอ
+  PASS ส่งออกหลักฐาน: ZIP + SHA-256 ตรวจผ่าน
+  PASS เดารหัสผิด 5 ครั้งแล้วถูกบล็อก
+  PASS รีสตาร์ทแล้วยังบล็อก (ตัวนับใน DB)
+== 8. สำรองข้อมูล / log ตกหล่น
+  PASS สำรองล่าสุดสำเร็จ (USB ยังไม่เสียบ = False ถูกต้อง)
+  INFO ENOBUFS ตั้งแต่ติดตั้งล่าสุด (15:24): 0 ครั้ง
+
+== สรุป: PASS 49  FAIL 0

@@ -124,11 +124,18 @@ t=$(tok https://admin.cafe.wifi/evidence)
 $A -o /tmp/ft.zip -D /tmp/ft.hdr --data-urlencode "csrf_token=$t" -d who=natid --data-urlencode natid=$NATID -d start=$(date +%F) -d end=$(date +%F) --data-urlencode "reason=ทดสอบระบบรวม (แลป)" https://admin.cafe.wifi/evidence
 python3 - <<'PY' > /tmp/ft.ev
 import zipfile, json, hashlib
-z = zipfile.ZipFile("/tmp/ft.zip"); m = json.loads(z.read("manifest.json"))
-ok = all(hashlib.sha256(z.read(f["filename"]).decode().lstrip("﻿").encode()).hexdigest() == f["sha256"] for f in m["files"])
-print("y" if ok and m["files"][0]["row_count"] > 0 else "n")
+try:
+    z = zipfile.ZipFile("/tmp/ft.zip"); m = json.loads(z.read("manifest.json"))
+except Exception as e:  # ไม่ใช่ ZIP = เซิร์ฟเวอร์ตอบหน้า error แทน -- บอกเหตุผลแทนการล้มเงียบ
+    print("n not-a-zip:", type(e).__name__, open("/tmp/ft.zip", "rb").read(200)); raise SystemExit
+bad = [f["filename"] for f in m["files"]
+       if hashlib.sha256(z.read(f["filename"]).decode().lstrip("﻿").encode()).hexdigest() != f["sha256"]]
+rows = {f["filename"]: f["row_count"] for f in m["files"]}
+print("y" if not bad and m["files"][0]["row_count"] > 0 else f"n sha-bad={bad} rows={rows}")
 PY
-chk "ส่งออกหลักฐาน: ZIP + SHA-256 ตรวจผ่าน" "$(cat /tmp/ft.ev)" y
+ev=$(cat /tmp/ft.ev)
+chk "ส่งออกหลักฐาน: ZIP + SHA-256 ตรวจผ่าน" "${ev%% *}" y
+[ "${ev%% *}" = y ] || echo "  INFO หลักฐาน: ${ev#n }  (HTTP $(head -1 /tmp/ft.hdr 2>/dev/null | tr -d '\r'))"
 t=$(tok https://admin.cafe.wifi/login); rm -f $CJ
 codes=""; for i in 1 2 3 4 5 6; do rm -f $CJ; t=$(tok https://admin.cafe.wifi/login); codes="$codes$($A -o /dev/null -w '%{http_code}' --data-urlencode "csrf_token=$t" -d username=ft-staff -d password=wrong https://admin.cafe.wifi/login) "; done
 chk "เดารหัสผิด 5 ครั้งแล้วถูกบล็อก" "$codes" "401 401 401 401 401 429 "
