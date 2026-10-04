@@ -23,11 +23,16 @@
 
 ## กู้คืนเมื่อ SD card เสีย
 
-1. ติดตั้งระบบใหม่บนการ์ดใหม่ด้วย `install.sh` และ **นำ `/etc/cafe-wifi/secrets.env` ตัวเดิมกลับมาวาง** —
-   ไฟล์สำรองมีเลขบัตรที่เข้ารหัสไว้ ต้องใช้กุญแจในไฟล์นี้ถอด (ควรเก็บสำเนา secrets.env ไว้ที่ปลอดภัยแยกต่างหาก
-   **ห้ามเก็บไว้ใน USB อันเดียวกับไฟล์สำรอง**)
-2. `sudo mysql cafewifi < sql/001_schema.sql` (และ migration อื่นใน `sql/` ตามลำดับ)
-3. `gunzip -c /mnt/cafebackup/cafe-wifi/cafewifi-<วันล่าสุด>.sql.gz | sudo mysql cafewifi`
+ไฟล์สำรองบน USB มีแค่ฐานข้อมูล — เลขบัตรในนั้นเข้ารหัสอยู่ ต้องใช้**ไฟล์สำรองกุญแจ `.cwkey`**
+(หน้าแอดมิน → เมนู "สำรองกุญแจ") ถอด · **ห้ามเก็บไฟล์ `.cwkey` ไว้ใน USB อันเดียวกับไฟล์สำรอง**
+
+1. flash การ์ดใหม่จาก image แล้วติดตั้งผ่าน wizard ตามปกติ ([`install-from-image.md`](install-from-image.md))
+2. คัดลอกไฟล์ `.cwkey` ขึ้น Pi แล้วคืนกุญแจ (ถามรหัสผ่านของไฟล์):
+   `sudo /opt/cafe-wifi/venv/bin/python -m tools.restore_keys <ไฟล์.cwkey>`
+3. เสียบ USB แล้วคืนฐานข้อมูล: `gunzip -c /mnt/cafebackup/cafe-wifi/cafewifi-<วันล่าสุด>.sql.gz | sudo mysql cafewifi`
+4. `sudo systemctl restart cafe-admin cafe-fas cafe-logger`
+
+ทดสอบขั้นตอนนี้แล้วบน Pi จริง (4 ต.ค. 2026): ล้างการ์ด → flash ใหม่ → คืนกุญแจ + ฐานข้อมูล → ถอดเลขบัตรลูกค้าเดิมได้ครบ
 
 ทดสอบแล้วบน Pi จริง (3 ต.ค. 2026) ด้วย USB จำลองแบบ FAT: ไม่เสียบ → เตือน ไม่เขียนลง SD ·
 เสียบ → mount เองและคัดลอกสำเร็จ (gzip ถูกต้อง) · ถอด → เตือนอีกครั้ง
