@@ -84,4 +84,29 @@ for f in *.img.xz; do
 }
 JSON
   echo "==> os_list.json (url: ${URL_BASE}/${f})"
+
+  # IMG-02 กับไฟล์ที่จะแจกจริง (ไม่ใช่แค่ rootfs ก่อน export) -- export-image ของ pi-gen ยังแก้ไฟล์
+  # หลัง stage ของเรา (machine-id, ผู้ใช้ ฯลฯ) จึงต้องตรวจของปลายทางอีกรอบ
+  echo "==> ตรวจ image ที่ได้ (IMG-02)"
+  v=/work/verify.img
+  xz -dc "$f" > "$v"
+  loop=$(losetup --show -f -P "$v")
+  mkdir -p /mnt/verify
+  # บาง kernel ของ Docker ไม่สร้าง ${loop}p2 ให้ -> mount ด้วย offset ของพาร์ทิชันที่ 2 แทน
+  if [[ -b "${loop}p2" ]]; then mount -o ro "${loop}p2" /mnt/verify
+  else
+    # พาร์ทิชันสุดท้าย (rootfs) จาก sfdisk -d: "...img2 : start=     1064960, size=..."
+    start=$(sfdisk -d "$v" | awk '/start=/{sub(/.*start= */, ""); sub(/,.*/, ""); s=$0} END{print s}')
+    mount -o ro,loop,offset=$((start * 512)) "$v" /mnt/verify
+  fi
+  set +e
+  bash "${SRC}/image/check-image.sh" /mnt/verify | tee "${f%.img.xz}.check.txt"
+  vrc=${PIPESTATUS[0]}
+  set -e
+  umount /mnt/verify; losetup -d "$loop" 2>/dev/null || true; rm -f "$v"
+  if (( vrc != 0 )); then
+    echo "!!! image ไม่ผ่านการตรวจความลับ -- ลบทิ้ง ห้ามแจก"
+    mv "$f" "${f}.REJECTED"; rm -f os_list.json "${f}.sha256"
+    exit 1
+  fi
 done
