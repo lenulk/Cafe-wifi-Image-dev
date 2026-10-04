@@ -131,7 +131,10 @@ except Exception as e:  # ไม่ใช่ ZIP = เซิร์ฟเวอ�
 bad = [f["filename"] for f in m["files"]
        if hashlib.sha256(z.read(f["filename"]).decode().lstrip("﻿").encode()).hexdigest() != f["sha256"]]
 rows = {f["filename"]: f["row_count"] for f in m["files"]}
-print("y" if not bad and m["files"][0]["row_count"] > 0 else f"n sha-bad={bad} rows={rows}")
+# รวมทุกไฟล์ ไม่ใช่ไฟล์แรก: conn_log ถูกเขียนตอนการเชื่อมต่อ "จบ" (conntrack DESTROY) เท่านั้น -- เครื่องที่
+# เพิ่งติดตั้งการเชื่อมต่อของลูกค้าทดสอบยังเปิดค้าง conn_log = 0 แถวได้ ทั้งที่ dns_log มีข้อมูลแล้ว
+# (ไม่ผ่านรอบแรกทุกครั้งบนการ์ดที่ติดตั้งจาก image 2026-10-04 -- ระบบส่งออกถูก แต่ตัวทดสอบผิด)
+print("y" if not bad and sum(rows.values()) > 0 else f"n sha-bad={bad} rows={rows}")
 PY
 ev=$(cat /tmp/ft.ev)
 chk "ส่งออกหลักฐาน: ZIP + SHA-256 ตรวจผ่าน" "${ev%% *}" y

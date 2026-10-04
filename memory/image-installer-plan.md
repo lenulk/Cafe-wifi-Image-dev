@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T12:10:13.485Z
+  modified: 2026-10-04T14:00:48.483Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -86,6 +86,19 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 - the probe must listen continuously for 12 s with the same xid, because the OFFER arrives after more than 2 s
 
 **The image must be rebuilt** to include this fix; 9009677 predates it.
+
+**Image 10335a3, full wizard through the browser (2026-10-04 ~20:30–21:00):**
+- The first router check after a long idle **missed again**. The lab router ignores the first 3 DISCOVERs after idle and only answers the 4th, at ~12.2 s.
+  - Fix: listen 20 s and resend every ~3 s.
+  - Fixed in commit ec1e0dc (after 10335a3), so **10335a3 still has the 12 s window**. Rebuild before release.
+- After the fix:
+  - DHCP on → ❌ and the save button is hidden.
+  - Snooping on → ✅.
+  - Apply works.
+  - After more than 5 minutes, the firewall is intact.
+  - `lab_fulltest` 49/49 on the first run.
+- The console session on COM5 times out when idle. aruba.ps1 now stops if it sees a login prompt.
+- The .ps1 must be saved with a UTF-8 BOM (PowerShell 5.1).
 
 **Aruba console:**
 - COM5, 115200 baud. The user logs in through PuTTY and then closes the window, leaving the session open.
