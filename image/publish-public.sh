@@ -27,6 +27,7 @@ ALLOW=(
 MAP=(  # ไฟล์ใน repo งาน -> ตำแหน่งใน repo สาธารณะ
   image/public/README.md:README.md
   image/public/gitignore:.gitignore
+  image/public/pages.yml:.github/workflows/pages.yml
 )
 
 [[ -z $(git status --porcelain -- "${ALLOW[@]}" image/public) ]] || { echo "มีไฟล์ที่จะเผยแพร่ยังไม่ commit" >&2; exit 1; }
@@ -37,6 +38,8 @@ git read-tree --empty
 git ls-tree -r HEAD -- "${ALLOW[@]}" | git update-index --index-info
 # ภาพหน้าจอของ README (image/public/img/* -> img/*)
 while IFS= read -r p; do MAP+=("$p:img/${p##*/}"); done < <(git ls-tree -r --name-only HEAD -- image/public/img)
+# หน้าเว็บ GitHub Pages (image/public/site/* -> site/*) -- deploy โดย .github/workflows/pages.yml
+while IFS= read -r p; do MAP+=("$p:site/${p#image/public/site/}"); done < <(git ls-tree -r --name-only HEAD -- image/public/site)
 for m in "${MAP[@]}"; do
   src=${m%%:*}; dst=${m#*:}
   git update-index --add --cacheinfo "100644,$(git rev-parse "HEAD:$src"),$dst"
