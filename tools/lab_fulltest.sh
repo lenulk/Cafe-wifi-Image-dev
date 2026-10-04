@@ -154,7 +154,9 @@ chk "รีสตาร์ทแล้วยังบล็อก (ตัวน�
 
 echo "== 8. สำรองข้อมูล / log ตกหล่น"
 st=$(python3 -c 'import json;d=json.load(open("/var/log/cafe-wifi/backup-status.json"));print(d["ok"], d.get("offsite_ok"))' 2>/dev/null)
-chk "สำรองล่าสุดสำเร็จ (USB ยังไม่เสียบ = False ถูกต้อง)" "$st" "True False"
+# ช่องที่ 2 = คัดลอกลง USB สำเร็จไหม -- ต้องตรงกับว่ามี USB CAFEBACKUP เสียบอยู่จริง (ไม่เสียบต้องไม่เขียนลง SD แทน)
+if [ -e /dev/disk/by-label/CAFEBACKUP ]; then usb=True; else usb=False; fi
+chk "สำรองล่าสุดสำเร็จ (USB เสียบ=$usb -> คัดลอกลง USB=$usb)" "$st" "True $usb"
 echo "  INFO ENOBUFS ตั้งแต่ติดตั้งล่าสุด (15:24): $(sq "SELECT COUNT(*) FROM audit_log WHERE action='log_gap' AND detail LIKE '%ENOBUFS%' AND ts > '2026-10-03 15:24'") ครั้ง"
 
 echo; echo "== สรุป: PASS $PASS  FAIL $FAIL"

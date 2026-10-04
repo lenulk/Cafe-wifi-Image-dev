@@ -35,6 +35,8 @@ export GIT_INDEX_FILE; GIT_INDEX_FILE=$(mktemp)
 trap 'rm -f "$GIT_INDEX_FILE"' EXIT
 git read-tree --empty
 git ls-tree -r HEAD -- "${ALLOW[@]}" | git update-index --index-info
+# ภาพหน้าจอของ README (image/public/img/* -> img/*)
+while IFS= read -r p; do MAP+=("$p:img/${p##*/}"); done < <(git ls-tree -r --name-only HEAD -- image/public/img)
 for m in "${MAP[@]}"; do
   src=${m%%:*}; dst=${m#*:}
   git update-index --add --cacheinfo "100644,$(git rev-parse "HEAD:$src"),$dst"
