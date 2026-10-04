@@ -92,6 +92,18 @@
 | Repo JSON ของ Imager | `image/os_list.json` | รายการ OS ตัวเดียว + URL, ขนาด, SHA-256 |
 | Factory reset | ใน firstboot | ถ้ามี `bootfs/factory-reset` → ล้างค่า site + บัญชีแอดมิน (เก็บ secrets/log/DB ไว้) → กลับ setup mode |
 
+**รูปแบบ `cafewifi.conf`** (บน bootfs, `KEY=VALUE` ทีละบรรทัด, `#` = คอมเมนต์, แก้ด้วย Notepad ได้ —
+ตัวอ่านตัด BOM/CRLF/เครื่องหมายคำพูดให้เอง และ**ไม่ source** ไฟล์นี้)
+
+| คีย์ | ใช้ทำอะไร | ไม่ใส่ |
+|---|---|---|
+| `GATEWAY_NAME` | ชื่อร้านบนหน้า portal (ห้ามมี `'` `"` `\` `` ` `` `$`) | `Cafe-Guest` |
+| `SETUP_CODE` | รหัสเข้า wizard 8–32 ตัว (`K7QM-29XD` = `k7qm29xd`) | Pi สุ่มเอง → `bootfs/SETUP-CODE.txt` |
+| `SSH_PUBKEY` | public key ของช่าง → สร้างบัญชี `cafeadmin` (key เท่านั้น ไม่มีรหัสผ่าน, sudo ได้) | ไม่มีบัญชี SSH เลย |
+| `TECH_USER` | เปลี่ยนชื่อบัญชีช่าง | `cafeadmin` |
+
+firstboot ลบไฟล์นี้ทิ้งเมื่อสำเร็จ (มี code + key ที่ใครถือการ์ดก็อ่านได้)
+
 **เรื่อง setup code:** Raspberry Pi Imager เพิ่มช่องกรอกของเราเองในหน้า OS customisation ไม่ได้
 ระยะแรกจึงใช้ตัวช่วยเตรียมการ์ด (`prepare-sd.ps1`) ซึ่งสุ่ม code แล้วเขียนลงไฟล์
 ถ้าไม่มีไฟล์ conf ตอนบูตแรก Pi จะสุ่ม code เองแล้วเขียนกลับลง `bootfs/SETUP-CODE.txt`
@@ -113,7 +125,7 @@
 | # | งาน | ผลลัพธ์ / เกณฑ์ผ่าน |
 |---|---|---|
 | **M1** | เพิ่ม `--stage` ใน `install.sh` | `--stage all` บน Pi จริงผ่าน `lab_fulltest.sh` 49/49 เหมือนเดิม; รัน `build` → `firstboot` → `site` ต่อกันบน Pi เปล่าแล้วได้ผลเท่ากัน |
-| **M2** | first-boot service | ถอดไฟระหว่าง firstboot แล้วบูตใหม่ได้ (idempotent); รันซ้ำไม่สร้างกุญแจทับ |
+| **M2** | first-boot service | ถอดไฟระหว่าง firstboot แล้วบูตใหม่ได้ (idempotent); รันซ้ำไม่สร้างกุญแจทับ — **โค้ดเสร็จ** `image/firstboot/` ทดสอบนอก Pi 41/41 (`test_firstboot.sh`) รอทดสอบไฟดับจริง (IMG-04) |
 | **M3** | build image ด้วย pi-gen | ได้ `.img.xz` + `.sha256`; ไม่มีไฟล์ใน §2 อยู่ใน image (สคริปต์ตรวจอัตโนมัติท้าย build) |
 | **M4** | setup mode + web wizard ①–⑤ | ตั้งค่าเครือข่ายจากมือถือได้โดยไม่ใช้ SSH |
 | **M5** | ตรวจเราเตอร์ + self-test + LED | ตรวจจับได้ทั้งตอน DHCP/IPv6 เปิดและปิด (ทดสอบทั้งสองด้าน) |
@@ -122,6 +134,15 @@
 | **M8** | ทดสอบรวม + เก็บหลักฐานลงเล่ม | ผลตาม §7 บันทึกใน `docs/hardware-test-log.md` |
 
 ลำดับความสำคัญ: M1–M3 คือแกน (ได้ image ที่ปลอดภัย) · M4–M6 คือ "ไม่ต้องใช้ CLI" · M7 เป็นของเสริม
+
+**ข้อควรทำใน M3 ที่พบตอนทำ M2**
+- แพ็กเกจ Debian `dnsmasq` และ `nginx` enable ตัวเองตอน `apt install` → stage ของ pi-gen ต้อง
+  `systemctl disable dnsmasq` (และ opennds) ไว้จนถึง `--stage site` ไม่งั้นบูตแรกจะเปิด DNS/DHCP บนวงเราเตอร์
+  ขณะที่ DHCP ของเราเตอร์ยังเปิดอยู่
+- copy `image/firstboot/cafe-wifi-firstboot.sh` → `/usr/local/sbin/cafe-wifi-firstboot` (0755) และ `.service`
+  → `/etc/systemd/system/` แล้ว enable · ล้าง `/etc/machine-id` (ให้ว่าง), `/etc/ssh/ssh_host_*`,
+  `/var/lib/systemd/random-seed`, `/etc/cafe-wifi/{secrets.env,setup.token,setup-code,.firstboot-done,tls/}`
+- ผู้ใช้แรกของ pi-gen: ล็อกรหัสผ่าน (`passwd -l`) — เข้าเครื่องได้ทางบัญชีช่าง (SSH key) เท่านั้น
 
 ## 7. แผนทดสอบ
 

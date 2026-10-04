@@ -727,26 +727,33 @@ gen_secrets() {
     # image: firstboot เขียนค่าเครือข่ายตั้งต้นไว้ก่อน แล้ว --stage site (หลัง wizard) มาอัปเดตทางนี้
     # ชื่อร้านตามรอบนี้เสมอเหมือน /etc/config/opennds · อายุ log เฉพาะเมื่อระบุมาเอง -- รันซ้ำแบบไม่ระบุ
     # แล้วค่ากลับเป็น 180 จะทำให้ purge ลบ log ที่ร้านตั้งใจเก็บนานกว่านั้นทิ้ง (ลบแล้วกู้ไม่ได้)
-    local kv key extra=("GATEWAY_NAME=${GATEWAY_NAME}")
+    # M2: ห้ามเขียนทับไฟล์จริงตรง ๆ -- ไฟดับกลางการเขียน (wizard/firstboot ถอดไฟได้ทุกเมื่อ) = ไฟล์ขาดครึ่ง
+    # = NATID_DEK หาย ถอดเลขบัตรไม่ได้อีก · แก้บนสำเนา (cp -p คง owner/mode) แล้ว sync + mv ซึ่ง atomic
+    local kv key extra=("GATEWAY_NAME=${GATEWAY_NAME}") work="${secrets}.new"
     (( RETENTION_SET )) && extra+=("LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS}")
+    grep -q '^NATID_DEK=.' "$secrets" || die "${secrets} ไม่มี NATID_DEK (ไฟล์เสีย?) -- ไม่แตะต่อ กู้จากไฟล์สำรองก่อน"
+    cp -p "$secrets" "$work"
     for kv in "UPLINK_IP=${UPLINK_CIDR%%/*}" "UPLINK_GW=${UPLINK_GW}" \
               "UPLINK_NETWORK=$(cidr_to_network "$UPLINK_CIDR")" \
               "GATEWAY_IP=${CLIENT_CIDR%%/*}" "CLIENT_CIDR=${CLIENT_CIDR}" \
               "OFFSITE_BACKUP_DIR=${BACKUP_USB_MNT}/${APP_NAME}" "OFFSITE_REQUIRE_SEPARATE_DEVICE=1" \
               "SSH_ALT_PORT=${SSH_ALT_PORT}" "${extra[@]}"; do
       key="${kv%%=*}"
-      if grep -q "^${key}=" "$secrets"; then
+      if grep -q "^${key}=" "$work"; then
         # แทนทั้งบรรทัดด้วย bash แทน sed: ชื่อร้านจาก wizard มี & หรือ | ได้ ซึ่ง sed ตีความเป็นคำสั่ง
-        # (ทดสอบแล้ว "A&B|C" ทำ sed พัง) · เขียนกลับด้วย cat > เพื่อคง owner/mode 0640 เดิมของไฟล์
+        # (ทดสอบแล้ว "A&B|C" ทำ sed พัง)
         local line updated=""
         while IFS= read -r line || [[ -n "$line" ]]; do
           if [[ "$line" == "${key}="* ]]; then updated+="${kv}"$'\n'; else updated+="${line}"$'\n'; fi
-        done < "$secrets"
-        printf '%s' "$updated" > "$secrets"
+        done < "$work"
+        printf '%s' "$updated" > "$work"
       else
-        printf '%s\n' "$kv" >> "$secrets"
+        printf '%s\n' "$kv" >> "$work"
       fi
     done
+    sync "$work" 2>/dev/null || sync
+    mv -f "$work" "$secrets"
+    sync
     ok "อัปเดตค่าเครือข่ายใน ${secrets} ให้ตรงกับรอบนี้แล้ว (uplink ${UPLINK_CIDR}, client ${CLIENT_CIDR})"
     return 0
   fi
@@ -758,7 +765,9 @@ gen_secrets() {
   faskey="$(openssl rand -hex 16)"
   setup_token="$(openssl rand -hex 24)"
 
-  write_file "$secrets" 0640 "root:${APP_USER}" <<SECRETS
+  # M2: เขียนลง .new ก่อนแล้ว mv ทีหลัง -- secrets.env คือ "ธงว่าสร้างเสร็จแล้ว" (รอบหน้าจะใช้ของเดิม) จึงต้อง
+  # ปรากฏครบทั้งไฟล์หรือไม่ปรากฏเลย ไฟดับก่อน mv = รอบหน้าสุ่มใหม่ทั้งชุด (ยังไม่มีข้อมูลไหนใช้กุญแจนี้)
+  write_file "${secrets}.new" 0640 "root:${APP_USER}" <<SECRETS
 # ============================================================
 #  ${APP_NAME} secrets  --  ห้าม commit ไฟล์นี้เข้า Git เด็ดขาด
 #  สร้างเมื่อ: $(date -Iseconds)
@@ -808,9 +817,15 @@ OFFSITE_REQUIRE_SEPARATE_DEVICE=1
 SSH_ALT_PORT=${SSH_ALT_PORT}
 SECRETS
 
-  write_file "${ETC_DIR}/setup.token" 0640 "root:${APP_USER}" <<TOKEN
+  write_file "${ETC_DIR}/setup.token.new" 0640 "root:${APP_USER}" <<TOKEN
 ${setup_token}
 TOKEN
+  if (( ! DRY_RUN )); then
+    sync
+    mv -f "${ETC_DIR}/setup.token.new" "${ETC_DIR}/setup.token"
+    mv -f "${secrets}.new" "$secrets"   # ต้องเป็นตัวสุดท้าย
+    sync
+  fi
 
   ok "สร้าง secrets แล้ว: ${secrets} (mode 0640)"
   warn "สำรอง ${secrets} ไว้ที่อื่นด้วย — ถ้าหาย ข้อมูลที่เข้ารหัสไว้จะกู้ไม่ได้"
@@ -2111,9 +2126,13 @@ make_tls_cert() {
   local san=""
   if [[ -f "${cert}/server.crt" ]] && (( ! DRY_RUN )); then
     san="$(openssl x509 -in "${cert}/server.crt" -noout -ext subjectAltName 2>/dev/null || true)"
-    if [[ "$san" != *"admin.cafe.wifi"* || "$san" != *"IP Address:${lan_ip}"* ]]; then
+    # M2: ไฟดับตอนออกใบ (firstboot) อาจได้ key ว่าง/ขาดครึ่งคู่กับ crt ที่ดี -> nginx เปิดไม่ขึ้นตลอดไป
+    local keyok=0
+    if [[ "$(openssl x509 -in "${cert}/server.crt" -noout -pubkey 2>/dev/null)" == \
+          "$(openssl pkey -in "${cert}/server.key" -pubout 2>/dev/null)" ]] && [[ -s "${cert}/server.key" ]]; then keyok=1; fi
+    if (( ! keyok )) || [[ "$san" != *"admin.cafe.wifi"* || "$san" != *"IP Address:${lan_ip}"* ]]; then
       info "ใบรับรองเดิมไม่มีชื่อ admin.cafe.wifi หรือ IP ${lan_ip} — ออกใหม่ (เบราว์เซอร์จะเตือนใบรับรองใหม่อีกครั้งหนึ่ง)"
-      mv -f "${cert}/server.crt" "${cert}/server.crt.old"; mv -f "${cert}/server.key" "${cert}/server.key.old"
+      mv -f "${cert}/server.crt" "${cert}/server.crt.old"; mv -f "${cert}/server.key" "${cert}/server.key.old" 2>/dev/null || true
     fi
   fi
   if [[ ! -f "${cert}/server.crt" ]] && (( ! DRY_RUN )); then
@@ -2122,6 +2141,7 @@ make_tls_cert() {
       -subj "/C=TH/O=Cafe WiFi Gateway/CN=admin.cafe.wifi" \
       -addext "subjectAltName=DNS:admin.cafe.wifi,DNS:cafe.wifi,DNS:localhost,IP:${lan_ip}" >/dev/null 2>&1
     chmod 0640 "${cert}/server.key"; chown root:"$APP_USER" "${cert}/server.key"
+    sync
     ok "สร้าง self-signed certificate (825 วัน)"
   fi
 }

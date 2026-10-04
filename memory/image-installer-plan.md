@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T07:01:34.095Z
+  modified: 2026-10-04T07:13:34.237Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -18,7 +18,20 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 
 **Progress 2026-10-04:** M1 coded in install.sh (uncommitted at time of writing): `--stage`, `in_stage()`, `enable_offline_systemctl()` (exported systemctl wrapper used for *every* `--stage build`, even on live systemd), split `configure_opennds`/`make_tls_cert`/`start_nginx`, install.sh copied to /opt/cafe-wifi. Verified only by WSL dry-run (`--stage all` command list identical to old version except intended additions) — NOT yet run on the Pi. Gotcha: `sed s|..|$kv|` breaks on shop names with `&`/`|` → replaced with bash line rewrite. Docker Desktop installed via winget on the laptop (user must launch + accept license). User has 1 Pi + 2 SD cards: card A (working system, never flash), card B for image tests.
 
-**Repo layout decided 2026-10-04:** user considers the main project complete and does not want it touched. `master` is frozen and tagged `v1.0`; M1 was removed from master's install.sh. M1 had been swept into the other chat's N45 commit 23fd46e by a blanket commit. All image work happens on branch **`image`** in the same repo, and M1 lives only there. Never commit image work to master. Only bring master into `image` with a merge; the M1 removal is already "reverted back" on `image`, so a merge will not drop M1.
+**Repo layout decided 2026-10-04:** user considers the main project complete and does not want it touched. `master` is frozen and tagged `v1.0`; M1 was removed from master's install.sh. M1 had been swept into the other chat's N45 commit 23fd46e by a blanket commit. All image work happens on branch **`image`** in the same repo, and M1 lives only there. Never commit image work to master. Only bring master into `image` with a merge; the M1 removal is already "reverted back" on `image`, so a merge will not drop M1. **Push target:** the local `image` branch tracks remote `imagerepo` (https://github.com/lenulk/Cafe-wifi-Image.git, the user's own repo created 2026-10-04) as its `main` branch. Image work is pushed there, not to origin Cafe-wifi. Push it with `git push imagerepo image:main`, or a plain `git push` since `image` tracks it.
+
+**M2 done in code 2026-10-04 (branch image):**
+- New files: `image/firstboot/cafe-wifi-firstboot.{sh,service}`, plus `test_firstboot.sh`. The tests run in WSL as non-root via `CAFEWIFI_*` env overrides and pass 41/41. Run them from PowerShell: `wsl.exe -d kali-linux -- bash <script>`.
+- `install.sh` changes:
+  - `gen_secrets` now writes via `.new` + sync + mv, so the first write and every update are atomic. `secrets.env` existing is the "done" marker.
+  - It now dies if an existing `secrets.env` lacks `NATID_DEK`.
+  - `make_tls_cert` reissues the certificate if the key does not match it.
+- `cafewifi.conf` keys: `GATEWAY_NAME`, `SETUP_CODE`, `SSH_PUBKEY`, `TECH_USER` (default `cafeadmin`, key-only, NOPASSWD sudo). The format is documented in plan §4.
+- Not tested on the Pi yet (IMG-04).
+- M3 todo found during M2:
+  - disable `dnsmasq` in the image (the Debian package self-enables)
+  - wipe the §2 files
+  - lock the pi-gen first user
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.
