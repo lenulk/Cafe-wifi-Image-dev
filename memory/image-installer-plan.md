@@ -170,3 +170,11 @@ Remaining work:
 - Card B passed: 49/49, IMG-05/06/09, and web restore through a simulated USB (loop FAT labelled CAFEBACKUP), with real phone screenshots in `image/public/img`.
 - Dev workflow that worked well: hot-deploy files (app/X → /opt/cafe-wifi/X) and test on the Pi, then do a single build at the end.
 - The scratchpad flash.py verify now skips bootfs, because Windows writes to it after mounting.
+
+**Released 2026-10-05:** https://github.com/lenulk/Cafe-wifi-Image/releases/tag/v1.1.0 (Latest)
+- Image commit 061c6bc. The public commit be0bdf7 has 118 files plus screenshots.
+- The GitHub digest matches the local sha256.
+- Smoke-tested from the release .img.xz on card B before publishing.
+- v1.0.1 stays on public as an older release.
+- Push public with `git push public refs/heads/public:refs/heads/main`. The branch and the remote are both named `public`, so the bare name is ambiguous.
+- Not retested in 1.1.0 because the code there is unchanged: IMG-01/03/07. The shop cert was tested on Android 10 only. USB was simulated with a loop device.

@@ -6,7 +6,7 @@
 # ไม่แตะ working tree/branch ปัจจุบัน -- สร้าง commit ด้วย index ชั่วคราว แล้วชี้ branch `public` ไปที่มัน
 #
 #   bash image/publish-public.sh "ข้อความ commit"     # แล้วตรวจ: git ls-tree -r --name-only public
-#   git push public public:main
+#   git push public refs/heads/public:refs/heads/main     # ชื่อ branch ชนกับชื่อ remote -- ต้องใช้ ref เต็ม
 #
 # commit ใหม่ต่อจาก public/main (ถ้ามี) -> ประวัติฝั่งสาธารณะเป็นเส้นของตัวเอง ไม่มี commit ของ repo งานปน
 # เพิ่มไฟล์ใหม่ที่ต้องเปิดเผย = แก้ ALLOW ที่นี่ที่เดียว (ไม่มีอะไรหลุดออกไปเองเพราะเป็น allowlist)
