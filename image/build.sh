@@ -6,6 +6,7 @@
 #  /out           ผลลัพธ์ (.img.xz, .sha256, build.log)  -- bind mount จาก image/deploy/
 #  /work          work dir ของ pi-gen (docker volume, เก็บข้ามรอบได้)
 #  CAFEWIFI_REUSE=1  ใช้ rootfs ของ stage0-2 จากรอบก่อน (build แค่ stage ของเรา ~เร็วกว่ามาก)
+#  CAFEWIFI_FAST=1   ไม่บีบอัด (.img แทน .img.xz) -- build ทดสอบ เร็วขึ้น ~15 นาที ห้ามใช้ทำ release
 # ============================================================================
 set -euo pipefail
 PIGEN_TAG="${PIGEN_TAG:-2026-09-15-raspios-trixie-arm64}"
@@ -47,6 +48,8 @@ ver="$(cd "$SRC" && cat image/VERSION 2>/dev/null || echo dev)"
   echo "WORK_DIR='${WORK}'"
   echo "DEPLOY_DIR='${OUT}'"
   echo "STAGE_LIST='stage0 stage1 stage2 /pi-gen/stage-cafewifi'"
+  # xz ของ export-image ใช้ ~15 จาก ~29 นาที (วัด 2026-10-04) -- build ทดสอบไม่ต้องบีบ เขียนการ์ดจาก .img ได้เลย
+  [[ "${CAFEWIFI_FAST:-0}" == 1 ]] && echo "DEPLOY_COMPRESSION=none"
 } > /pi-gen/config
 
 echo "==> build (ครั้งแรก ~1-2 ชม. ใต้ QEMU)"
@@ -60,14 +63,20 @@ set -e
 cd "$OUT"
 # URL ที่จะอัปโหลดไฟล์ไปไว้ (GitHub Release ของ repo image) -- Imager ดาวน์โหลดจากตรงนี้
 URL_BASE="${CAFEWIFI_URL_BASE:-https://github.com/lenulk/Cafe-wifi-Image/releases/download/v${ver}}"
-for f in *.img.xz; do
+# เฉพาะไฟล์ของรอบนี้ (deploy/ มีของรอบก่อนค้างได้ -- เดิมวนทุกไฟล์ os_list.json เลยชี้ไฟล์ที่เรียงท้ายสุด)
+for f in "${name}.img.xz" "${name}.img"; do
   [[ -e "$f" ]] || continue
+  xzd=0; [[ "$f" == *.xz ]] && xzd=1
   sha256sum "$f" > "${f}.sha256"
   echo "==> ได้ ${f} ($(du -h "$f" | cut -f1)) sha256 $(cut -c1-16 "${f}.sha256")…"
   # os_list.json ของ Raspberry Pi Imager (M6): ไม่ใส่ init_format = Imager ไม่เสนอ OS customisation
   # (ค่าทั้งหมดตั้งผ่าน cafewifi.conf + wizard แทน)
-  ext_sha=$(xz -dc "$f" | sha256sum | cut -d' ' -f1)
-  ext_size=$(xz --robot --list "$f" | awk '$1 == "totals" {print $5}')
+  if (( xzd )); then
+    ext_sha=$(xz -dc "$f" | sha256sum | cut -d' ' -f1)
+    ext_size=$(xz --robot --list "$f" | awk '$1 == "totals" {print $5}')
+  else
+    ext_sha=$(cut -d' ' -f1 "${f}.sha256"); ext_size=$(stat -c %s "$f")
+  fi
   cat > os_list.json <<JSON
 {
   "os_list": [
@@ -90,8 +99,7 @@ JSON
   # IMG-02 กับไฟล์ที่จะแจกจริง (ไม่ใช่แค่ rootfs ก่อน export) -- export-image ของ pi-gen ยังแก้ไฟล์
   # หลัง stage ของเรา (machine-id, ผู้ใช้ ฯลฯ) จึงต้องตรวจของปลายทางอีกรอบ
   echo "==> ตรวจ image ที่ได้ (IMG-02)"
-  v=/work/verify.img
-  xz -dc "$f" > "$v"
+  if (( xzd )); then v=/work/verify.img; xz -dc "$f" > "$v"; else v="$f"; fi
   loop=$(losetup --show -f -P "$v")
   mkdir -p /mnt/verify
   # บาง kernel ของ Docker ไม่สร้าง ${loop}p2 ให้ -> mount ด้วย offset ของพาร์ทิชันที่ 2 แทน
@@ -102,10 +110,10 @@ JSON
     mount -o ro,loop,offset=$((start * 512)) "$v" /mnt/verify
   fi
   set +e
-  bash "${SRC}/image/check-image.sh" /mnt/verify | tee "${f%.img.xz}.check.txt"
+  bash "${SRC}/image/check-image.sh" /mnt/verify | tee "${name}.check.txt"
   vrc=${PIPESTATUS[0]}
   set -e
-  umount /mnt/verify; losetup -d "$loop" 2>/dev/null || true; rm -f "$v"
+  umount /mnt/verify; losetup -d "$loop" 2>/dev/null || true; (( xzd )) && rm -f "$v"
   if (( vrc != 0 )); then
     echo "!!! image ไม่ผ่านการตรวจความลับ -- ลบทิ้ง ห้ามแจก"
     mv "$f" "${f}.REJECTED"; rm -f os_list.json "${f}.sha256"
