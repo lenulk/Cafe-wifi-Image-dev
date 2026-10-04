@@ -54,7 +54,9 @@ for f in usr/local/sbin/cafe-wifi-firstboot etc/systemd/system/cafe-wifi-firstbo
          etc/systemd/system/multi-user.target.wants/cafe-wifi-firstboot.service \
          etc/systemd/system/multi-user.target.wants/cafe-wifi-setup.service \
          etc/systemd/system/multi-user.target.wants/cafe-wifi-apply.path \
-         opt/cafe-wifi/setup/app.py opt/cafe-wifi/tools/check_router.py \
+         etc/systemd/system/multi-user.target.wants/cafe-wifi-restore.path \
+         etc/systemd/system/multi-user.target.wants/cafe-wifi-factory-reset.service \
+         opt/cafe-wifi/setup/app.py opt/cafe-wifi/setup/restore.py opt/cafe-wifi/tools/check_router.py \
          opt/cafe-wifi/install.sh opt/cafe-wifi/venv/bin/python; do
   if [[ -e "${R}/${f}" || -L "${R}/${f}" ]]; then good "มี /${f}"; else bad "ขาด /${f}"; fi
 done

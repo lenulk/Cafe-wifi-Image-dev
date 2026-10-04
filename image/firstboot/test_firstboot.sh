@@ -128,7 +128,7 @@ check "R2 exit 0" test "$rc" -eq 0
 check "R2 ลบ .site-done (wizard เปิดได้)" test ! -e "${T}/etc/.site-done"
 check "R2 setup code ใหม่จาก conf" test "$(cat "${T}/etc/setup-code" 2>/dev/null)" = "QXRRYTR6"
 check "R2 ปิด service ของร้าน" grep -q '^disable opennds.service dnsmasq.service nginx.service' "${T}/sctl.log"
-check "R2 เปิด wizard" grep -qx 'enable cafe-wifi-setup.service cafe-wifi-apply.path' "${T}/sctl.log"
+check "R2 เปิด wizard" grep -qx 'enable cafe-wifi-setup.service cafe-wifi-apply.path cafe-wifi-restore.path' "${T}/sctl.log"
 check "R2 รีบูตเป็นขั้นสุดท้าย" test "$(tail -1 "${T}/sctl.log")" = "reboot"
 check "R2 คืน eth0 ให้ NetworkManager" test ! -e "${T}/nm/99-cafe-wifi-unmanage-eth0.conf"
 check "R2 ไม่แตะ conf อื่นของ NM" test -e "${T}/nm/30-cafe-wifi-linklocal.conf"
