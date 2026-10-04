@@ -154,6 +154,12 @@ def test_network_suggests_current_lease(wiz):
     assert 'value="192.168.1.57/24"' in html and 'value="192.168.1.1"' in html and 'value="10.10.0.1/24"' in html
 
 
+def test_network_prefills_shop_name_from_firstboot(wiz, monkeypatch):
+    monkeypatch.setenv("GATEWAY_NAME", "Baan Cafe")
+    login(wiz); make_admin(wiz)
+    assert 'value="Baan Cafe"' in wiz.get("/network").get_data(as_text=True)
+
+
 def test_network_rejects_overlap_and_short_retention(wiz):
     login(wiz); make_admin(wiz)
     r = net_form(wiz, client_cidr="192.168.1.200/24", retention_days="30")

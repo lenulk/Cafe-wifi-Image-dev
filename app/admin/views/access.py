@@ -252,10 +252,13 @@ def reject_request(rid: int):
 def revoke_voucher(vid: int):
     """ยกเลิก voucher ก่อนหมดอายุ (เช่น ออกผิด/ลูกค้าขอยกเลิก) -- ยกเลิกได้เฉพาะใบที่ยัง active"""
     with core.get_conn() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE voucher SET status='revoked' WHERE id=%s AND status='active'", (vid,))
+        # auth_sync_needed: cafe-reconcile (ทุก 5 วิ) เห็นธงแล้วตัดเครื่องที่ออนไลน์ทันที -- เดิมรอ cafe-enforce
+        # รอบถัดไปสูงสุด 5 นาที ลูกค้ายังใช้เน็ตได้ต่อหลังพนักงานกดปิด (เจอตอนทดสอบบนการ์ด B 2026-10-04)
+        cur.execute("UPDATE voucher SET status='revoked', auth_sync_needed=1 WHERE id=%s AND status='active'",
+                    (vid,))
         if not cur.rowcount:
             abort(404, "ไม่พบสิทธิ์นี้ หรือถูกปิด/หมดอายุไปแล้ว")
         audit.log_required(audit.REVOKE_VOUCHER, staff_id=session["staff_id"],
                            target=f"voucher:{vid}", client_ip=g.client_ip, cursor=cur)
-    flash("ปิดสิทธิ์แล้ว — เครื่องที่ออนไลน์อยู่จะหลุดภายใน 5 นาที", "success")
+    flash("ปิดสิทธิ์แล้ว — เครื่องที่ออนไลน์อยู่จะหลุดภายในไม่กี่วินาที", "success")
     return redirect(url_for("dashboard"))

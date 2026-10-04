@@ -128,8 +128,22 @@ def sync_extended() -> int:
                         "AND ended_at IS NULL", (v["id"],))
             sessions[v["id"]] = [r["mac"] for r in cur.fetchall()]
     done = 0
+    # ปุ่ม "ปิดสิทธิ์" ตั้งธงนี้ด้วย (2026-10-04) -- เดิมต้องรอ cafe-enforce รอบถัดไปสูงสุด 5 นาที
+    # พนักงานเห็นลูกค้ายังใช้เน็ตได้หลังกดปิดแล้ว · ใช้ตัวตัดตัวเดียวกับ cafe-enforce (deauth + ปิด session +
+    # log terminate_cause ครบ) แทนการ deauth เองที่นี่ ผลจึงเหมือนรอบปกติทุกอย่าง แค่เร็วขึ้น
+    dead = [v for v in vouchers if not (v["status"] == "active" and v["valid_until"] > datetime.now())]
+    dead_ok = True
+    if dead and any(sessions[v["id"]] for v in dead):
+        from tools import enforce_voucher_expiry
+        try:
+            enforce_voucher_expiry.run(deauth=True)
+        except Exception as exc:  # noqa: BLE001 -- คงธงไว้ให้รอบถัดไป (5 วิ) ลองใหม่
+            log.error("ตัดเครื่องของสิทธิ์ที่ถูกปิดไม่สำเร็จ: %s", exc)
+            dead_ok = False
     for v in vouchers:
         ok = True
+        if v in dead and not dead_ok:
+            continue
         if v["status"] == "active" and v["valid_until"] > datetime.now():
             minutes = max(1, math.ceil((v["valid_until"] - datetime.now()).total_seconds() / 60))
             for mac in sessions[v["id"]]:

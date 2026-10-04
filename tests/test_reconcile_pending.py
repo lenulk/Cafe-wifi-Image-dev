@@ -340,7 +340,34 @@ def test_sync_extended_keeps_flag_when_ndsctl_fails(monkeypatch):
     assert not any("auth_sync_needed=0" in s for s, _ in cur.executed), "รอบถัดไปต้องลองใหม่"
 
 
-def test_sync_extended_clears_flag_of_dead_voucher_without_touching_gateway(monkeypatch):
+def test_sync_revoked_voucher_cuts_online_device_now_via_enforce(monkeypatch):
+    """ปุ่มปิดสิทธิ์ตั้งธง -> รอบนี้ (5 วิ) เรียกตัวตัดของ cafe-enforce ทันที ไม่รอรอบ 5 นาที แล้วล้างธง"""
+    import tools.enforce_voucher_expiry as enforce
     v = dict(id=9, status="revoked", valid_until=datetime.now() + timedelta(hours=1))
     cur, calls = _sync_env(monkeypatch, [v], {9: ["AA:BB:CC:DD:EE:01"]})
+    ran = []
+    monkeypatch.setattr(enforce, "run", lambda deauth=True: ran.append(deauth))
+    assert ORIG_SYNC() == 1
+    assert ran == [True], "ต้องตัดผ่าน cafe-enforce (ปิด session + log ครบ)"
+    assert calls == [], "ไม่ re-auth เครื่องของสิทธิ์ที่ถูกปิด"
+    assert any("auth_sync_needed=0" in s and a == (9,) for s, a in cur.executed)
+
+
+def test_sync_revoked_keeps_flag_when_enforce_fails(monkeypatch):
+    import tools.enforce_voucher_expiry as enforce
+    v = dict(id=9, status="revoked", valid_until=datetime.now() + timedelta(hours=1))
+    cur, _ = _sync_env(monkeypatch, [v], {9: ["AA:BB:CC:DD:EE:01"]})
+
+    def boom(deauth=True):
+        raise RuntimeError("ndsctl busy")
+    monkeypatch.setattr(enforce, "run", boom)
+    assert ORIG_SYNC() == 0
+    assert not any("auth_sync_needed=0" in s for s, _ in cur.executed), "รอบถัดไปต้องลองใหม่"
+
+
+def test_sync_dead_voucher_without_online_device_just_clears_flag(monkeypatch):
+    import tools.enforce_voucher_expiry as enforce
+    v = dict(id=9, status="revoked", valid_until=datetime.now() + timedelta(hours=1))
+    cur, calls = _sync_env(monkeypatch, [v], {})
+    monkeypatch.setattr(enforce, "run", lambda deauth=True: pytest.fail("ไม่มีเครื่องออนไลน์ ไม่ต้องตัด"))
     assert ORIG_SYNC() == 1 and calls == []

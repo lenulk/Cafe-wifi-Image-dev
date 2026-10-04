@@ -202,7 +202,10 @@ def admin():
 def network():
     uplink = netinfo.current_uplink()
     if request.method == "GET":
-        vals = session.get("net") or {**netinfo.suggest(uplink), "gateway_name": "", "retention_days": 180}
+        # ชื่อร้านที่ช่างใส่ใน cafewifi.conf -> firstboot เขียนลง secrets.env -> มาถึงที่นี่ทาง EnvironmentFile
+        # เดิมช่องว่างเปล่าให้พิมพ์ซ้ำ ถ้าลืม portal จะขึ้น Cafe-Guest แทนชื่อร้าน
+        vals = session.get("net") or {**netinfo.suggest(uplink), "retention_days": 180,
+                                      "gateway_name": os.environ.get("GATEWAY_NAME", "")}
         return render_template("setup_network.html", step=3, v=vals, uplink=uplink)
     vals, errors = netinfo.validate(request.form.to_dict())
     if errors:
