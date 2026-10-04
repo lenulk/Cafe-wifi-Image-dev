@@ -56,8 +56,32 @@ set -e
 (( rc == 0 )) || { echo "pi-gen ล้มเหลว (rc=${rc}) -- ดู ${OUT}/build.log และ ${WORK}/build.log"; exit "$rc"; }
 
 cd "$OUT"
+# URL ที่จะอัปโหลดไฟล์ไปไว้ (GitHub Release ของ repo image) -- Imager ดาวน์โหลดจากตรงนี้
+URL_BASE="${CAFEWIFI_URL_BASE:-https://github.com/lenulk/Cafe-wifi-Image/releases/download/v${ver}}"
 for f in *.img.xz; do
   [[ -e "$f" ]] || continue
   sha256sum "$f" > "${f}.sha256"
   echo "==> ได้ ${f} ($(du -h "$f" | cut -f1)) sha256 $(cut -c1-16 "${f}.sha256")…"
+  # os_list.json ของ Raspberry Pi Imager (M6): ไม่ใส่ init_format = Imager ไม่เสนอ OS customisation
+  # (ค่าทั้งหมดตั้งผ่าน cafewifi.conf + wizard แทน)
+  ext_sha=$(xz -dc "$f" | sha256sum | cut -d' ' -f1)
+  ext_size=$(xz --robot --list "$f" | awk '$1 == "totals" {print $5}')
+  cat > os_list.json <<JSON
+{
+  "os_list": [
+    {
+      "name": "Cafe-WiFi OS ${ver}",
+      "description": "Captive portal + บันทึก log ตาม พ.ร.บ.คอมฯ ม.26 สำหรับร้านกาแฟ (Raspberry Pi OS Lite 64-bit ${RELEASE:-trixie})",
+      "url": "${URL_BASE}/${f}",
+      "release_date": "$(date +%Y-%m-%d)",
+      "extract_size": ${ext_size},
+      "extract_sha256": "${ext_sha}",
+      "image_download_size": $(stat -c %s "$f"),
+      "image_download_sha256": "$(cut -d' ' -f1 "${f}.sha256")",
+      "devices": ["pi4-64bit"]
+    }
+  ]
+}
+JSON
+  echo "==> os_list.json (url: ${URL_BASE}/${f})"
 done
