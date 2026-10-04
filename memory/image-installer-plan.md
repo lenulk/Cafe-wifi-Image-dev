@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T14:56:45.486Z
+  modified: 2026-10-04T15:11:49.696Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -112,8 +112,14 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 - `lab_fulltest` 49/49.
 - The evidence check was a test bug, not a product bug. `conn_log` rows are written only when a connection ends (conntrack DESTROY), so a fresh install has 0 rows. The test now sums rows across all files.
 
+**Released 2026-10-04:** https://github.com/lenulk/Cafe-wifi-Image/releases/tag/v1.0.0
+- The tag points at ec1e0dc. Assets: `.img.xz`, `.sha256` and `os_list.json`.
+- GitHub's digest matches the local sha256, and an anonymous download works.
+- Both repos are public (the user's choice).
+- The README was rewritten for the image repo in ed50f36.
+- `gh` 2.102 is installed at `C:\Program Files\GitHub CLI\gh.exe`, logged in as lenulk by the user. Claude never handles the token.
+
 Remaining work:
-- GitHub Release v1.0.0: not done. The user must decide public vs private; `gh` is not installed.
 - M7 (factory reset + key backup).
 - The revoke takes up to 5 minutes to take effect.
 - The wizard does not prefill the shop name from `cafewifi.conf` (minor).
