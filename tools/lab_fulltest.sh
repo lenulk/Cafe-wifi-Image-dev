@@ -37,6 +37,8 @@ chk "นาฬิกาคลาด < 10ms (ม.26) [${off}ms]" "$(awk -v o="$of
 chk "conntrack ไม่ติดตาม loopback (N43)" "$(conntrack -L 2>/dev/null | grep -c 'src=127\.')" 0
 
 echo "== 2. ลูกค้าขอใช้งาน (เครื่องจำลองบนวงลูกค้า)"
+# รันซ้ำถี่ ๆ ชนตัวจำกัดลงทะเบียนต่อ MAC (429) -- ล้างเฉพาะของลูกค้าจำลอง (02:CA:FE:...) ระบบจริงไม่แตะ
+sq "DELETE FROM rate_attempt WHERE bucket LIKE 'register:02:CA:FE:%'"
 /root/cafe-client-test/client.sh down cte >/dev/null 2>&1; ndsctl deauth $M >/dev/null 2>&1
 sq "UPDATE portal_session SET state='closed', ended_at=NOW(), terminate_cause='disconnected' WHERE mac='$MU' AND state='authenticated'"
 sq "UPDATE access_request SET status='expired' WHERE mac='$MU' AND status='pending'"
@@ -100,8 +102,11 @@ chk "ต่อเวลา +30 น. เลื่อนเวลาตัดข�
 chk "เน็ตยังใช้ได้หลังต่อเวลา" "$($X curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com/)" 200
 t=$(tok https://admin.cafe.wifi/)
 $A -o /dev/null --data-urlencode "csrf_token=$t" https://admin.cafe.wifi/vouchers/$VID/revoke
-penv ./venv/bin/python -m tools.enforce_voucher_expiry >/dev/null 2>&1
-chk "ปิดสิทธิ์แล้วเน็ตถูกตัด" "$($X curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com/)" 307
+# ไม่เรียก enforce เอง -- วัดว่าระบบตัดเองเร็วแค่ไหน (v1.0.1: revoke ตั้ง auth_sync_needed -> cafe-reconcile ทุก ~5 วิ deauth)
+t0=$(date +%s.%N)
+for i in $(seq 1 40); do c=$($X curl -s -m 3 -o /dev/null -w '%{http_code}' http://example.com/); [ "$c" = 307 ] && break; sleep 0.5; done
+el=$(python3 -c "print(round($(date +%s.%N)-$t0,1))")
+chk "ปิดสิทธิ์แล้วเน็ตถูกตัดเองใน ${el} วิ (เกณฑ์ ≤ 15)" "$c$(python3 -c "print('' if $el<=15 else '-slow')")" 307
 has "ลูกค้าเห็นว่าถูกปิดสิทธิ์" "$($X curl -s -m 8 http://cafe.wifi:8080/request)" "ถูกปิดโดยพนักงาน"
 
 echo "== 5. openNDS คืนสิทธิ์เองแต่ไม่มีสิทธิ์ในฐานข้อมูล (N44)"

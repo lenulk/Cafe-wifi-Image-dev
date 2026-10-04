@@ -18,7 +18,11 @@ up)
   mac=$3
   ip netns add $ns
   ip link add link eth0 name ${ns}v type macvlan mode bridge
-  ip link set ${ns}v address $mac netns $ns
+  # ลบ namespace เดิมแล้วสร้างใหม่ทันที macvlan เก่าที่มี MAC เดียวกันยังถูกลบไม่เสร็จ (async) -> ตั้ง MAC ไม่ได้
+  # "Address already in use" แล้วลูกค้าจำลองได้ MAC สุ่ม ทดสอบทั้งชุดเพี้ยน (เจอ 2026-10-05) -> ลองซ้ำ
+  for i in 1 2 3 4 5 6 7 8 9 10; do ip link set ${ns}v address $mac 2>/dev/null && break; sleep 1; done
+  [ "$(cat /sys/class/net/${ns}v/address)" = "$(echo $mac | tr A-F a-f)" ] || { echo "$ns: ตั้ง MAC $mac ไม่ได้" >&2; ip link del ${ns}v; ip netns del $ns; exit 1; }
+  ip link set ${ns}v netns $ns
   ip -n $ns link set lo up; ip -n $ns link set ${ns}v name eth0; ip -n $ns link set eth0 up
   mkdir -p /etc/netns/$ns
   cat > /tmp/udhcpc-$ns.sh <<S

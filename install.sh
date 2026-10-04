@@ -2072,6 +2072,8 @@ Description=Check pending Cafe WiFi sessions every 5 seconds
 [Timer]
 OnBootSec=5sec
 OnUnitInactiveSec=5sec
+# ค่าปริยาย AccuracySec=1min ให้ systemd เลื่อนรอบได้ถึง 1 นาที -> วัดจริงห่าง 8-25 วิ ปิดสิทธิ์ช้า ~26 วิ (2026-10-05)
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target

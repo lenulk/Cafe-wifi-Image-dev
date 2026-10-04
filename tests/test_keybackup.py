@@ -197,19 +197,25 @@ def test_bruteforce_locks(admin):
 
 
 # ---------------------------------------------------------------- กู้คืน
-def test_restore_keeps_local_network_values(tmp_path, monkeypatch):
+def test_restore_only_data_keys(tmp_path, monkeypatch):
+    """กู้เฉพาะ NATID_DEK/NATID_PEPPER -- FAS_KEY/DB_PASS/SECRET_KEY/ค่าเครือข่ายต้องเป็นของเครื่องใหม่
+    (1.0.1 กู้ FAS_KEY เก่ากลับมา -> openNDS ของเครื่องใหม่ใช้คนละคีย์ -> portal "หน้านี้หมดอายุแล้ว")"""
     from tools import restore_keys
     monkeypatch.setenv("ETC_DIR", str(tmp_path))
     monkeypatch.setattr(restore_keys, "ETC_DIR", tmp_path)
-    new_machine = SECRETS.replace("NATID_DEK=bb22bb22", "NATID_DEK=ffff").replace(
-        "UPLINK_IP=192.168.1.2", "UPLINK_IP=10.0.0.5").replace("GATEWAY_NAME=Old Shop", "GATEWAY_NAME=New Shop")
+    new_machine = (SECRETS.replace("NATID_DEK=bb22bb22", "NATID_DEK=ffff").replace("NATID_PEPPER=aa11", "NATID_PEPPER=eeee")
+                   .replace("FAS_KEY=dd44", "FAS_KEY=new-fas").replace("DB_PASS=Abc123def456", "DB_PASS=NewDbPass9")
+                   .replace("SECRET_KEY=cc33", "SECRET_KEY=new-flask").replace("UPLINK_IP=192.168.1.2", "UPLINK_IP=10.0.0.5")
+                   .replace("GATEWAY_NAME=Old Shop", "GATEWAY_NAME=New Shop"))
     (tmp_path / "secrets.env").write_text(new_machine, encoding="utf-8")
     f = tmp_path / "b.cwkey"
     f.write_bytes(keybackup.pack(SECRETS, PASS))
     monkeypatch.setenv("CAFEWIFI_RESTORE_PASSPHRASE", PASS)
-    assert restore_keys.main([str(f), "--no-db"]) == 0
+    assert restore_keys.main([str(f)]) == 0
     got = keybackup.parse_env((tmp_path / "secrets.env").read_text(encoding="utf-8"))
-    assert got["NATID_DEK"] == "bb22bb22", "กุญแจถอดเลขบัตรต้องเป็นของเดิม"
+    assert got["NATID_DEK"] == "bb22bb22" and got["NATID_PEPPER"] == "aa11", "กุญแจของข้อมูลต้องเป็นของเดิม"
+    assert got["FAS_KEY"] == "new-fas", "FAS_KEY ต้องตรงกับ openNDS ของเครื่องนี้"
+    assert got["DB_PASS"] == "NewDbPass9" and got["SECRET_KEY"] == "new-flask"
     assert got["UPLINK_IP"] == "10.0.0.5" and got["GATEWAY_NAME"] == "New Shop", "ค่าเครือข่ายต้องเป็นของเครื่องใหม่"
     assert list(tmp_path.glob("secrets.env.before-restore-*")), "ต้องเก็บกุญแจชุดเดิมของเครื่องไว้"
 

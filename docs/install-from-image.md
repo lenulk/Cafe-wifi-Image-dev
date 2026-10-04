@@ -165,7 +165,7 @@ wizard แสดงหน้า **"ทำ 3 อย่างนี้ที่เ
 | อาการ | สาเหตุที่เป็นไปได้ | ทำอย่างไร |
 |---|---|---|
 | เปิด `cafewifi.local` ไม่ได้ | มือถือ Android บางรุ่นไม่รองรับ mDNS | ดู IP ของ Pi ในหน้าเราเตอร์แล้วเปิดด้วย IP |
-| SD card เสีย ต้องเปลี่ยนการ์ด | การ์ดหมดอายุ / ไฟดับบ่อย | ติดตั้งการ์ดใหม่จาก image ตามปกติ → คืนกุญแจ: `sudo /opt/cafe-wifi/venv/bin/python -m tools.restore_keys <ไฟล์.cwkey>` (คงค่าเครือข่ายของเครื่องใหม่ ตั้งรหัส MariaDB ให้ตรงให้) → คืนค่า DB จาก USB `CAFEBACKUP` → `sudo systemctl restart cafe-admin cafe-fas cafe-logger` |
+| SD card เสีย ต้องเปลี่ยนการ์ด | การ์ดหมดอายุ / ไฟดับบ่อย | ติดตั้งการ์ดใหม่จาก image ตามปกติ → คืนกุญแจ: `sudo /opt/cafe-wifi/venv/bin/python -m tools.restore_keys <ไฟล์.cwkey>` (นำกลับเฉพาะกุญแจที่ใช้อ่านข้อมูลเดิม ค่าอื่นเป็นของเครื่องใหม่) → คืนค่า DB จาก USB `CAFEBACKUP` → `sudo systemctl restart cafe-admin cafe-fas cafe-logger` |
 | ไฟ LED กะพริบแบบผิดพลาด | การ์ดเสีย / ไม่ได้รับ IP | ตรวจสาย LAN และ DHCP ของเราเตอร์ (ต้องยังเปิดอยู่ในขั้นนี้) |
 | ลืม setup code | — | ถอดการ์ดไปใส่คอม แล้วรันตัวช่วยเตรียมการ์ดใหม่ |
 | ตั้งเครือข่ายผิดแล้วเข้าไม่ได้ | ยังไม่มี factory reset | flash การ์ดใหม่แล้วติดตั้งตามปกติ → คืนกุญแจและ DB แบบแถว "SD card เสีย" (ต้องมีไฟล์ `.cwkey` และ USB สำรอง) |
