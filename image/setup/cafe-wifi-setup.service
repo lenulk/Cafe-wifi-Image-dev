@@ -15,7 +15,8 @@ WorkingDirectory=/opt/cafe-wifi
 EnvironmentFile=/etc/cafe-wifi/secrets.env
 Environment=PYTHONPATH=/opt/cafe-wifi
 # workers 1: ตัวนับการกรอก code ผิดอยู่ในหน่วยความจำของ process เดียว
-ExecStart=/opt/cafe-wifi/venv/bin/gunicorn --workers 1 --threads 4 --timeout 60 --bind 0.0.0.0:80 setup.app:app
+# [::]:80 = IPv4 + IPv6 (bindv6only=0) -- เปิดได้ทาง IPv6/link-local แม้เราเตอร์ไม่แจก IPv4 (เจอบนการ์ด B)
+ExecStart=/opt/cafe-wifi/venv/bin/gunicorn --workers 1 --threads 4 --timeout 60 --bind [::]:80 setup.app:app
 Restart=on-failure
 RestartSec=3
 # พอร์ต 80 + raw socket ของ tools/check_router.py (DHCPDISCOVER / Router Solicitation) โดยไม่ต้องเป็น root

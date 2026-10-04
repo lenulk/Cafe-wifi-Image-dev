@@ -17,6 +17,16 @@ KbdInteractiveAuthentication no
 PermitRootLogin no
 SSHD
 
+# ไม่ได้ DHCP จากเราเตอร์ (ปิดไว้ / สวิตช์ทิ้ง) -> ตั้ง 169.254.x.x เองแทนการไม่มี IPv4 เลย
+# avahi ประกาศ cafewifi.local ด้วย IP นั้น ช่างที่ต่อสายเดียวกันจึงยังเปิด wizard ได้ (เจอบนการ์ด B 2026-10-04)
+# หลัง --stage site eth0 ถูกปลดจาก NetworkManager แล้ว ค่านี้จึงไม่มีผลกับระบบที่ใช้งานจริง
+install -d -m 755 "${ROOTFS_DIR}/etc/NetworkManager/conf.d"
+cat > "${ROOTFS_DIR}/etc/NetworkManager/conf.d/30-cafe-wifi-linklocal.conf" <<'NM'
+# managed by Cafe-WiFi image -- โหมดตั้งค่า: DHCP ไม่มา = ใช้ IPv4 link-local
+[connection]
+ipv4.link-local=fallback
+NM
+
 on_chroot <<CHROOT
 systemctl enable cafe-wifi-firstboot.service cafe-wifi-setup.service cafe-wifi-apply.path avahi-daemon.service
 # แพ็กเกจ Debian enable ตัวเองตอนติดตั้ง -- บูตแรก DHCP ของเราเตอร์ยังเปิดอยู่ ห้ามมี dnsmasq/portal
