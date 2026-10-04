@@ -34,6 +34,7 @@ STAFF_ENABLE = "staff_enable"
 STAFF_ROLE = "staff_role"
 STAFF_RESET_PASSWORD = "staff_reset_password"
 PASSWORD_CHANGE = "password_change"
+KEY_BACKUP = "key_backup"  # ดาวน์โหลดไฟล์สำรองกุญแจเข้ารหัส (มีกุญแจถอดเลขบัตรทั้งร้าน) -- ต้องรู้ว่าใคร/เมื่อไหร่
 # คำขอใช้งานจาก portal (แทนสลิปรหัสผ่าน) -- ใครขอ เครื่องไหน ใครอนุมัติ/ปฏิเสธ
 ACCESS_REQUEST = "access_request"
 REQUEST_APPROVE = "request_approve"
