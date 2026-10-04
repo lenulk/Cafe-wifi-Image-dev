@@ -5,7 +5,7 @@ check_router.py -- ตรวจว่าเราเตอร์ร้านป�
 ถ้าเราเตอร์ยังจ่าย DHCP: ลูกค้าได้ IP จากเราเตอร์แล้วออกเน็ตตรง ข้าม portal (ไม่มี log ตาม ม.26)
 ถ้ายังประกาศ IPv6 (Router Advertisement): มือถือออกเน็ตทาง IPv6 ข้าม portal ทั้งหมด
 
-  python3 check_router.py --iface eth0 [--dhcp-timeout 12] [--ra-timeout 10] [--json]
+  python3 check_router.py --iface eth0 [--dhcp-timeout 20] [--ra-timeout 10] [--json]
 
 ใช้ AF_PACKET (raw) ทั้งสองอย่าง -- ต้องมี CAP_NET_RAW (root หรือ AmbientCapabilities ใน systemd)
 ไม่ใช้ UDP port 68: NetworkManager/dhclient อาจถือพอร์ตนั้นอยู่ และ raw socket ส่งได้แม้ยังไม่มี IP
@@ -218,12 +218,14 @@ def _local_macs() -> set[str]:
     return macs
 
 
-def probe_dhcp(iface: str, timeout: float = 12.0, tries: int = 3) -> list[dict]:
+def probe_dhcp(iface: str, timeout: float = 20.0, tries: int = 7) -> list[dict]:
     """[] = ไม่มี DHCP server ตอบ (ผ่าน)
 
     ทำตัวเหมือน client จริง: MAC + xid เดียว ส่งซ้ำ tries ครั้งห่างกัน timeout/tries แต่**ฟังต่อเนื่อง
     ตลอด timeout** -- เราเตอร์แล็บตอบ OFFER ช้า ~2 วิ และบางครั้งช้ากว่านั้นมาก (ตรวจ IP ว่างก่อน OFFER)
     แบบเดิมที่รอรอบละ 2 วิแล้วเปลี่ยน xid ทิ้งคำตอบที่มาช้า -> พลาด 1 ใน 3 ครั้ง (เจอจริง 2026-10-04)
+    หลังเงียบไปนาน ๆ เราเตอร์แล็บไม่ตอบ DISCOVER 3 ครั้งแรกเลย ตอบครั้งที่ 4 ที่ ~12.2 วิ (วัด 3/3 ครั้งหลังว่าง 70 วิ)
+    -> กรอบ 12 วิ/ส่ง 3 ครั้งพลาดรอบแรกทุกครั้ง · จึงฟัง 20 วิ ส่งซ้ำทุก ~3 วิ (เจอแล้วหยุดทันที)
     """
     sock = _open(iface, ETH_P_IP, promisc=True)
     mine = _local_macs()
@@ -262,7 +264,7 @@ def probe_ipv6_ra(iface: str, timeout: float = 10.0) -> list[dict]:
         sock.close()
 
 
-def check(iface: str, dhcp_timeout: float = 12.0, ra_timeout: float = 10.0) -> dict:
+def check(iface: str, dhcp_timeout: float = 20.0, ra_timeout: float = 10.0) -> dict:
     result: dict = {"iface": iface, "time": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     try:
         offers = probe_dhcp(iface, dhcp_timeout)
@@ -281,7 +283,7 @@ def check(iface: str, dhcp_timeout: float = 12.0, ra_timeout: float = 10.0) -> d
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--iface", default="eth0")
-    ap.add_argument("--dhcp-timeout", type=float, default=12.0)
+    ap.add_argument("--dhcp-timeout", type=float, default=20.0)
     ap.add_argument("--ra-timeout", type=float, default=10.0)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)

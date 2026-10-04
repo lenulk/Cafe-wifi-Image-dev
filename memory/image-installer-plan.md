@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T11:11:34.774Z
+  modified: 2026-10-04T12:10:13.485Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -72,6 +72,26 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 - Image todo:
   - add an IPv4 link-local fallback and make the wizard listen on [::] (it was unreachable while there was no DHCP)
   - rebuild with 6e84af1
+
+**Clean first boot of image 9009677 on card B (2026-10-04 ~19:00):**
+- No manual fixes were needed.
+- firstboot completes in seconds. The log timestamps jump from the fake-hwclock build time to NTP time; that is not a hang.
+- The wizard comes up by itself on `*:80`.
+- The firewall survives after apply.
+- `lab_fulltest`: 49/49. On a fresh install the first run's evidence check can fail once; it looks like collector timing. The test now prints a reason when that check fails.
+
+**`check_router` had a false-negative bug** (it reported router DHCP as off while it was on). Fixed in 3144660, IMG-06 now 10/10:
+- the DISCOVER must be padded to ≥300 bytes (RFC 1542)
+- the probe socket needs PACKET_MR_PROMISC, because the router unicasts the OFFER to the random MAC
+- the probe must listen continuously for 12 s with the same xid, because the OFFER arrives after more than 2 s
+
+**The image must be rebuilt** to include this fix; 9009677 predates it.
+
+**Aruba console:**
+- COM5, 115200 baud. The user logs in through PuTTY and then closes the window, leaving the session open.
+- Claude then drives the console with `scratchpad/aruba.ps1` (System.IO.Ports, no pyserial).
+- **Claude must never log in or enter a password itself.**
+- Never `write memory`.
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.
