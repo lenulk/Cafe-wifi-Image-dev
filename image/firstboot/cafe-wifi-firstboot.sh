@@ -50,6 +50,9 @@ led() {  # led busy|ready|error
   esac
 }
 trap 'rc=$?; (( rc != 0 )) && led error; exit $rc' EXIT
+# systemd ตัดด้วย SIGTERM ตอน timeout -- ไม่ดักไว้ bash ตายเลยโดยไม่รัน EXIT trap ไฟค้าง "กะพริบถี่"
+# ช่างจะรอไปเรื่อย ๆ (เจอจริงบนการ์ด B 2026-10-04)
+trap 'exit 143' TERM INT
 
 # ---------- หา bootfs (Bookworm = /boot/firmware, รุ่นเก่า = /boot) ----------
 find_bootfs() {

@@ -217,7 +217,10 @@ SSHD
   if systemctl is-active --quiet ssh.socket 2>/dev/null; then
     warn "เครื่องนี้ใช้ ssh.socket — พอร์ตใหม่ต้องตั้งใน ssh.socket ด้วย (ยังไม่รองรับอัตโนมัติ)"
   fi
-  run_sh "systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true"
+  # --no-block: ตอน image บูตแรก firstboot ถูกตั้งให้มาก่อน ssh.service (Before=) -- reload แบบรอ
+  # จะรอ ssh ซึ่งรอ firstboot อยู่ = ค้างจน timeout 15 นาที (เจอจริงบนการ์ด B 2026-10-04)
+  # try-: ssh ยังไม่รัน = ไม่ต้อง reload (ตอนมันเริ่มจะอ่าน config ใหม่เอง)
+  run_sh "systemctl --no-block try-reload-or-restart ssh 2>/dev/null || systemctl --no-block try-reload-or-restart sshd 2>/dev/null || true"
   ok "SSH จากวงลูกค้า: ssh -p ${SSH_ALT_PORT} <user>@10.10.0.1 (ต้องมี SSH key ที่ลงไว้ใน ~/.ssh/authorized_keys)"
 }
 
