@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aeeefbbc-b458-4b43-8811-383e2f9573d2
-  modified: 2026-10-04T14:00:48.483Z
+  modified: 2026-10-04T14:56:45.486Z
 ---
 
 User wants an installer "like Raspberry Pi Imager but locked to our OS/services, no CLI config". Agreed design (2026-10-03), written up in `docs/image-build-plan.md` (plan, milestones M1–M8, tests IMG-01..10) and `docs/install-from-image.md` (target on-site procedure):
@@ -105,6 +105,19 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 - Claude then drives the console with `scratchpad/aruba.ps1` (System.IO.Ports, no pyserial).
 - **Claude must never log in or enter a password itself.**
 - Never `write memory`.
+
+**Release candidate ec1e0dc passed on card B (2026-10-04 21:55):**
+- The first wizard router check returned ❌ with lab DHCP on, which is correct.
+- Snooping on → ✅, apply works, the firewall is still intact at +339 s.
+- `lab_fulltest` 49/49.
+- The evidence check was a test bug, not a product bug. `conn_log` rows are written only when a connection ends (conntrack DESTROY), so a fresh install has 0 rows. The test now sums rows across all files.
+
+Remaining work:
+- GitHub Release v1.0.0: not done. The user must decide public vs private; `gh` is not installed.
+- M7 (factory reset + key backup).
+- The revoke takes up to 5 minutes to take effect.
+- The wizard does not prefill the shop name from `cafewifi.conf` (minor).
+- IMG-01/03/05/09/10 have not been tested.
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.
