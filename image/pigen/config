@@ -1,0 +1,21 @@
+# ค่าของ pi-gen สำหรับ Cafe-WiFi OS (image/build.sh ต่อท้ายค่าที่ต้องสุ่ม/คำนวณตอน build)
+# อ้างอิง: README ของ pi-gen tag ที่ปักไว้ใน image/build.sh
+IMG_NAME=cafe-wifi
+PI_GEN_RELEASE="Cafe-WiFi OS"
+RELEASE=trixie
+DEPLOY_COMPRESSION=xz
+COMPRESSION_LEVEL=6
+TARGET_HOSTNAME=cafewifi          # -> cafewifi.local ผ่าน avahi (wizard M4)
+LOCALE_DEFAULT=en_US.UTF-8
+KEYBOARD_KEYMAP=us
+KEYBOARD_LAYOUT="English (US)"
+TIMEZONE_DEFAULT=Asia/Bangkok
+WPA_COUNTRY=TH
+# บัญชีแรกของ pi-gen = บัญชีช่าง (cafewifi.conf: SSH_PUBKEY) -- รหัสผ่านสุ่มตอน build แล้วล็อกทิ้ง
+# (pi-gen บังคับให้มีรหัสถ้าปิดการเปลี่ยนชื่อผู้ใช้ตอนบูตแรก) ดู stage-cafewifi/01-firstboot
+FIRST_USER_NAME=cafeadmin
+DISABLE_FIRST_BOOT_USER_RENAME=1
+ENABLE_SSH=1
+# cloud-init/netplan เปลี่ยนวิธีจัดการเครือข่าย -- install.sh ทดสอบกับ NetworkManager ของ Lite เท่านั้น
+ENABLE_CLOUD_INIT=0
+CLEAN=1
