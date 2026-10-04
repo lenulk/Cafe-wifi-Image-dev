@@ -1,0 +1,41 @@
+# IMG-05 setup code ผิด 5 ครั้ง (curl จากโน้ตบุ๊ก)
+23:10:52 code=WRONG001 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 4 ครั้งก่อนล็อก 15 นาที)
+23:10:52 code=WRONG002 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 3 ครั้งก่อนล็อก 15 นาที)
+23:10:52 code=WRONG003 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 2 ครั้งก่อนล็อก 15 นาที)
+23:10:53 code=WRONG004 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 1 ครั้งก่อนล็อก 15 นาที)
+23:10:53 code=WRONG005 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 0 ครั้งก่อนล็อก 15 นาที)
+23:10:54 code=BAJS-RFZ4 -> HTTP 429 กรอกผิดหลายครั้ง ล็อกไว้ อีก 15 นาทีลองใหม่
+
+# IMG-07 ฝั่ง RA เปิด: โน้ตบุ๊กประกาศ RA จริง (netsh advertise) -> check_router บน Pi
+== laptop RA active 23:31:59
+23:32:08.053036 IP6 (hlim 255, next-header ICMPv6 (58) payload length: 64) fe80::8cf5:eaaa:34f6:f134 > ff02::1: [icmp6 sum ok] ICMP6, router advertisement, length 64
+	  prefix info option (3), length 32 (4): 2001:db8:cafe::/64, Flags [onlink, auto], valid time 600s, pref. time 300s
+✅ DHCP ของเราเตอร์ ปิดแล้ว
+❌ IPv6 ฝั่ง LAN ยังเปิดอยู่: fe80::8cf5:eaaa:34f6:f134
+rc=1
+== after revert 23:33:10
+✅ DHCP ของเราเตอร์ ปิดแล้ว
+✅ IPv6 ฝั่ง LAN ปิดแล้ว
+rc=0
+
+# IMG-01 hash ความลับ (16 ตัวแรกของ sha256) บูตแรก vs flash ใหม่
+DB_PASS                    c291becd306d583a  21dce1e94fa2c83b  ต่างกัน ✅
+NATID_PEPPER               2fe5fd4e2d26614c  15075485498f6d4d  ต่างกัน ✅
+NATID_DEK                  716b8356448f66ce  78f73fd756278c10  ต่างกัน ✅
+SECRET_KEY                 ab66126b60046803  0c7aff712bfad05c  ต่างกัน ✅
+FAS_KEY                    f0bd0b9a84b3b84a  0180a427e494cbc0  ต่างกัน ✅
+ssh_host_ed25519_key.pub   fc7dbbde9f529ce5  bb9da34cad0375c1  ต่างกัน ✅
+machine-id                 475dacc18d14415b  969e9f2c7d66bf4d  ต่างกัน ✅
+tls.crt                    8336D457C671C3D3  94D99B0AEFAC0BD7  ต่างกัน ✅
+
+# กู้คืนหลัง flash ใหม่: restore_keys + คืน DB dump
+active active active 
+== after restore
+customer rows=1 decrypt_ok=1 fail=0
+DEK fp 8dc81543f790a1b5
+diff: /dev/fd/63: No such file or directory
+diff: /dev/fd/62: No such file or directory
+640 root /etc/cafe-wifi/secrets.env
+admin
+ft-staff
+network values kept: identical (8 keys)

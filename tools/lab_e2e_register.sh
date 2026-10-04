@@ -31,7 +31,9 @@ r = c.post(f"/requests/{rid}/approve", headers=H,
 html = c.get("/requests", headers=H).get_data(as_text=True)
 print("5 approve ->", r.status_code, re.findall(r'class="msg (?:ok|err)">([^<]+)', html)[:1])
 PY
-(cd /opt/cafe-wifi && env $(grep -v '^#' /etc/cafe-wifi/secrets.env | xargs) PYTHONPATH=/opt/cafe-wifi ./venv/bin/python /tmp/approve.py 2>&1 | grep -v '^\[')
+# อ่าน secrets.env ทีละบรรทัด -- ค่ามีช่องว่างได้ (ชื่อร้าน) เดิม xargs แตกคำผิด
+mapfile -t KV < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' /etc/cafe-wifi/secrets.env)
+(cd /opt/cafe-wifi && env "${KV[@]}" PYTHONPATH=/opt/cafe-wifi ./venv/bin/python /tmp/approve.py 2>&1 | grep -v '^\[')
 t0=$(date +%s)
 for i in $(seq 1 30); do
   st=$($X "$base/request" | grep -oE 'ใช้อินเทอร์เน็ตได้แล้ว|กำลังเปิดอินเทอร์เน็ต|ไม่สำเร็จ|รหัสนี้ให้พนักงาน' | head -1)

@@ -9,7 +9,9 @@ X="ip netns exec cte"; CJ=/tmp/ft-cj; PASS=0; FAIL=0
 # บัญชี SSH ของช่าง: เครื่องติดตั้งเอง = ras · เครื่องที่ติดตั้งจาก image = cafeadmin (ไม่มี ras)
 SU=${FT_SSH_USER:-$(id -u cafeadmin >/dev/null 2>&1 && echo cafeadmin || echo ras)}; SH=$(getent passwd "$SU" | cut -d: -f6)
 cd /opt/cafe-wifi
-ENVV="env $(grep -v '^#' /etc/cafe-wifi/secrets.env | xargs) PYTHONPATH=/opt/cafe-wifi"
+# อ่าน secrets.env ทีละบรรทัดแบบ systemd EnvironmentFile -- ค่ามีช่องว่างได้ (ชื่อร้าน "Baan Cafe Lab")
+# เดิม env $(... | xargs) แตกเป็นหลายคำ -> env: 'Cafe': No such file (เจอ 2026-10-04 บน v1.0.1)
+penv() { local -a kv=(); local l; while IFS= read -r l; do [[ $l =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && kv+=("$l"); done < /etc/cafe-wifi/secrets.env; env "${kv[@]}" PYTHONPATH=/opt/cafe-wifi "$@"; }
 SSHP=$(grep ^SSH_ALT_PORT= /etc/cafe-wifi/secrets.env | cut -d= -f2)
 PW="Ft-$(openssl rand -hex 6)-x9"
 ok()   { PASS=$((PASS+1)); printf "  \e[32mPASS\e[0m %s\n" "$1"; }
@@ -53,7 +55,7 @@ chk "หน้ารอแสดงรหัสคำขอ 4 ตัว [$code]"
 chk "คำขอเก็บชื่อเครื่อง/OS" "$(sq "SELECT CONCAT(hostname,'|',os_label) FROM access_request WHERE code='$code'")" "Lab-cte-Phone|Android 14 · SM-A546E"
 
 echo "== 3. พนักงานเข้า https://admin.cafe.wifi จากวงลูกค้า แล้วอนุมัติ"
-$ENVV ./venv/bin/python - "$PW" >/tmp/ft.py.err 2>&1 <<'PY'
+penv ./venv/bin/python - "$PW" >/tmp/ft.py.err 2>&1 <<'PY'
 import sys
 from common import crypto
 from common.db import execute
@@ -98,14 +100,14 @@ chk "ต่อเวลา +30 น. เลื่อนเวลาตัดข�
 chk "เน็ตยังใช้ได้หลังต่อเวลา" "$($X curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com/)" 200
 t=$(tok https://admin.cafe.wifi/)
 $A -o /dev/null --data-urlencode "csrf_token=$t" https://admin.cafe.wifi/vouchers/$VID/revoke
-$ENVV ./venv/bin/python -m tools.enforce_voucher_expiry >/dev/null 2>&1
+penv ./venv/bin/python -m tools.enforce_voucher_expiry >/dev/null 2>&1
 chk "ปิดสิทธิ์แล้วเน็ตถูกตัด" "$($X curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com/)" 307
 has "ลูกค้าเห็นว่าถูกปิดสิทธิ์" "$($X curl -s -m 8 http://cafe.wifi:8080/request)" "ถูกปิดโดยพนักงาน"
 
 echo "== 5. openNDS คืนสิทธิ์เองแต่ไม่มีสิทธิ์ในฐานข้อมูล (N44)"
 ndsctl auth $M 30 >/dev/null 2>&1
 chk "จำลอง: openNDS ปล่อยเครื่องไม่มีสิทธิ์ออนไลน์" "$(ndsctl json $M 2>/dev/null | grep -o '"state":"[A-Za-z]*"')" '"state":"Authenticated"'
-$ENVV ./venv/bin/python -m tools.enforce_voucher_expiry >/dev/null 2>&1
+penv ./venv/bin/python -m tools.enforce_voucher_expiry >/dev/null 2>&1
 # หลัง deauth openNDS ลบเครื่องออกจากรายการไปเลย (ndsctl json ว่าง) -- วัดจากสิ่งที่สำคัญจริง: ออกเน็ตได้ไหม
 chk "ตัวตรวจย้อนทางตัดเครื่องนั้น (ออกเน็ตไม่ได้แล้ว)" "$($X curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com/)" 307
 chk "ลง audit orphan_deauth" "$(sq "SELECT COUNT(*)>0 FROM audit_log WHERE action='orphan_deauth' AND target='$MU' AND ts > NOW() - INTERVAL 2 MINUTE")" 1

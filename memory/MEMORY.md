@@ -3,7 +3,7 @@
 - [VM lab VMware setup](vm-lab-vmware-setup.md) — OpenWrt + Debian VM lab topology, credentials, and 3 VMware gotchas hit while setting it up
 - [PPTX generation on Windows](pptx-generation-windows-notes.md) — no LibreOffice here, use PowerPoint COM for QA; validate.py needs PYTHONUTF8=1 + pip deps; never charSpacing on Thai text; use Tahoma
 - [Cafe-wifi source of truth](cafe-wifi-source-of-truth.md) — โค้ดจริงอยู่ในทาร์บอล ไม่ใช่บนดิสก์ และไฟล์ที่รากใหม่กว่าในทาร์บอล
-- [Reply in Thai/English only](reply-language-th-en-only.md) — user preference: always respond/report in Thai or English, never other languages
+- [Reply in Thai always](reply-language-th-en-only.md) — ตอบเป็นภาษาไทยเสมอ (อังกฤษได้เฉพาะโค้ด/คำสั่ง/ศัพท์เทคนิค) ห้ามภาษาอื่น
 - [Real Pi deployment](real-pi-deployment.md) — Pi 4B ras@192.168.0.171 pw 1234 (wlan0=SSH, eth0=customer side), MikroTik lab switch ports/cabling, when to unplug port 24, and the 6 traps that wasted the most time
 - [Pi DHCP + portal milestone](pi-dhcp-and-portal-milestone.md) — real-hardware test log: customer flow, log integrity, voucher enforcement, power-loss recovery all verified; 17 bugs fixed (N17-N33), install.sh re-run procedure; what still needs testing
 - [Pi macvlan/bcmgenet issue (closed)](pi-macvlan-bcmgenet-open-issue.md) — CLOSED: broadcast UDP was never broken; the real cause was our own nftables input policy dropping DHCPDISCOVER from 0.0.0.0. Keeps the ruled-out theories and the tcpdump-pairing lesson

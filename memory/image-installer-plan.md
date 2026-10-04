@@ -119,11 +119,22 @@ User wants an installer "like Raspberry Pi Imager but locked to our OS/services,
 - The README was rewritten for the image repo in ed50f36.
 - `gh` 2.102 is installed at `C:\Program Files\GitHub CLI\gh.exe`, logged in as lenulk by the user. Claude never handles the token.
 
+**v1.0.1 (7bac6b3) built and tested on card B (2026-10-04 23:00–23:59). All IMG tests pass except IMG-09** (results in hardware-test-log §3.15.1).
+- New in v1.0.1:
+  - `.cwkey` key backup (admin `/keys`) + `tools/restore_keys.py`.
+  - Revoke takes effect immediately.
+  - The wizard prefills the shop name.
+- Full disaster recovery was proven: reflash → wizard → `restore_keys` (the user types the passphrase in their own terminal) → import DB dump → the old national IDs decrypt 1/1.
+- IMG-07, RA side: a namespace on the same Pi does NOT work, because a packet socket bound to ETH_P_IPV6 never receives outgoing frames. Use the laptop instead:
+  - `netsh interface ipv6 set route 2001:db8:cafe::/64 "Ethernet 4" publish=yes` + `set interface advertise=enabled` (UAC). The script is `scratchpad/ra-laptop.ps1`.
+  - Use `set route`, not just `add`: the route may already exist.
+- `lab_fulltest.sh` broke on shop names with spaces (it used `env $(xargs)`). Fixed with a `penv` line reader.
+- The wizard needs port 24 up for the IMG-06 ❌ side, because the router sits behind 1/1/24. So for IMG-03, cut the port before first boot finishes and again just before Save.
+
 Remaining work:
-- M7 (factory reset + key backup).
-- The revoke takes up to 5 minutes to take effect.
-- The wizard does not prefill the shop name from `cafewifi.conf` (minor).
-- IMG-01/03/05/09/10 have not been tested.
+- Ask the user, then make the GitHub release v1.0.1.
+- Update the README download link and SHA, plus the test table.
+- IMG-09 factory reset is deferred to a later version. The workaround is reflash + `restore_keys` + DB restore.
 
 **Why:** single-Pi plug-and-play goal ([[single-pi-single-cable-constraint]]); avoid on-site GitHub/PyPI dependency (openNDS v10.1.3 is the only thing compiled from source).
 **How to apply:** start at M1 when user says go; any change to install.sh must keep `--stage all` passing lab_fulltest.sh 49/49.

@@ -3,13 +3,16 @@
 tools/lab_ra_sim.py -- "เราเตอร์ที่ยังเปิด IPv6" จำลอง สำหรับทดสอบ IMG-07 ในแล็บที่ไม่มี IPv6 (ใช้ในแล็บเท่านั้น)
 
 ส่ง ICMPv6 Router Advertisement (prefix 2001:db8:cafe::/64 แบบ SLAAC, router lifetime 1800) ทุก 1 วินาที
-ออกทางอินเทอร์เฟซที่กำหนด -- ใช้คู่กับ lab_client.sh (namespace ลูกค้าจำลองบน eth0 ของ Pi):
-  sudo ip netns exec ctr python3 lab_ra_sim.py --iface eth0 --seconds 40 &
-  sudo python3 /opt/cafe-wifi/tools/check_router.py --iface eth0      # ต้องได้ ❌ IPv6 ยังเปิดอยู่
+ออกทางอินเทอร์เฟซที่กำหนด -- รันบน**เครื่อง Linux อีกเครื่อง**ในวงเดียวกับ Pi (root):
+  sudo python3 lab_ra_sim.py --iface eth0 --seconds 40 &
+  (บน Pi) sudo /opt/cafe-wifi/venv/bin/python -m tools.check_router --iface eth0   # ต้องได้ ❌ IPv6 ยังเปิดอยู่
 --withdraw ส่ง RA แบบถอนตัว (lifetime 0, prefix valid 0) = เราเตอร์ที่เพิ่งปิด IPv6 -> ตัวตรวจต้องไม่นับ
 
-ข้อจำกัด: RA จาก namespace บน Pi เครื่องเดียวกัน วิ่งออก eth0 ตัวเดียวกับที่ตัวตรวจฟัง (ตัวตรวจเห็นสำเนาขาออก)
-ไม่ได้ผ่านสวิตช์จริง -- พิสูจน์การจับ/แยก RA ของตัวตรวจ แต่ไม่ได้พิสูจน์เส้นทางเครือข่าย
+ใช้จาก namespace บน Pi เครื่องเดียวกัน (lab_client.sh) **ไม่ได้**: เฟรมออกทาง eth0 จริง (tcpdump เห็น) แต่เป็นเฟรมขาออก
+ซึ่ง packet socket ที่ bind ETH_P_IPV6 ของตัวตรวจไม่ได้รับ (เจอ 2026-10-04) · ไม่มีเครื่อง Linux: บน Windows ใช้
+  netsh interface ipv6 set route 2001:db8:cafe::/64 "<NIC>" publish=yes validlifetime=600 preferredlifetime=300
+  netsh interface ipv6 set interface "<NIC>" advertise=enabled      (เสร็จแล้ว advertise=disabled + delete route)
+(ทดสอบ IMG-07 จริงด้วยวิธีนี้ ดู docs/hardware-test-log.md 3.15.1)
 """
 from __future__ import annotations
 
