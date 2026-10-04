@@ -38,7 +38,12 @@ log = logging.getLogger("cafe-wifi.conn_collector")
 # 2026-09-20 รอบสอง: 8 MB ยังไม่พอ -- ยังเจอ ENOBUFS ตอนโหลดไฟล์ต่อเนื่อง (เห็นช้าเพราะ
 # stderr ของ conntrack ถูกพักในบัฟเฟอร์ก่อนไหลออกมา ทำให้ตอนเช็คทันทีหลังทดสอบยังไม่เห็น)
 # เคอร์เนลจะคูณสองให้อีกที และ conntrack ใช้ SO_RCVBUFFORCE จึงข้ามเพดาน net.core.rmem_max ได้
+# *** N45 (2026-10-04): ค่านี้ไม่เคยมีผลจริง *** conntrack-tools 1.4.8 ตั้ง --buffer-size ให้ socket ผิดตัว (fd 3
+# ที่ไม่ได้รับเหตุการณ์) socket รับเหตุการณ์จริงใช้ net.core.rmem_default (ปริยาย 208 KB) -- install.sh จึงตั้ง
+# rmem_default = 16 MB และ run_forever() เตือนถ้าค่ายังต่ำ · คงพารามิเตอร์นี้ไว้เผื่อ conntrack รุ่นที่แก้บั๊กแล้ว
 NETLINK_BUFFER_BYTES = 32 * 1024 * 1024
+# ขั้นต่ำของ net.core.rmem_default ที่ socket รับเหตุการณ์ของ conntrack ได้จริง (ดู N45 ด้านบน)
+MIN_RMEM_DEFAULT = 8 * 1024 * 1024
 # คิวกันการอ่านช้าเพราะรอเขียน DB -- ตัวอ่านต้องว่างตลอดเพื่อไม่ให้ท่อจากเคอร์เนลตัน
 EVENT_QUEUE_MAX = 20000
 # เพดานเรคคอร์ดที่ค้างรอเขียนตอน DB ล่ม (กันหน่วยความจำบวมไม่มีที่สิ้นสุด)
@@ -342,6 +347,21 @@ def _drain_stderr(stream, on_event_loss=None) -> None:  # pragma: no cover (thre
             log.warning("conntrack: %s", line)
 
 
+def check_event_buffer(path: str = "/proc/sys/net/core/rmem_default") -> int | None:
+    """N45: บัฟเฟอร์ที่ socket รับเหตุการณ์ของ conntrack ได้จริงคือ rmem_default (ไม่ใช่ --buffer-size)
+    ต่ำกว่า MIN_RMEM_DEFAULT = เหตุการณ์ชุดใหญ่จะล้นแล้วหาย -- เตือนดัง ๆ แทนการหายเงียบ"""
+    try:
+        with open(path) as fh:
+            value = int(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+    if value < MIN_RMEM_DEFAULT:
+        log.error("net.core.rmem_default = %d ไบต์ ต่ำกว่า %d -- socket รับเหตุการณ์ของ conntrack จะล้นตอนเหตุการณ์"
+                  "มาเป็นชุด (ENOBUFS, log หาย) รัน install.sh ใหม่ หรือ sysctl -w net.core.rmem_default=16777216",
+                  value, MIN_RMEM_DEFAULT)
+    return value
+
+
 def build_conntrack_cmd(client_network) -> list[str]:
     """
     R2-02: `id` ใช้จับคู่ NEW กับ DESTROY · ฟัง NEW ด้วยเพื่อจับ MAC ตอนเปิด connection
@@ -417,6 +437,7 @@ def run_forever(batch_size: int = 100, flush_interval: float = 5.0,
         client_iface = ipaddress.IPv4Interface(client_cidr)
     except (ipaddress.AddressValueError, ipaddress.NetmaskValueError) as exc:
         raise RuntimeError("CLIENT_CIDR ต้องเป็น IPv4/prefix ของ gateway ฝั่งลูกค้าใน secrets.env") from exc
+    check_event_buffer()
     mac_cache = MacCache()
     tracker = ConnTracker(mac_cache)
     reported_evicted = 0

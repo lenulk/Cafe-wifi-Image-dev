@@ -16,6 +16,6 @@
 - ["pull" means push](user-says-pull-means-push.md) — "pullเลย" after a push offer = push to origin lenulk; fetch first
 - [Admin reachable from customer LAN](admin-access-from-customer-lan.md) — option B; openNDS users_to_router must include ADMIN_PORT (replaces defaults)
 - [⏰ REMIND: service Wi-Fi + SSH hardening](pending-service-wifi-reminder.md) — user asked to be reminded; before shop handover: technician hotspot on wlan0, change ras pw 1234, remove NetworkLab
-- [ENOBUFS status](enobufs-status.md) — N43 reduced events (lo notrack + kernel -s filter) but ENOBUFS still seen; buffer verified 64MB; needs a day of normal-operation monitoring
+- [ENOBUFS solved (N45)](enobufs-status.md) — conntrack 1.4.8 sets --buffer-size on the wrong socket; fix net.core.rmem_default=16MB; verify at outcome not syscall
 - [Image installer plan](image-installer-plan.md) — 2026-10-03 plan: prebuilt Pi image + web wizard, install.sh --stage split, 12 secrets generated at first boot; docs/image-build-plan.md; not started
 - [openNDS restores clients on restart](opennds-restores-clients-on-restart.md) — N44: openNDS re-auths remembered MACs ignoring DB; enforce sweeps orphans + runs 45s after openNDS start

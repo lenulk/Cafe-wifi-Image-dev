@@ -840,3 +840,17 @@ def test_conntrack_cmd_filters_client_network_in_kernel():
     assert cmd[:2] == ["conntrack", "-E"]
     assert cmd[cmd.index("-s") + 1] == "10.10.0.0/24"
     assert "NEW,DESTROY" in cmd and "--buffer-size" in cmd
+
+
+def test_check_event_buffer_warns_when_rmem_default_too_small(tmp_path, caplog):
+    """N45: conntrack 1.4.8 ตั้ง --buffer-size ผิด socket -- บัฟเฟอร์จริงคือ rmem_default ต้องเตือนถ้าต่ำ"""
+    from logger.conn_collector import check_event_buffer
+    f = tmp_path / "rmem_default"
+    f.write_text("212992\n")
+    with caplog.at_level("ERROR"):
+        assert check_event_buffer(str(f)) == 212992
+    assert "rmem_default" in caplog.text
+    caplog.clear()
+    f.write_text("16777216\n")
+    assert check_event_buffer(str(f)) == 16777216 and caplog.text == ""
+    assert check_event_buffer(str(tmp_path / "missing")) is None

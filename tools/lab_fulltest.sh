@@ -16,7 +16,9 @@ chk()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "got '$2' want '$3'"; f
 has()  { if grep -q -- "$3" <<<"$2"; then ok "$1"; else bad "$1" "missing '$3'"; fi; }
 sq()   { mysql cafewifi -N -e "$1"; }
 cleanup() {
-  sq "DELETE FROM staff WHERE username='ft-staff'" 2>/dev/null
+  # ห้าม DELETE: ถ้าบัญชีนี้เคยกดอนุมัติ voucher จะอ้างถึง (fk_voucher_staff) ลบไม่ได้แล้วค้าง "เปิดใช้งาน" อยู่
+  # (เกิดจริง 2026-10-03 -> ค้างเปิดอยู่ ~21 ชม.) -- ปิดใช้งาน + สุ่มรหัสใหม่ทิ้งแทน
+  sq "UPDATE staff SET is_active=0, password_hash=SHA2(UUID(),256), password_changed_at=NOW() WHERE username='ft-staff'" 2>/dev/null
   sed -i '/cafe-fulltest-key/d' /home/ras/.ssh/authorized_keys 2>/dev/null; rm -f /tmp/ftkey /tmp/ftkey.pub $CJ /tmp/ft.*
   sq "DELETE FROM rate_attempt WHERE bucket IN ('login:10.10.0.177','login-user:ft-staff')" 2>/dev/null
   /root/cafe-client-test/client.sh down cte >/dev/null 2>&1; ndsctl deauth $M >/dev/null 2>&1
@@ -49,14 +51,17 @@ chk "หน้ารอแสดงรหัสคำขอ 4 ตัว [$code]"
 chk "คำขอเก็บชื่อเครื่อง/OS" "$(sq "SELECT CONCAT(hostname,'|',os_label) FROM access_request WHERE code='$code'")" "Lab-cte-Phone|Android 14 · SM-A546E"
 
 echo "== 3. พนักงานเข้า https://admin.cafe.wifi จากวงลูกค้า แล้วอนุมัติ"
-$ENVV ./venv/bin/python - "$PW" >/dev/null 2>&1 <<'PY'
+$ENVV ./venv/bin/python - "$PW" >/tmp/ft.py.err 2>&1 <<'PY'
 import sys
 from common import crypto
 from common.db import execute
-execute("DELETE FROM staff WHERE username='ft-staff'")
+# สร้างครั้งแรก หรือใช้บัญชีเดิม (ลบไม่ได้ถ้าเคยอนุมัติ) -- ตั้งรหัสใหม่ + เปิดใช้งานเฉพาะระหว่างทดสอบ
 execute("INSERT INTO staff (username, password_hash, display_name, role, is_active, must_change_password) "
-        "VALUES ('ft-staff', %s, 'ทดสอบรวม', 'admin', 1, 0)", (crypto.hash_password(sys.argv[1]),))
+        "VALUES ('ft-staff', %s, 'ทดสอบรวม', 'admin', 1, 0) "
+        "ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), is_active=1, must_change_password=0, "
+        "role='admin', password_changed_at=NOW()", (crypto.hash_password(sys.argv[1]),))
 PY
+[ "$(sq "SELECT is_active FROM staff WHERE username='ft-staff'")" = 1 ] || { bad "สร้างบัญชีทดสอบ" "$(tail -1 /tmp/ft.py.err)"; exit 1; }
 rm -f $CJ; A="$X curl -s -m 10 --cacert /etc/cafe-wifi/tls/server.crt -b $CJ -c $CJ"
 tok() { $A "$1" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed 's/.*value="//;s/"//'; }
 t=$(tok https://admin.cafe.wifi/login)
