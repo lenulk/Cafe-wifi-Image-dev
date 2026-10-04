@@ -19,4 +19,5 @@
 - [ENOBUFS solved (N45)](enobufs-status.md) — conntrack 1.4.8 sets --buffer-size on the wrong socket; fix net.core.rmem_default=16MB; verify at outcome not syscall
 - [Image installer plan](image-installer-plan.md) — 2026-10-03 plan: prebuilt Pi image + web wizard, install.sh --stage split, 12 secrets generated at first boot; docs/image-build-plan.md; work ONLY on branch `image` → push to PRIVATE lenulk/Cafe-wifi-Image-dev (remote dev); public showcase lenulk/Cafe-wifi-Image only via image/publish-public.sh (remote public); master frozen at tag v1.0
 - [openNDS restores clients on restart](opennds-restores-clients-on-restart.md) — N44: openNDS re-auths remembered MACs ignoring DB; enforce sweeps orphans + runs 45s after openNDS start
-- [Admin HTTPS vs Chrome captive](admin-https-captive-chrome.md) — unapproved Android Chrome shows "Connect to Wi-Fi" (no Proceed) for self-signed admin.cafe.wifi; accept once while approved and Chrome remembers
+- [Admin HTTPS vs Chrome captive](admin-https-captive-chrome.md) — unapproved Android Chrome blocked on self-signed admin.cafe.wifi; SOLVED 1.1.0: install name-constrained shop cert as CA from http://<gw>:8080/cafe-wifi.crt
+- [systemd AccuracySec gotcha](systemd-timer-accuracysec.md) — 5 s timer fired 8–25 s apart (default AccuracySec=1min) → revoke took ~25 s; set AccuracySec=1s, measure latency end-to-end

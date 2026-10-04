@@ -1,0 +1,71 @@
+# v1.1.0 (63b5a61, build -Fast) บนการ์ด B -- 5 ต.ค. 2026
+
+# วัดเวลาปิดสิทธิ์ก่อนแก้ (v1.0.1, timer AccuracySec ปริยาย 1min): ~22-26 วิ บางรอบ > 23 วิ ยังไม่ตัด
+# หลังแก้ (AccuracySec=1s): 6.7 / 7.8 / 7.4 / 7.3 / 7.4 / 8.3 วิ
+
+# IMG-05
+03:26:27 code=WRONG001 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 4 ครั้งก่อนล็อก 15 นาที)
+03:26:27 code=WRONG002 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 3 ครั้งก่อนล็อก 15 นาที)
+03:26:28 code=WRONG003 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 2 ครั้งก่อนล็อก 15 นาที)
+03:26:28 code=WRONG004 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 1 ครั้งก่อนล็อก 15 นาที)
+03:26:29 code=WRONG005 -> HTTP 400 setup code ไม่ถูกต้อง (เหลือ 0 ครั้งก่อนล็อก 15 นาที)
+03:26:29 code=HFWG-5JZ9 -> HTTP 429 กรอกผิดหลายครั้ง ล็อกไว้ อีก 15 นาทีลองใหม่
+
+# กู้คืนผ่าน setup wizard (USB จำลอง: loop device FAT label CAFEBACKUP ผ่าน automount ตัวจริง)
+{"state": "done", "message": "กู้คืนสำเร็จจาก cafewifi-20261005-022741.sql.gz", "time": "2026-10-05T03:30:00", "backup": "cafewifi-20261005-022741.sql.gz", "customers_checked": 1, "staff": 2, "dek_fp": "8dc81543f790a1b5"}
+Oct 05 03:29:56.146940 cafewifi systemd[1]: Starting cafe-wifi-restore.service - Cafe-WiFi setup: restore keys + database from backup (USB)...
+Oct 05 03:30:00.203609 cafewifi systemd[1]: Finished cafe-wifi-restore.service - Cafe-WiFi setup: restore keys + database from backup (USB).
+customer rows=1 decrypt_ok=1 fail=0
+DEK fp 8dc81543f790a1b5
+admin
+ft-staff
+2112
+2026-10-05 03:30:00	setup_restore	cafewifi-20261005-022741.sql.gz	กู้คืนผ่าน setup wizard: ไฟล์สำรองกุญแจ + ฐานข้อมูลจาก USB (ตรวจถอดเลขบัตร 1/1)
+secrets.env.before-restore-20261005-032959
+1
+
+# IMG-09 factory reset (service จาก image)
+== ก่อน
+2
+1
+2432
+96dc9099c0c533f5
+enabled
+== หลัง
+2
+1
+2432
+96dc9099c0c533f5
+8PXMHJGW
+ls: cannot access '/etc/cafe-wifi/.site-done': No such file or directory
+ls: cannot access '/boot/firmware/factory-reset': No such file or directory
+inactive inactive inactive active 
+[firstboot] ใช้ setup code จาก cafewifi.conf
+[firstboot] ไม่มี SSH_PUBKEY ใน cafewifi.conf -- ไม่สร้างบัญชีช่าง (ดูแลผ่านหน้าแอดมินเท่านั้น)
+[firstboot] คืน eth0.conf ให้ NetworkManager (DHCP)
+[firstboot] factory reset เสร็จ -- รีบูตเข้าโหมดตั้งค่า (http://cafewifi.local)
+
+# factory reset รอบพัฒนา (hot-deploy บน v1.0.1)
+Created symlink '/etc/systemd/system/multi-user.target.wants/cafe-wifi-factory-reset.service' → '/etc/systemd/system/cafe-wifi-factory-reset.service'.
+enabled
+== ก่อนรีเซ็ต
+customer rows=1 decrypt_ok=1 fail=0
+staff	2
+customer	1
+conn_log	1631
+audit	217
+10
+476K
+72d7472a9a902907
+== หลังรีเซ็ต
+staff	2
+customer	1
+conn_log	1668
+audit	242
+10
+496K
+72d7472a9a902907
+KKRQDMRJ
+30-cafe-wifi-linklocal.conf
+99-cafe-wifi-dns.conf
+enabled enabled disabled disabled 

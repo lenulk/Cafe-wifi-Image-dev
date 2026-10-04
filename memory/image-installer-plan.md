@@ -159,3 +159,14 @@ Remaining work:
   - Release notes and gh releases go on `lenulk/Cafe-wifi-Image`.
 - The desktop machine must run `git remote set-url` to point at the -dev repo. The repo is now private, so it needs a GitHub login.
 - Known bug for v1.0.2: `app/admin/templates/status.html` hardcodes `ssh -p … ras@10.10.0.1`. Image installs use the user `cafeadmin`, and the client IP is configurable.
+
+**v1.1.0 (2026-10-05, one combined round):**
+- Fixes: revoke timer (`AccuracySec`), and `restore_keys` now restores only `NATID_DEK`/`NATID_PEPPER`. Before that, the old `FAS_KEY` broke the portal with "หน้านี้หมดอายุแล้ว".
+- New:
+  - factory reset: `prepare-sd.ps1 -FactoryReset` → `cafe-wifi-factory-reset.service`; keeps data and skips the wizard admin step.
+  - web restore: wizard step ② "กู้คืนจากเครื่องเดิม" → `setup/restore.py`, which takes the newest USB backup, runs migrations, verifies decryption, then writes keys.
+  - status page SSH user from the sudo group; shop CA cert link.
+  - MIT LICENSE; `build.ps1 -Fast` (.img, 21 min).
+- Card B passed: 49/49, IMG-05/06/09, and web restore through a simulated USB (loop FAT labelled CAFEBACKUP), with real phone screenshots in `image/public/img`.
+- Dev workflow that worked well: hot-deploy files (app/X → /opt/cafe-wifi/X) and test on the Pi, then do a single build at the end.
+- The scratchpad flash.py verify now skips bootfs, because Windows writes to it after mounting.

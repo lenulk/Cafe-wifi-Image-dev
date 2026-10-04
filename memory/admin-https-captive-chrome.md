@@ -1,6 +1,6 @@
 ---
 name: admin-https-captive-chrome
-description: "Why https://admin.cafe.wifi fails on a not-yet-approved Android Chrome device (\"Connect to Wi-Fi\" interstitial) and why it \"worked before\" -- proven on card B 2026-10-04"
+description: "Unapproved Android Chrome can't open self-signed admin.cafe.wifi (\"Connect to Wi-Fi\", no Proceed) -- SOLVED in 1.1.0 by installing the name-constrained shop cert as a user CA (tested Android 10, 2026-10-05)"
 metadata:
   node_type: memory
   type: project
@@ -29,3 +29,10 @@ The user's belief that "it worked before from the customer side on every device"
 - or a real domain with a trusted certificate (user was asked; undecided)
 
 See [[image-installer-plan]].
+
+**SOLVED 2026-10-05 (v1.1.0):** use the cert-install link.
+- Install `http://<GATEWAY_IP>:8080/cafe-wifi.crt` on the staff device as a **CA certificate**. The port is FAS 8080, which is open to unapproved devices.
+- After that, https://admin.cafe.wifi opens with no warning even while the device is Preauthenticated. Verified on a real Android 10 phone using the portal-access and admin-access logs plus `ndsctl`.
+- `make_tls_cert` adds `nameConstraints=critical,permitted;DNS:cafe.wifi,DNS:localhost,IP:<gw>/32` and `pathlen:0`. A leaked Pi key therefore can't impersonate other sites to staff phones.
+- The status page shows the link and the SHA-256 fingerprint.
+- A new install means a new cert, so staff must reinstall it.
