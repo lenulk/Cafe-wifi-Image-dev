@@ -127,8 +127,8 @@ firstboot ลบไฟล์นี้ทิ้งเมื่อสำเร็�
 | **M1** | เพิ่ม `--stage` ใน `install.sh` | `--stage all` บน Pi จริงผ่าน `lab_fulltest.sh` 49/49 เหมือนเดิม; รัน `build` → `firstboot` → `site` ต่อกันบน Pi เปล่าแล้วได้ผลเท่ากัน |
 | **M2** | first-boot service | ถอดไฟระหว่าง firstboot แล้วบูตใหม่ได้ (idempotent); รันซ้ำไม่สร้างกุญแจทับ — **โค้ดเสร็จ** `image/firstboot/` ทดสอบนอก Pi 41/41 (`test_firstboot.sh`) รอทดสอบไฟดับจริง (IMG-04) |
 | **M3** | build image ด้วย pi-gen | ได้ `.img.xz` + `.sha256`; ไม่มีไฟล์ใน §2 อยู่ใน image (สคริปต์ตรวจอัตโนมัติท้าย build) |
-| **M4** | setup mode + web wizard ①–⑤ | ตั้งค่าเครือข่ายจากมือถือได้โดยไม่ใช้ SSH |
-| **M5** | ตรวจเราเตอร์ + self-test + LED | ตรวจจับได้ทั้งตอน DHCP/IPv6 เปิดและปิด (ทดสอบทั้งสองด้าน) |
+| **M4** | setup mode + web wizard ①–⑤ | ตั้งค่าเครือข่ายจากมือถือได้โดยไม่ใช้ SSH — **โค้ดเสร็จ** `app/setup/` (wizard, ผู้ใช้ cafewifi + CAP_NET_RAW) + `setup/apply.py` (root, ปลุกด้วย `.path`) + `image/setup/*.service` · เทสต์ `test_setup_wizard.py`/`test_setup_apply.py` · รอทดสอบบน Pi |
+| **M5** | ตรวจเราเตอร์ + self-test + LED | ตรวจจับได้ทั้งตอน DHCP/IPv6 เปิดและปิด (ทดสอบทั้งสองด้าน) — `tools/check_router.py` + LED **เสร็จ** (เทสต์แพ็กเก็ต 13 ข้อ) · self-test ยังไม่ทำ · รอ IMG-06/07 บนแล็บ |
 | **M6** | `prepare-sd.ps1` + `os_list.json` | flash ด้วย Imager → ติดตั้งครบตามคู่มือโดยไม่แตะ CLI |
 | **M7** | factory reset + ไฟล์สำรองกุญแจที่เข้ารหัส | reset แล้วข้อมูลเดิมยังถอดรหัสได้ |
 | **M8** | ทดสอบรวม + เก็บหลักฐานลงเล่ม | ผลตาม §7 บันทึกใน `docs/hardware-test-log.md` |

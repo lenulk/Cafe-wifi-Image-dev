@@ -216,10 +216,8 @@ main() {
   : > "${DONE_FLAG}.new"; sync; mv -f "${DONE_FLAG}.new" "$DONE_FLAG"; sync
   log "บูตครั้งแรกเสร็จ -- เข้าโหมดตั้งค่า"
   led ready
-  # โหมดตั้งค่า + web wizard (M4) -- ยังไม่มีก็ไม่เป็นไร
-  if [[ -z "${CAFEWIFI_ETC_DIR:-}" ]] && systemctl cat cafe-wifi-setup.target >/dev/null 2>&1; then
-    systemctl start --no-block cafe-wifi-setup.target || true
-  fi
+  # โหมดตั้งค่า (M4): cafe-wifi-setup.service + cafe-wifi-apply.path ถูก enable ไว้ใน image และรอ
+  # After= service นี้อยู่แล้ว จึงขึ้นเองต่อจากนี้ -- ไม่ต้องสั่ง start
 }
 
 main "$@"

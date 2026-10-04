@@ -25,7 +25,7 @@ if (( clean )); then
 fi
 
 # 1-7: ความลับของ Cafe-WiFi -- ต้องไม่มีเลย (สร้างตอน firstboot เท่านั้น)
-for f in etc/cafe-wifi/secrets.env etc/cafe-wifi/secrets.env.new etc/cafe-wifi/setup.token \
+for f in etc/cafe-wifi/secrets.env etc/cafe-wifi/secrets.env.new etc/cafe-wifi/setup.token etc/cafe-wifi/.site-done \
          etc/cafe-wifi/setup-code etc/cafe-wifi/.firstboot-done etc/cafe-wifi/tls/server.key \
          etc/config/opennds; do
   if [[ -e "${R}/${f}" ]]; then bad "/${f} ไม่ควรอยู่ใน image"; else good "/${f} ไม่มี"; fi
@@ -52,6 +52,9 @@ if [[ -n "$empty" ]]; then bad "บัญชีรหัสผ่านว่า
 # ของที่ต้องมี (ไม่งั้น firstboot ไม่ทำงาน)
 for f in usr/local/sbin/cafe-wifi-firstboot etc/systemd/system/cafe-wifi-firstboot.service \
          etc/systemd/system/multi-user.target.wants/cafe-wifi-firstboot.service \
+         etc/systemd/system/multi-user.target.wants/cafe-wifi-setup.service \
+         etc/systemd/system/multi-user.target.wants/cafe-wifi-apply.path \
+         opt/cafe-wifi/setup/app.py opt/cafe-wifi/tools/check_router.py \
          opt/cafe-wifi/install.sh opt/cafe-wifi/venv/bin/python; do
   if [[ -e "${R}/${f}" || -L "${R}/${f}" ]]; then good "มี /${f}"; else bad "ขาด /${f}"; fi
 done
