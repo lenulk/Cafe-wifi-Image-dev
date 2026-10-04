@@ -204,7 +204,9 @@ def network():
     if request.method == "GET":
         # ชื่อร้านที่ช่างใส่ใน cafewifi.conf -> firstboot เขียนลง secrets.env -> มาถึงที่นี่ทาง EnvironmentFile
         # เดิมช่องว่างเปล่าให้พิมพ์ซ้ำ ถ้าลืม portal จะขึ้น Cafe-Guest แทนชื่อร้าน
-        vals = session.get("net") or {**netinfo.suggest(uplink), "retention_days": 180,
+        # factory reset: ค่าเดิมของร้าน (อายุ log) อยู่ใน secrets.env -- ไม่ใช้ค่าปริยายทับจนร้านเก็บ log สั้นลงโดยไม่รู้ตัว
+        vals = session.get("net") or {**netinfo.suggest(uplink),
+                                      "retention_days": os.environ.get("LOG_RETENTION_DAYS") or 180,
                                       "gateway_name": os.environ.get("GATEWAY_NAME", "")}
         return render_template("setup_network.html", step=3, v=vals, uplink=uplink)
     vals, errors = netinfo.validate(request.form.to_dict())

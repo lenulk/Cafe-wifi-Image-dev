@@ -91,6 +91,64 @@ CAFEWIFI_ETC_DIR="${T}/etc" CAFEWIFI_BOOT_DIR="${T}/nonexistent" CAFEWIFI_INSTAL
   STUB_LOG="${T}/stub.log" STUB_FAIL="${T}/stub.fail" bash "$FB" >/dev/null 2>&1; rc=$?
 check "A6 bootfs หาย ยังผ่าน" test "$rc" -eq 0
 
+
+# ---------------- ส่วน R: factory reset (IMG-09) ----------------
+echo "R. factory reset"
+SCTL="${T}/systemctl"
+cat > "$SCTL" <<'EOF2'
+#!/usr/bin/env bash
+echo "$*" >> "${SCTL_LOG}"
+EOF2
+chmod +x "$SCTL"
+fr() {
+  CAFEWIFI_ETC_DIR="${T}/etc" CAFEWIFI_BOOT_DIR="${T}/boot" CAFEWIFI_INSTALL_SH="$STUB"   CAFEWIFI_LED_DIR="${T}/noled" CAFEWIFI_SKIP_OS_IDENTITY=1 CAFEWIFI_APP_USER="$(id -un)"   CAFEWIFI_NM_CONF_DIR="${T}/nm" CAFEWIFI_SYSTEMCTL="$SCTL" SCTL_LOG="${T}/sctl.log"   STUB_LOG="${T}/stub.log" STUB_FAIL="${T}/stub.fail" bash "$FB" --factory-reset >/dev/null 2>&1
+}
+site_done_env() {  # เครื่องที่ตั้งค่าเสร็จแล้ว: ผ่านบูตแรก + .site-done + eth0 ถูกปลดจาก NM + มีข้อมูล
+  newenv; rm -rf "${T}/nm" "${T}/sctl.log"; mkdir -p "${T}/nm"
+  touch "${T}/etc/.firstboot-done" "${T}/etc/.site-done" "${T}/nm/99-cafe-wifi-unmanage-eth0.conf" "${T}/nm/30-cafe-wifi-linklocal.conf"
+  printf 'NATID_DEK=keep
+' > "${T}/etc/secrets.env"
+}
+
+# R1: ไม่มีไฟล์ factory-reset -> ไม่แตะอะไร
+site_done_env
+fr; rc=$?
+check "R1 ไม่มีธง exit 0" test "$rc" -eq 0
+check "R1 ไม่มีธง .site-done ยังอยู่" test -e "${T}/etc/.site-done"
+check "R1 ไม่มีธง ไม่เรียก systemctl" test ! -e "${T}/sctl.log"
+
+# R2: มีธง + conf จาก prepare-sd -FactoryReset (code ของช่าง)
+site_done_env
+touch "${T}/boot/factory-reset"
+printf 'SETUP_CODE=QXRR-YTR6
+TECH_USER=cafeadmin
+' > "${T}/boot/cafewifi.conf"
+fr; rc=$?
+check "R2 exit 0" test "$rc" -eq 0
+check "R2 ลบ .site-done (wizard เปิดได้)" test ! -e "${T}/etc/.site-done"
+check "R2 setup code ใหม่จาก conf" test "$(cat "${T}/etc/setup-code" 2>/dev/null)" = "QXRRYTR6"
+check "R2 ปิด service ของร้าน" grep -q '^disable opennds.service dnsmasq.service nginx.service' "${T}/sctl.log"
+check "R2 เปิด wizard" grep -qx 'enable cafe-wifi-setup.service cafe-wifi-apply.path' "${T}/sctl.log"
+check "R2 รีบูตเป็นขั้นสุดท้าย" test "$(tail -1 "${T}/sctl.log")" = "reboot"
+check "R2 คืน eth0 ให้ NetworkManager" test ! -e "${T}/nm/99-cafe-wifi-unmanage-eth0.conf"
+check "R2 ไม่แตะ conf อื่นของ NM" test -e "${T}/nm/30-cafe-wifi-linklocal.conf"
+check "R2 ลบธง + conf ออกจาก bootfs" test ! -e "${T}/boot/factory-reset" -a ! -e "${T}/boot/cafewifi.conf"
+check "R2 ข้อมูล/กุญแจไม่ถูกแตะ" test "$(cat "${T}/etc/secrets.env")" = "NATID_DEK=keep"
+check "R2 ไม่เรียก install.sh" test ! -e "${T}/stub.log"
+
+# R3: มีธงแต่ไม่มี conf -> สุ่ม code แล้วเขียน SETUP-CODE.txt ให้ช่างอ่าน
+site_done_env; touch "${T}/boot/factory-reset"
+fr
+code="$(cat "${T}/etc/setup-code" 2>/dev/null)"
+check "R3 สุ่ม code 8 ตัว" bash -c '[[ "$1" =~ ^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$ ]]' _ "$code"
+check "R3 SETUP-CODE.txt บน bootfs" grep -q "${code:0:4}-${code:4}" "${T}/boot/SETUP-CODE.txt"
+
+# R4: การ์ดที่ยังไม่ผ่านบูตแรก -> ลบธงทิ้งเฉย ๆ (บูตแรกเข้าโหมดตั้งค่าเองอยู่แล้ว)
+newenv; rm -f "${T}/sctl.log"; touch "${T}/boot/factory-reset"
+fr; rc=$?
+check "R4 ยังไม่บูตแรก exit 0 + ลบธง" test "$rc" -eq 0 -a ! -e "${T}/boot/factory-reset"
+check "R4 ยังไม่บูตแรก ไม่รีบูต" test ! -e "${T}/sctl.log"
+
 # ---------------- ส่วน B ----------------
 echo "B. install.sh gen_secrets / make_tls_cert (ตัวจริง)"
 LIB="${T}/install-lib.sh"

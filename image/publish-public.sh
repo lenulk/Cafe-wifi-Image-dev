@@ -21,6 +21,7 @@ ALLOW=(
   tools/reconcile_pending.py tools/reset_admin.py tools/restore_keys.py
   image/VERSION image/prepare-sd.ps1 image/setup
   image/firstboot/cafe-wifi-firstboot.sh image/firstboot/cafe-wifi-firstboot.service
+  image/firstboot/cafe-wifi-factory-reset.service
   docs/install-from-image.md docs/backup-usb.md docs/privacy-policy-th.md
 )
 MAP=(  # ไฟล์ใน repo งาน -> ตำแหน่งใน repo สาธารณะ

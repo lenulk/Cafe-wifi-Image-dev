@@ -160,6 +160,12 @@ def test_network_prefills_shop_name_from_firstboot(wiz, monkeypatch):
     assert 'value="Baan Cafe"' in wiz.get("/network").get_data(as_text=True)
 
 
+def test_network_keeps_retention_after_factory_reset(wiz, monkeypatch):
+    monkeypatch.setenv("LOG_RETENTION_DAYS", "365")
+    login(wiz); make_admin(wiz)
+    assert 'value="365"' in wiz.get("/network").get_data(as_text=True)
+
+
 def test_network_rejects_overlap_and_short_retention(wiz):
     login(wiz); make_admin(wiz)
     r = net_form(wiz, client_cidr="192.168.1.200/24", retention_days="30")

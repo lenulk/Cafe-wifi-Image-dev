@@ -3,6 +3,8 @@
 src="${CAFEWIFI_SRC}/image/firstboot"
 install -m 755 "${src}/cafe-wifi-firstboot.sh"      "${ROOTFS_DIR}/usr/local/sbin/cafe-wifi-firstboot"
 install -m 644 "${src}/cafe-wifi-firstboot.service" "${ROOTFS_DIR}/etc/systemd/system/cafe-wifi-firstboot.service"
+# factory reset (IMG-09): ทำงานเฉพาะเมื่อมีไฟล์ factory-reset บน bootfs
+install -m 644 "${src}/cafe-wifi-factory-reset.service" "${ROOTFS_DIR}/etc/systemd/system/cafe-wifi-factory-reset.service"
 # โหมดตั้งค่า + web wizard (M4)
 for u in cafe-wifi-setup.service cafe-wifi-apply.path cafe-wifi-apply.service; do
 	install -m 644 "${CAFEWIFI_SRC}/image/setup/${u}" "${ROOTFS_DIR}/etc/systemd/system/${u}"
@@ -28,7 +30,7 @@ ipv4.link-local=fallback
 NM
 
 on_chroot <<CHROOT
-systemctl enable cafe-wifi-firstboot.service cafe-wifi-setup.service cafe-wifi-apply.path avahi-daemon.service
+systemctl enable cafe-wifi-firstboot.service cafe-wifi-factory-reset.service cafe-wifi-setup.service cafe-wifi-apply.path avahi-daemon.service
 # แพ็กเกจ Debian enable ตัวเองตอนติดตั้ง -- บูตแรก DHCP ของเราเตอร์ยังเปิดอยู่ ห้ามมี dnsmasq/portal
 # ขึ้นมาบนวงเราเตอร์ก่อน wizard ตรวจ · --stage site เป็นคน enable กลับ (configure_network/start_services)
 for s in dnsmasq.service nginx.service opennds.service nftables.service; do
