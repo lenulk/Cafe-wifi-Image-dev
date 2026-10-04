@@ -41,6 +41,12 @@ def test_discover_is_valid_broadcast_ipv4():
     assert bootp[0] == 1 and struct.unpack("!I", bootp[4:8])[0] == 0x12345678
     assert bootp[28:34] == mac
     assert b"\x35\x01\x01" in bootp[240:]          # DHCPDISCOVER
+    # RFC 1542 ขั้นต่ำ 300 ไบต์ -- สั้นกว่านี้เราเตอร์จริงบางตัวทิ้งเงียบ (เจอกับเราเตอร์แล็บ)
+    assert len(bootp) >= 300
+    assert b"\x3d\x07\x01" + mac in bootp[240:]    # client-id
+    udp_len = struct.unpack("!H", f[38:40])[0]
+    ip_len = struct.unpack("!H", f[16:18])[0]
+    assert udp_len == 8 + len(bootp) and ip_len == 20 + udp_len
 
 
 def test_random_mac_is_local_unicast():

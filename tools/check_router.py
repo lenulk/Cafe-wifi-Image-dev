@@ -5,7 +5,7 @@ check_router.py -- ตรวจว่าเราเตอร์ร้านป�
 ถ้าเราเตอร์ยังจ่าย DHCP: ลูกค้าได้ IP จากเราเตอร์แล้วออกเน็ตตรง ข้าม portal (ไม่มี log ตาม ม.26)
 ถ้ายังประกาศ IPv6 (Router Advertisement): มือถือออกเน็ตทาง IPv6 ข้าม portal ทั้งหมด
 
-  python3 check_router.py --iface eth0 [--dhcp-timeout 4] [--ra-timeout 10] [--json]
+  python3 check_router.py --iface eth0 [--dhcp-timeout 12] [--ra-timeout 10] [--json]
 
 ใช้ AF_PACKET (raw) ทั้งสองอย่าง -- ต้องมี CAP_NET_RAW (root หรือ AmbientCapabilities ใน systemd)
 ไม่ใช้ UDP port 68: NetworkManager/dhclient อาจถือพอร์ตนั้นอยู่ และ raw socket ส่งได้แม้ยังไม่มี IP
@@ -57,10 +57,15 @@ def build_dhcp_discover(mac: bytes, xid: int) -> bytes:
                         mac + b"\0" * 10, b"\0" * 64, b"\0" * 128)
     options = (b"\x63\x82\x53\x63"                 # magic cookie
                + b"\x35\x01\x01"                   # 53: DHCPDISCOVER
+               + b"\x3d\x07\x01" + mac             # 61: client-id (ether) -- แบบเดียวกับ udhcpc/Android
                + b"\x37\x03\x01\x03\x06"           # 55: subnet, router, dns
                + b"\x0c\x0ecafewifi-probe"         # 12: hostname (เห็นใน log เราเตอร์ว่าเป็นตัวทดสอบ)
                + b"\xff")
     payload = bootp + options
+    # RFC 1542: ข้อความ BOOTP ต้องยาวอย่างน้อย 300 ไบต์ -- เราเตอร์แล็บ (172.20.18.1) ทิ้งของเรา (265 ไบต์)
+    # เงียบ ๆ แล้วตัวตรวจรายงานว่า "DHCP ปิดแล้ว" ทั้งที่ยังเปิด (เจอจริง 2026-10-04 เทียบกับ udhcpc ที่ได้ OFFER)
+    if len(payload) < 300:
+        payload += b"\0" * (300 - len(payload))
     udp_len = 8 + len(payload)
     udp = struct.pack("!HHHH", 68, 67, udp_len, 0) + payload   # checksum 0 = ไม่ตรวจ (ถูกต้องตาม IPv4)
     ip_hdr = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + udp_len, 0, 0, 64, 17, 0,
@@ -161,9 +166,21 @@ def parse_ra(frame: bytes) -> dict | None:
 
 
 # ------------------------------------------------------------------ probes
-def _open(iface: str, proto: int) -> socket.socket:
+SOL_PACKET = 263
+PACKET_ADD_MEMBERSHIP = 1
+PACKET_MR_PROMISC = 1
+
+
+def _open(iface: str, proto: int, promisc: bool = False) -> socket.socket:
     s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(proto))
     s.bind((iface, 0))
+    if promisc:
+        # เราเตอร์ส่วนใหญ่ไม่สน broadcast flag แล้วตอบ OFFER แบบ unicast ไปที่ MAC สุ่มของ probe --
+        # การ์ดแลนทิ้งเฟรมที่ไม่ใช่ MAC ของตัวเองตั้งแต่ฮาร์ดแวร์ ถ้าไม่เปิด promiscuous จะไม่เห็นคำตอบเลย
+        # แล้วรายงานว่า "DHCP ปิดแล้ว" ทั้งที่ยังเปิด (เจอจริงกับเราเตอร์แล็บ 2026-10-04) -- membership นี้
+        # หายเองเมื่อปิด socket ไม่ค้าง promisc ไว้กับอินเทอร์เฟซ
+        mreq = struct.pack("iHH8s", socket.if_nametoindex(iface), PACKET_MR_PROMISC, 0, b"")
+        s.setsockopt(SOL_PACKET, PACKET_ADD_MEMBERSHIP, mreq)
     return s
 
 
@@ -186,18 +203,51 @@ def _listen(sock: socket.socket, timeout: float, parse) -> list[dict]:
     return list(found.values())
 
 
-def probe_dhcp(iface: str, timeout: float = 4.0, tries: int = 2) -> list[dict]:
-    """[] = ไม่มี DHCP server ตอบ (ผ่าน) · ส่งซ้ำ tries ครั้ง เผื่อแพ็กเก็ตแรกหาย"""
-    sock = _open(iface, ETH_P_IP)
+def _local_macs() -> set[str]:
+    """MAC ของทุกอินเทอร์เฟซในเครื่อง -- dnsmasq ของ Pi เอง (macvlan ฝั่งลูกค้า) ไม่ใช่ DHCP ของเราเตอร์"""
+    macs = set()
     try:
-        offers: list[dict] = []
-        for _ in range(tries):
-            mac, xid = random_mac(), struct.unpack("!I", os.urandom(4))[0]
-            sock.send(build_dhcp_discover(mac, xid))
-            offers = _listen(sock, timeout / tries, lambda f, x=xid: parse_dhcp_reply(f, x))
-            if offers:
-                break
-        return offers
+        for name in os.listdir("/sys/class/net"):
+            try:
+                with open(f"/sys/class/net/{name}/address", encoding="ascii") as f:
+                    macs.add(f.read().strip().lower())
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return macs
+
+
+def probe_dhcp(iface: str, timeout: float = 12.0, tries: int = 3) -> list[dict]:
+    """[] = ไม่มี DHCP server ตอบ (ผ่าน)
+
+    ทำตัวเหมือน client จริง: MAC + xid เดียว ส่งซ้ำ tries ครั้งห่างกัน timeout/tries แต่**ฟังต่อเนื่อง
+    ตลอด timeout** -- เราเตอร์แล็บตอบ OFFER ช้า ~2 วิ และบางครั้งช้ากว่านั้นมาก (ตรวจ IP ว่างก่อน OFFER)
+    แบบเดิมที่รอรอบละ 2 วิแล้วเปลี่ยน xid ทิ้งคำตอบที่มาช้า -> พลาด 1 ใน 3 ครั้ง (เจอจริง 2026-10-04)
+    """
+    sock = _open(iface, ETH_P_IP, promisc=True)
+    mine = _local_macs()
+    mac, xid = random_mac(), struct.unpack("!I", os.urandom(4))[0]
+    frame = build_dhcp_discover(mac, xid)
+    found: dict[str, dict] = {}
+    try:
+        start = time.monotonic()
+        interval = timeout / max(tries, 1)
+        next_send, sent = start, 0
+        while (now := time.monotonic()) - start < timeout:
+            if sent < tries and now >= next_send:
+                sock.send(frame)
+                sent += 1
+                next_send += interval
+            wait = min(next_send if sent < tries else start + timeout, start + timeout) - now
+            r, _, _ = select.select([sock], [], [], max(wait, 0.05))
+            if not r:
+                continue
+            hit = parse_dhcp_reply(sock.recv(65535), xid)
+            if hit and hit["server_mac"] not in mine:
+                found.setdefault(hit["server_ip"], hit)
+                break                          # เจอหนึ่งตัวก็พอสรุปได้ว่ายังเปิดอยู่
+        return list(found.values())
     finally:
         sock.close()
 
@@ -212,7 +262,7 @@ def probe_ipv6_ra(iface: str, timeout: float = 10.0) -> list[dict]:
         sock.close()
 
 
-def check(iface: str, dhcp_timeout: float = 4.0, ra_timeout: float = 10.0) -> dict:
+def check(iface: str, dhcp_timeout: float = 12.0, ra_timeout: float = 10.0) -> dict:
     result: dict = {"iface": iface, "time": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     try:
         offers = probe_dhcp(iface, dhcp_timeout)
@@ -231,7 +281,7 @@ def check(iface: str, dhcp_timeout: float = 4.0, ra_timeout: float = 10.0) -> di
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--iface", default="eth0")
-    ap.add_argument("--dhcp-timeout", type=float, default=4.0)
+    ap.add_argument("--dhcp-timeout", type=float, default=12.0)
     ap.add_argument("--ra-timeout", type=float, default=10.0)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
