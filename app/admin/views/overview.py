@@ -32,7 +32,21 @@ def status_page():
     backup["usb_present"] = os.path.exists("/dev/disk/by-label/CAFEBACKUP")
     return render_template("status.html", res=sysinfo.resources(), inet=sysinfo.internet_status(),
                            speed=sysinfo.last_speed_test(), backup=backup,
-                           ssh_port=os.environ.get("SSH_ALT_PORT", ""), **data)
+                           ssh_port=os.environ.get("SSH_ALT_PORT", ""), ssh_users=ssh_users(),
+                           ssh_host=os.environ.get("GATEWAY_IP") or "10.10.0.1", **data)
+
+
+def ssh_users() -> list[str]:
+    """บัญชีช่างที่ SSH เข้าได้ = สมาชิกกลุ่ม sudo (อ่านจาก /etc/group ใครก็อ่านได้)
+
+    เดิมเขียนตายตัว ras@10.10.0.1 -- เครื่องจาก image ใช้ cafeadmin (หรือ TECH_USER ใน cafewifi.conf)
+    และวงลูกค้าเปลี่ยนได้ใน wizard ช่างทำตามแล้วเข้าไม่ได้
+    """
+    try:
+        import grp
+        return [u for u in grp.getgrnam("sudo").gr_mem if u != "root"]
+    except (ImportError, KeyError):      # Windows (เทสต์) / ไม่มีกลุ่ม sudo
+        return []
 
 
 @routes.get("/status/live")

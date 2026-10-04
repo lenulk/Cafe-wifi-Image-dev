@@ -74,3 +74,7 @@ captive portal → พนักงานกดอนุมัติ → ออ�
 repo นี้มีซอร์สของทุกอย่างที่ติดตั้งอยู่ใน image: หน้าลงทะเบียน/แอดมิน ([`app/`](app/)), ฐานข้อมูล ([`sql/`](sql/)),
 ตัวติดตั้ง ([`install.sh`](install.sh)), งานตามรอบ ([`tools/`](tools/)) และขั้นตอนบูตครั้งแรก/wizard ([`image/`](image/))
 · captive portal ใช้ [openNDS](https://github.com/openNDS/openNDS) v10.1.3 (GPL-2.0) ไม่ได้แก้ไข
+
+## License
+
+[MIT](LICENSE) — ใช้ แก้ไข และแจกต่อได้ โดยคงข้อความลิขสิทธิ์ไว้ · ซอฟต์แวร์อื่นใน image (Raspberry Pi OS, openNDS, MariaDB ฯลฯ) เป็นไปตาม license ของแต่ละโครงการ

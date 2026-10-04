@@ -332,4 +332,18 @@ def test_status_page_shows_technician_ssh_port_to_admin_only(client, monkeypatch
     with client.session_transaction() as sess:
         sess["role"] = "admin"
     html = client.get("/status").get_data(as_text=True)
-    assert "ssh -p 41873 ras@10.10.0.1" in html and "SSH key" in html
+    assert "ssh -p 41873" in html and "SSH key" in html
+
+
+def test_status_ssh_hint_uses_real_user_and_client_ip(client, monkeypatch):
+    """เดิมเขียนตายตัว ras@10.10.0.1 -- เครื่องจาก image ใช้ cafeadmin และวงลูกค้าเปลี่ยนได้ใน wizard"""
+    from admin.views import overview
+    monkeypatch.setenv("SSH_ALT_PORT", "41873")
+    monkeypatch.setenv("GATEWAY_IP", "10.20.0.1")
+    monkeypatch.setattr(overview, "ssh_users", lambda: ["cafeadmin"])
+    _login(client)
+    monkeypatch.setitem(STAFF[0], "role", "admin")
+    with client.session_transaction() as sess:
+        sess["role"] = "admin"
+    html = client.get("/status").get_data(as_text=True)
+    assert "ssh -p 41873 cafeadmin@10.20.0.1" in html and "ras@" not in html

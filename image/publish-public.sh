@@ -15,7 +15,7 @@ cd "$(git rev-parse --show-toplevel)"
 msg=${1:?ใส่ข้อความ commit}
 
 ALLOW=(
-  app sql install.sh .gitattributes
+  app sql install.sh .gitattributes LICENSE
   tools/__init__.py tools/backup_db.py tools/check_disk.py tools/check_router.py
   tools/enforce_voucher_expiry.py tools/export_evidence.py tools/purge_old_data.py
   tools/reconcile_pending.py tools/reset_admin.py tools/restore_keys.py
