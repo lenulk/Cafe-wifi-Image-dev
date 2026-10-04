@@ -16,6 +16,12 @@
 #     sudo ./install.sh --skip-network                      # โหมดพัฒนาบน VM/แล็ปท็อป
 #     ./install.sh --dry-run                                # ดูว่าจะทำอะไรบ้าง
 #     sudo ./install.sh --uninstall
+#
+#  ทำ image สำเร็จรูป (docs/image-build-plan.md §3) แบ่งรันเป็น 3 ช่วง:
+#     sudo ./install.sh --stage build                       # ตอนสร้าง image (chroot): ลงโปรแกรมอย่างเดียว
+#     sudo /opt/cafe-wifi/install.sh --stage firstboot      # บูตแรกบน Pi: สร้างความลับประจำเครื่อง + DB
+#     sudo /opt/cafe-wifi/install.sh --stage site --nic eth0 --uplink-cidr ... --uplink-gw ...
+#                                                           # หลัง wizard: ค่าเครือข่ายของร้าน + เปิด service
 # ============================================================================
 
 set -Eeuo pipefail
@@ -76,6 +82,11 @@ SKIP_OPENNDS=0
 SKIP_NETWORK=0
 ASSUME_YES=0
 ENABLE_PARTITIONS=0        # แก้บั๊ก (พบตอนตรวจทานรอบ 2) -- opt-in สำหรับ sql/003_partitions.sql
+# --stage: all = ติดตั้งรวดเดียวแบบเดิมทุกอย่าง · build/firstboot/site = แยกช่วงสำหรับทำ image
+# (ดูตารางว่าฟังก์ชันไหนอยู่ช่วงไหนที่ docs/image-build-plan.md §3 และใน main())
+STAGE="all"
+SYSTEMD_OFFLINE=0          # 1 = --stage build: มี systemctl แต่ห้ามสั่ง start/restart (chroot ไม่มี systemd ทำงาน)
+RETENTION_SET=0            # 1 = ระบุ --retention-days มาเอง (รันซ้ำแบบไม่ระบุ ต้องไม่ไปลดค่าที่ตั้งไว้เดิม)
 
 # ---- สี / logging ----------------------------------------------------------
 if [[ -t 1 ]] && command -v tput >/dev/null 2>&1 && [[ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]]; then
@@ -274,6 +285,8 @@ Cafe Wi-Fi Gateway Installer
   --dry-run               แสดงคำสั่งที่จะรัน แต่ไม่รันจริง
   --trusted-mac LIST      MAC ของอุปกรณ์โครงสร้างพื้นฐานที่ไม่ต้อง login เช่น AP (คั่นด้วย ,)
   --uninstall             ถอนการติดตั้ง
+  --stage <s>             all (default, ติดตั้งรวดเดียว) | build | firstboot | site
+                          -- แยกช่วงสำหรับทำ image ดู docs/image-build-plan.md (ไม่ใช่ all = ไม่ถาม)
   --version | -h/--help
 USAGE
 }
@@ -295,7 +308,8 @@ parse_args() {
       --admin-port)      ADMIN_PORT="$2"; ADMIN_BACKEND=$((ADMIN_PORT+10000)); shift 2 ;;
       --fas-port)        FAS_PORT="$2";   FAS_BACKEND=$((FAS_PORT+10000));     shift 2 ;;
       --db-pass)         DB_PASS="$2"; shift 2 ;;
-      --retention-days)  LOG_RETENTION_DAYS="$2"; shift 2 ;;
+      --retention-days)  LOG_RETENTION_DAYS="$2"; RETENTION_SET=1; shift 2 ;;
+      --stage)           STAGE="$2"; shift 2 ;;
       --backup-retention-days) BACKUP_RETENTION_DAYS="$2"; shift 2 ;;
       --opennds-ref)     OPENNDS_REF="$2"; shift 2 ;;
       -y|--non-interactive) INTERACTIVE=0; ASSUME_YES=1; shift ;;
@@ -309,6 +323,49 @@ parse_args() {
       *) die "ไม่รู้จักตัวเลือก: $1  (ดู --help)" ;;
     esac
   done
+  case "$STAGE" in
+    all) ;;
+    # ช่วงย่อยรันโดยตัวสร้าง image / first-boot service / web wizard ไม่มีคนนั่งตอบคำถาม
+    build|firstboot|site) INTERACTIVE=0; ASSUME_YES=1 ;;
+    *) die "--stage ต้องเป็น all, build, firstboot หรือ site (ได้ '${STAGE}')" ;;
+  esac
+}
+
+# in_stage <ช่วง...>  -- จริงเมื่อรันแบบ all หรือ --stage ตรงกับช่วงใดช่วงหนึ่งที่ระบุ
+in_stage() {
+  [[ "$STAGE" == all ]] && return 0
+  local s
+  for s in "$@"; do [[ "$STAGE" == "$s" ]] && return 0; done
+  return 1
+}
+
+# --stage build: รันใน chroot ของตัวสร้าง image (pi-gen) ซึ่งมี systemctl แต่ไม่มี systemd ทำงานอยู่
+# -- daemon-reload/start/restart ใช้ไม่ได้ ส่วน enable ทำแบบ offline ได้ (สร้าง symlink อย่างเดียว)
+# ใช้กับ --stage build เสมอแม้รันบนเครื่องจริงที่ systemd ทำงานอยู่ เพื่อให้ผลเหมือนกันทุกที่ และกัน
+# service ที่ยังไม่มีความลับ/ใบรับรอง (สร้างตอน firstboot) ถูก start แล้วล้มกลางการติดตั้ง
+# export -f เพื่อให้คำสั่งที่รันผ่าน run_sh (bash -c) ใช้ตัวนี้ด้วย
+enable_offline_systemctl() {
+  SYSTEMD_OFFLINE=1
+  systemctl() {
+    local a args=() u d
+    case "${1:-}" in
+      enable|disable)
+        for a in "$@"; do [[ "$a" == --now ]] || args+=("$a"); done
+        command systemctl "${args[@]}" ;;
+      mask|unmask|preset|is-enabled|list-unit-files)
+        command systemctl "$@" ;;
+      cat)
+        for u in "${@:2}"; do
+          for d in /etc/systemd/system /lib/systemd/system /usr/lib/systemd/system; do
+            [[ -f "${d}/${u}" ]] && { cat "${d}/${u}"; continue 2; }
+          done
+          return 1
+        done ;;
+      is-active|is-failed) return 1 ;;
+      *) printf '      (ข้าม systemctl %s -- --stage build ไม่ start service)\n' "$*" >&2; return 0 ;;
+    esac
+  }
+  export -f systemctl
 }
 
 confirm() {
@@ -451,6 +508,12 @@ detect_init() {
   if   [[ -d /run/systemd/system ]];          then INIT_SYS=systemd
   elif command -v rc-service >/dev/null 2>&1; then INIT_SYS=openrc
   else INIT_SYS=none; fi
+  if [[ "$STAGE" == build ]] && command -v systemctl >/dev/null 2>&1; then
+    # chroot ของตัวสร้าง image ไม่มี /run/systemd/system แต่ image ที่บูตจริงใช้ systemd
+    INIT_SYS=systemd
+    enable_offline_systemctl
+    info "--stage build: จัดการ service แบบ offline (enable อย่างเดียว ไม่ start)"
+  fi
   info "ระบบ init: ${INIT_SYS}"
   [[ "$INIT_SYS" == none ]] && warn "ไม่พบ systemd/OpenRC — จะไม่ตั้งค่า service อัตโนมัติ"
   return 0
@@ -661,15 +724,25 @@ gen_secrets() {
     # เดิมไฟล์นี้ถูกเขียนครั้งเดียวตอนติดตั้งครั้งแรก พอย้าย Pi ไปเครือข่ายใหม่ (แล็บ <-> บ้าน) แล้ว
     # รันซ้ำด้วย --uplink-cidr/--uplink-gw ใหม่ ไฟร์วอลล์กับ IP ถูกอัปเดตแต่ค่าในนี้ไม่ถูก
     # bypass_detector.py (ตัวเดียวที่อ่านค่าเหล่านี้) จึงไปเฝ้าวงเก่าต่อแล้วเงียบไปโดยไม่มีใครรู้
-    local kv key
+    # image: firstboot เขียนค่าเครือข่ายตั้งต้นไว้ก่อน แล้ว --stage site (หลัง wizard) มาอัปเดตทางนี้
+    # ชื่อร้านตามรอบนี้เสมอเหมือน /etc/config/opennds · อายุ log เฉพาะเมื่อระบุมาเอง -- รันซ้ำแบบไม่ระบุ
+    # แล้วค่ากลับเป็น 180 จะทำให้ purge ลบ log ที่ร้านตั้งใจเก็บนานกว่านั้นทิ้ง (ลบแล้วกู้ไม่ได้)
+    local kv key extra=("GATEWAY_NAME=${GATEWAY_NAME}")
+    (( RETENTION_SET )) && extra+=("LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS}")
     for kv in "UPLINK_IP=${UPLINK_CIDR%%/*}" "UPLINK_GW=${UPLINK_GW}" \
               "UPLINK_NETWORK=$(cidr_to_network "$UPLINK_CIDR")" \
               "GATEWAY_IP=${CLIENT_CIDR%%/*}" "CLIENT_CIDR=${CLIENT_CIDR}" \
               "OFFSITE_BACKUP_DIR=${BACKUP_USB_MNT}/${APP_NAME}" "OFFSITE_REQUIRE_SEPARATE_DEVICE=1" \
-              "SSH_ALT_PORT=${SSH_ALT_PORT}"; do
+              "SSH_ALT_PORT=${SSH_ALT_PORT}" "${extra[@]}"; do
       key="${kv%%=*}"
       if grep -q "^${key}=" "$secrets"; then
-        sed -i "s|^${key}=.*|${kv}|" "$secrets"
+        # แทนทั้งบรรทัดด้วย bash แทน sed: ชื่อร้านจาก wizard มี & หรือ | ได้ ซึ่ง sed ตีความเป็นคำสั่ง
+        # (ทดสอบแล้ว "A&B|C" ทำ sed พัง) · เขียนกลับด้วย cat > เพื่อคง owner/mode 0640 เดิมของไฟล์
+        local line updated=""
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          if [[ "$line" == "${key}="* ]]; then updated+="${kv}"$'\n'; else updated+="${line}"$'\n'; fi
+        done < "$secrets"
+        printf '%s' "$updated" > "$secrets"
       else
         printf '%s\n' "$kv" >> "$secrets"
       fi
@@ -786,6 +859,11 @@ install_app_files() {
   [[ -d "${SCRIPT_DIR}/sql" ]]   && run_sh "cp -a '${SCRIPT_DIR}/sql'   '${OPT_DIR}/'"
   [[ -d "${SCRIPT_DIR}/tools" ]] && run_sh "cp -a '${SCRIPT_DIR}/tools' '${OPT_DIR}/'"
   [[ -d "${SCRIPT_DIR}/docs" ]]  && run_sh "cp -a '${SCRIPT_DIR}/docs'  '${OPT_DIR}/'"
+  # image: --stage firstboot/site รันจาก ${OPT_DIR}/install.sh (ใช้ ${OPT_DIR}/sql ข้าง ๆ กัน)
+  # เพราะใน image ไม่มีโฟลเดอร์โปรเจกต์ต้นฉบับ
+  if [[ "${SCRIPT_DIR}" != "${OPT_DIR}" ]]; then
+    run install -m 0750 -o root -g root "${SCRIPT_DIR}/install.sh" "${OPT_DIR}/install.sh"
+  fi
   run_sh "chown -R root:'${APP_USER}' '${OPT_DIR}'"
   run_sh "find '${OPT_DIR}' -type d -exec chmod 0755 {} + 2>/dev/null || true"
   return 0
@@ -1644,7 +1722,13 @@ Wants=time-sync.target
 After=time-sync.target
 NDSDROPIN
   run_sh "systemctl daemon-reload"
+}
 
+# แยกจาก build_opennds เพื่อทำ image: ไฟล์นี้มี faskey (สร้างตอน firstboot) และชื่อร้าน/พอร์ต SSH
+# (รู้หลัง wizard) จึงเขียนตอน --stage site ส่วนตัวโปรแกรม + drop-in เขียนตอน --stage build
+configure_opennds() {
+  if (( SKIP_OPENNDS )) || (( SKIP_NETWORK )); then return 0; fi
+  step "ตั้งค่า openNDS (/etc/config/opennds)"
   local faskey="CHANGEME"
   if [[ -f "${ETC_DIR}/secrets.env" ]] && (( ! DRY_RUN )); then
     faskey="$(grep -E '^FAS_KEY=' "${ETC_DIR}/secrets.env" | cut -d= -f2-)"
@@ -2014,16 +2098,23 @@ UNIT
   ok "สร้าง systemd unit แล้ว"
 }
 
-configure_nginx() {
-  step "ตั้งค่า Nginx (reverse proxy + TLS)"
+# ใบรับรองเป็นความลับประจำเครื่อง (private key) -- ห้ามสร้างตอน --stage build ไม่งั้นทุกร้านที่ flash
+# image เดียวกันได้ key เดียวกัน (docs/image-build-plan.md §2) · firstboot ออกด้วย IP ลูกค้าตั้งต้น
+# แล้ว site ออกใหม่ถ้า wizard เปลี่ยนวงลูกค้า
+make_tls_cert() {
+  step "ใบรับรอง HTTPS ของหน้าแอดมิน"
   local lan_ip="${CLIENT_CIDR%%/*}" cert="${ETC_DIR}/tls"  # IP ฝั่งลูกค้า -- cert ครอบคลุม cafe.wifi ที่ลูกค้าเห็น
   run install -d -m 0750 -o root -g "$APP_USER" "$cert"
 
-  # ใบเดิมที่ยังไม่มีชื่อ admin.cafe.wifi (ก่อน 2026-10-03) ต้องออกใหม่ ไม่งั้นเบราว์เซอร์ฟ้องชื่อไม่ตรงทุกครั้ง
-  if [[ -f "${cert}/server.crt" ]] && (( ! DRY_RUN )) \
-     && ! openssl x509 -in "${cert}/server.crt" -noout -ext subjectAltName 2>/dev/null | grep -q "admin.cafe.wifi"; then
-    info "ใบรับรองเดิมไม่มีชื่อ admin.cafe.wifi — ออกใหม่ (เบราว์เซอร์จะเตือนใบรับรองใหม่อีกครั้งหนึ่ง)"
-    mv -f "${cert}/server.crt" "${cert}/server.crt.old"; mv -f "${cert}/server.key" "${cert}/server.key.old"
+  # ใบเดิมที่ยังไม่มีชื่อ admin.cafe.wifi (ก่อน 2026-10-03) หรือไม่มี IP ฝั่งลูกค้าปัจจุบัน ต้องออกใหม่
+  # ไม่งั้นเบราว์เซอร์ฟ้องชื่อไม่ตรงทุกครั้ง
+  local san=""
+  if [[ -f "${cert}/server.crt" ]] && (( ! DRY_RUN )); then
+    san="$(openssl x509 -in "${cert}/server.crt" -noout -ext subjectAltName 2>/dev/null || true)"
+    if [[ "$san" != *"admin.cafe.wifi"* || "$san" != *"IP Address:${lan_ip}"* ]]; then
+      info "ใบรับรองเดิมไม่มีชื่อ admin.cafe.wifi หรือ IP ${lan_ip} — ออกใหม่ (เบราว์เซอร์จะเตือนใบรับรองใหม่อีกครั้งหนึ่ง)"
+      mv -f "${cert}/server.crt" "${cert}/server.crt.old"; mv -f "${cert}/server.key" "${cert}/server.key.old"
+    fi
   fi
   if [[ ! -f "${cert}/server.crt" ]] && (( ! DRY_RUN )); then
     openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
@@ -2033,7 +2124,10 @@ configure_nginx() {
     chmod 0640 "${cert}/server.key"; chown root:"$APP_USER" "${cert}/server.key"
     ok "สร้าง self-signed certificate (825 วัน)"
   fi
+}
 
+configure_nginx() {
+  step "ตั้งค่า Nginx (reverse proxy)"
   local sites=/etc/nginx/conf.d
   [[ -d /etc/nginx/sites-available ]] && sites=/etc/nginx/sites-available
 
@@ -2091,13 +2185,17 @@ NGINX
     run_sh "rm -f /etc/nginx/sites-enabled/default"
     run_sh "ln -sf '${sites}/${APP_NAME}.conf' /etc/nginx/sites-enabled/${APP_NAME}.conf"
   fi
+  return 0
+}
 
+# ตรวจ config + เปิด nginx -- ต้องมีใบรับรองแล้ว (nginx -t ไม่ผ่านถ้าไฟล์ ssl_certificate ยังไม่มี)
+start_nginx() {
   if run_sh "nginx -t >/dev/null 2>&1"; then
     svc enable nginx
     svc restart nginx
     ok "Nginx พร้อม"
   else
-    warn "nginx -t ไม่ผ่าน — ตรวจสอบ ${sites}/${APP_NAME}.conf"
+    warn "nginx -t ไม่ผ่าน — ตรวจสอบด้วย: nginx -t (config ของเราคือ ${APP_NAME}.conf ใน conf.d หรือ sites-available)"
   fi
   return 0
 }
@@ -2205,6 +2303,7 @@ ADMIN_PORT=${ADMIN_PORT}
 FAS_PORT=${FAS_PORT}
 DB_NAME=${DB_NAME}
 ENABLE_PARTITIONS=${ENABLE_PARTITIONS}
+LAST_STAGE=${STAGE}
 STATE
 }
 
@@ -2312,27 +2411,57 @@ main() {
     exec > >(tee -a "${LOG_DIR}/install.log") 2>&1
   fi
 
-  preflight
+  # ช่วงย่อยต้องรันตามลำดับ build -> firstboot -> site (ดู docs/image-build-plan.md §3)
+  case "$STAGE" in
+    firstboot)
+      (( DRY_RUN )) || [[ -x "${VENV_DIR}/bin/python" ]] || die "ยังไม่ได้รัน --stage build (ไม่พบ ${VENV_DIR})" ;;
+    site)
+      (( DRY_RUN )) || [[ -f "${ETC_DIR}/secrets.env" ]] || die "ยังไม่ได้รัน --stage firstboot (ไม่พบ ${ETC_DIR}/secrets.env)"
+      if [[ -z "$NIC" ]] && (( ! SKIP_NETWORK )); then
+        NIC="$(guess_nic)"
+        [[ -n "$NIC" ]] || die "หาอินเทอร์เฟซที่ต่อเราเตอร์ไม่เจอ — ระบุด้วย --nic"
+        info "ใช้อินเทอร์เฟซ ${NIC} (เดาจาก default route — ระบุเองด้วย --nic)"
+      fi ;;
+  esac
+  # ชื่อร้านมาจาก wizard ได้ และถูกเขียนลงไฟล์ที่ครอบด้วย ' (opennds) / อ่านเป็น EnvironmentFile
+  if [[ "$GATEWAY_NAME" == *[\'\"\\\`\$]* || "$GATEWAY_NAME" == *$'\n'* ]]; then
+    die "ชื่อ portal ห้ามมีอักขระ ' \" \\ \` \$ หรือขึ้นบรรทัดใหม่"
+  fi
+  # build ไม่ได้ daemon-reload (chroot) -- เริ่มช่วงถัดไปบนเครื่องจริงต้องให้ systemd อ่าน unit ใหม่ก่อน
+  if [[ "$STAGE" == firstboot || "$STAGE" == site ]] && [[ "$INIT_SYS" == systemd ]]; then
+    run systemctl daemon-reload
+  fi
 
-  create_user_and_dirs
-  ensure_uplink_before_packages   # N37: ย้ายเครื่องมาเครือข่ายใหม่แล้วรันซ้ำต้องไม่ค้างที่ apt/pip
-  install_packages
-  resolve_ssh_port
-  gen_secrets
-  setup_python
-  install_app_files
-  setup_database
-  configure_time
-  configure_backup_usb
-  configure_network
-  configure_ssh
-  build_opennds
-  install_services
-  configure_nginx
-  configure_logrotate
-  start_services
+  # build ข้าม preflight: chroot ของตัวสร้าง image ไม่ใช่เครื่องปลายทาง (อินเทอร์เฟซ/พอร์ต/ดิสก์ไม่ตรงความจริง)
+  if in_stage firstboot site; then preflight; fi
+
+  # ลำดับการเรียกเหมือนเดิมทุกบรรทัด -- --stage all (ค่าปริยาย) จึงทำงานเหมือนก่อนแบ่งช่วงทุกอย่าง
+  create_user_and_dirs                                              # ทุกช่วง (idempotent)
+  if [[ "$STAGE" == all ]]; then ensure_uplink_before_packages; fi  # N37: ย้ายเครื่องมาเครือข่ายใหม่แล้วรันซ้ำต้องไม่ค้างที่ apt/pip
+  if in_stage build;          then install_packages; fi
+  if in_stage firstboot site; then resolve_ssh_port; fi
+  if in_stage firstboot site; then gen_secrets; fi                 # firstboot สร้าง · site อัปเดตค่าเครือข่าย
+  if in_stage build;          then setup_python; fi
+  if in_stage build;          then install_app_files; fi
+  if in_stage firstboot;      then setup_database; fi
+  if in_stage build;          then configure_time; fi
+  if in_stage build;          then configure_backup_usb; fi
+  if in_stage site;           then configure_network; fi
+  if in_stage firstboot;      then configure_ssh; fi
+  if in_stage build;          then build_opennds; fi
+  if in_stage site;           then configure_opennds; fi
+  if in_stage build;          then install_services; fi
+  if in_stage firstboot site; then make_tls_cert; fi
+  if in_stage build;          then configure_nginx; fi
+  if in_stage site;           then start_nginx; fi
+  if in_stage build;          then configure_logrotate; fi
+  if in_stage site;           then start_services; fi
   write_state
-  final_summary
+  if in_stage site; then
+    final_summary
+  else
+    ok "--stage ${STAGE} เสร็จ"
+  fi
 }
 
 main "$@"
