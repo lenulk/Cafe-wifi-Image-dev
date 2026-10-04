@@ -3,6 +3,9 @@
 rm -f "${ROOTFS_DIR}/usr/sbin/policy-rc.d"
 rm -rf "${ROOTFS_DIR}/usr/local/src/cafe-wifi"
 rm -rf "${ROOTFS_DIR}/root/.cache"
+# `make install` ของ openNDS วางไฟล์ตั้งต้น (ไม่มี FAS key ของเรา) ไว้ -- --stage site เขียนใหม่ทั้งไฟล์
+# (configure_opennds) จึงลบได้ และ check-image จะได้ยืนยันว่าไม่มีไฟล์นี้ใน image แบบไม่มีข้อยกเว้น
+rm -f "${ROOTFS_DIR}/etc/config/opennds"
 on_chroot <<'CHROOT'
 apt-get clean
 CHROOT
