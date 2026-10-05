@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cafe-WiFi OS Motion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=block" rel="stylesheet">
+<style>
+/* วิดีโอ motion ของ Cafe-WiFi OS -- ทุกอย่างขับด้วย seek(t) เพื่อให้เรนเดอร์ทีละเฟรมได้แม่นยำ */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f7f1e8;--surface:#fffaf3;--surface2:#efe4d4;--ink:#2b1d14;--ink2:#6b5545;--line:#e2d3bf;
+  --accent:#a8591a;--accent2:#e3a35f;--soft:#f3dfc6;--esp:#2e1e13;--espInk:#f5ebde;--espInk2:#cdb7a0;
+  --ok:#3f7a3d;--okSoft:#e1eedb;--warn:#c0442a;--warnSoft:#f6e0d6;--amber:#c98a1b;--teal:#2aa58a;
+  --sans:"IBM Plex Sans Thai","Leelawadee UI",system-ui,sans-serif;
+  --serif:"Noto Serif Thai","IBM Plex Sans Thai",serif;
+  --disp:"Fraunces",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+html,body{height:100%;background:#0e0a07;overflow:hidden}
+body{color-scheme:light}
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:hidden;background:var(--bg);
+  transform-origin:0 0;font-family:var(--sans);color:var(--ink)}
+.scene{position:absolute;inset:0;display:none}
+.a{position:absolute;will-change:transform,opacity;transform-origin:50% 50%}
+.full{position:absolute;inset:0}
+.blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.55}
+.h1{font-family:var(--serif);font-weight:700;font-size:80px;line-height:1.25;white-space:nowrap}
+.h2{font-family:var(--serif);font-weight:700;font-size:64px;line-height:1.25;white-space:nowrap}
+.kick{font-size:34px;font-weight:600;color:var(--accent);white-space:nowrap}
+.en{font-size:30px;font-weight:500;color:var(--ink2);white-space:nowrap}
+.center{left:0;width:1920px;text-align:center}
+.card{background:var(--surface);border:2px solid var(--line);border-radius:28px;box-shadow:0 2px 4px rgba(60,35,15,.06),0 24px 60px rgba(60,35,15,.12)}
+.pill{display:inline-flex;align-items:center;gap:14px;border-radius:999px;padding:14px 30px;font-weight:600;white-space:nowrap}
+.phone{position:absolute;background:#1a1410;border-radius:58px;padding:18px;box-shadow:0 40px 90px rgba(46,30,19,.35),inset 0 0 0 3px #3a2c22}
+.screen{position:relative;width:100%;height:100%;border-radius:42px;overflow:hidden;background:#fff}
+.notch{position:absolute;left:50%;top:12px;width:120px;height:30px;margin-left:-60px;background:#1a1410;border-radius:20px;z-index:20}
+.layer{position:absolute;inset:0}
+.mono{font-family:var(--mono)}
+svg{overflow:visible}
+/* ฉาก 3 terminal */
+.term{background:#1d1612;border-radius:22px;overflow:hidden;box-shadow:0 30px 70px rgba(30,18,10,.35)}
+.term .bar{height:52px;background:#2b211b;display:flex;align-items:center;gap:12px;padding-left:22px}
+.term .bar i{width:16px;height:16px;border-radius:50%;display:block}
+.term .body{position:absolute;left:0;right:0;top:52px;bottom:0;overflow:hidden;padding:18px 26px}
+.term .ln{font-family:var(--mono);font-size:22px;line-height:34px;color:#e9dccb;white-space:nowrap}
+.term .ln.err{color:#ff8a70}
+.term .ln .p{color:#7bd389}
+/* ฉาก 5 */
+.step{width:440px;height:76px;border-radius:999px;display:flex;align-items:center;gap:16px;padding:0 26px;font-size:30px;font-weight:600;
+  background:var(--surface);border:2px solid var(--line);color:var(--ink2);white-space:nowrap}
+.step b{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--surface2);color:var(--ink2);font-size:24px;flex:none}
+.step.on{background:var(--accent);border-color:var(--accent);color:#fffaf3}
+.step.on b{background:#fffaf3;color:var(--accent)}
+.step.done{background:var(--okSoft);border-color:#c7dcbf;color:var(--ok)}
+.step.done b{background:var(--ok);color:#fff}
+.chk{display:flex;align-items:center;gap:22px;font-size:34px;font-weight:500;white-space:nowrap}
+.chk .c{width:54px;height:54px;border-radius:50%;border:3px solid var(--line);display:grid;place-items:center;font-size:24px;font-weight:700;color:var(--ink2);background:var(--surface);flex:none;position:relative}
+.chk .c svg{position:absolute;inset:-3px;width:54px;height:54px}
+.chk small{display:block;font-size:24px;color:var(--ink2);font-weight:400}
+/* ฉาก 6 */
+.wrow{display:flex;align-items:center;gap:16px;padding:22px 26px;border-bottom:1px solid #eee;font-size:24px;color:#222}
+.wrow .nm{flex:1}
+.wrow .st{display:block;font-size:17px;color:#2aa58a;height:20px}
+.bul{display:flex;align-items:center;gap:22px;font-size:38px;font-weight:500;white-space:nowrap}
+.bul b{width:58px;height:58px;border-radius:50%;background:var(--surface2);color:var(--ink2);display:grid;place-items:center;font-size:28px;flex:none}
+.bul.on b{background:var(--accent);color:#fff}
+/* ฉาก 7 */
+.node{position:absolute;width:180px;height:180px;margin:-90px 0 0 -90px;border-radius:50%;background:var(--surface);border:3px solid var(--line);
+  display:grid;place-items:center;box-shadow:0 18px 40px rgba(60,35,15,.12)}
+.nlabel{position:absolute;width:360px;margin-left:-180px;text-align:center;font-size:30px;font-weight:600;color:var(--ink2)}
+.adm{background:#1e2023;border-radius:30px;color:#e8e6e3;box-shadow:0 30px 80px rgba(20,14,10,.35)}
+.btn{position:absolute;height:84px;border-radius:18px;display:grid;place-items:center;font-size:30px;font-weight:600;white-space:nowrap}
+/* ฉาก 8 */
+.row{position:absolute;left:30px;right:30px;height:58px;display:grid;grid-template-columns:150px 220px 1fr 250px 40px;align-items:center;
+  font-size:26px;border-bottom:1px solid var(--line);white-space:nowrap}
+.row .mono{font-size:23px}
+/* ฉาก 9 */
+.stat{position:absolute;top:400px;width:380px;height:360px;text-align:center;padding-top:36px}
+.stat .ico{width:64px;height:64px;margin:0 auto;color:var(--accent)}
+.stat .num{font-family:var(--disp);font-weight:700;font-size:112px;line-height:1.15;color:var(--accent);white-space:nowrap}
+.stat .num small{font-family:var(--sans);font-size:40px;font-weight:600;margin-left:8px;color:var(--ink)}
+.stat .lb{font-size:31px;font-weight:600;white-space:nowrap}
+.stat .le{font-size:24px;color:var(--ink2);white-space:nowrap}
+/* ตัวควบคุมตอนพรีวิว */
+#ctl{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;gap:14px;padding:0 16px;background:#1b1410;color:#f5ebde;font:14px var(--sans)}
+#ctl button{background:#a8591a;color:#fff;border:0;border-radius:8px;padding:8px 16px;font:600 14px var(--sans);cursor:pointer}
+#ctl input{flex:1;accent-color:#e3a35f}
+#ctl span{font-family:var(--mono);min-width:110px}
+.render #ctl{display:none}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2.5h6"/></symbol>
+  <symbol id="i-cut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.2 7.8L20 18M8.2 16.2L20 6"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><circle cx="8.5" cy="11" r="2.3"/><path d="M5 16a3.8 3.8 0 0 1 7 0M14.5 10h4.5M14.5 13.5h3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18"/></symbol>
+  <symbol id="i-logs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol>
+  <symbol id="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#3d2a1c"/><path d="M8 14h13v5a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6z" fill="#e3a35f"/><path d="M21 15.5h1.5a2.5 2.5 0 0 1 0 5H21" stroke="#e3a35f" stroke-width="2" fill="none"/><path d="M10 10a8 8 0 0 1 9 0M12 7.5a5 5 0 0 1 5 0" stroke="#e3a35f" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+</svg>
+
+<div id="stage">
+  <!-- พื้นหลังร่วม -->
+  <div class="full" id="bgl">
+    <div class="blob" id="b1" style="width:760px;height:760px;background:#f0cfa6;left:-200px;top:-260px"></div>
+    <div class="blob" id="b2" style="width:640px;height:640px;background:#ead9c2;left:1400px;top:560px"></div>
+    <div class="blob" id="b3" style="width:520px;height:520px;background:#f4dcc0;left:900px;top:-200px"></div>
+  </div>
+
+  <!-- ============ ฉาก 1: Hook ============ -->
+  <div class="scene" id="s1">
+    <svg id="s1cup" class="a" style="left:760px;top:250px;width:400px;height:400px" viewBox="0 0 400 400">
+      <ellipse cx="200" cy="350" rx="165" ry="24" fill="#e2d3bf"/>
+      <path d="M95 200h210v55a105 105 0 0 1-105 105a105 105 0 0 1-105-105z" fill="#fffaf3" stroke="#2e1e13" stroke-width="11" stroke-linejoin="round"/>
+      <path d="M306 218h16a38 38 0 0 1 0 76h-24" fill="none" stroke="#2e1e13" stroke-width="11" stroke-linecap="round"/>
+      <ellipse cx="200" cy="203" rx="99" ry="13" fill="#6b3e1f"/>
+      <g id="s1steam" fill="none" stroke="#c9a27c" stroke-width="10" stroke-linecap="round">
+        <path class="stm" d="M160 178c-18-25 18-40 0-62c-18-25 18-40 0-62"/>
+        <path class="stm" d="M200 178c-18-25 18-40 0-62c-18-25 18-40 0-62"/>
+        <path class="stm" d="M240 178c-18-25 18-40 0-62c-18-25 18-40 0-62"/>
+      </g>
+      <g id="s1wifi" fill="none" stroke="#a8591a" stroke-width="17" stroke-linecap="round">
+        <circle id="s1dot" cx="200" cy="168" r="14" fill="#a8591a" stroke="none"/>
+        <path class="arc" d="M171.7 139.7A40 40 0 0 1 228.3 139.7"/>
+        <path class="arc" d="M143.4 111.4A80 80 0 0 1 256.6 111.4"/>
+        <path class="arc" d="M115.1 83.1A120 120 0 0 1 284.9 83.1"/>
+      </g>
+    </svg>
+    <div class="a h1" id="s1t1" style="left:960px;top:340px">ร้านคุณมี Wi-Fi ฟรี</div>
+    <div class="a h1" id="s1t2" style="left:960px;top:450px;color:var(--accent)">ให้ลูกค้าใช่ไหม?</div>
+    <div class="a en" id="s1en" style="left:964px;top:590px">Free Wi-Fi for your café customers?</div>
+  </div>
+
+  <!-- ============ ฉาก 2: ปัญหา (กฎหมาย) ============ -->
+  <div class="scene" id="s2">
+    <div class="a card" id="s2doc" style="left:220px;top:200px;width:560px;height:700px;padding:56px 54px">
+      <div style="display:flex;align-items:center;gap:18px">
+        <div style="width:70px;height:70px;border-radius:50%;border:4px solid var(--accent);display:grid;place-items:center;color:var(--accent);font:700 30px var(--serif)">§</div>
+        <div style="font-size:30px;font-weight:600;color:var(--ink2);line-height:1.3">พ.ร.บ.คอมพิวเตอร์ฯ<br><span style="font-size:22px;font-weight:500">พ.ศ. 2550</span></div>
+      </div>
+      <div style="font:700 104px var(--serif);color:var(--accent);margin:34px 0 26px;line-height:1.1">มาตรา 26</div>
+      <div style="height:16px;background:var(--line);border-radius:8px;width:100%;margin-bottom:22px"></div>
+      <div style="height:16px;background:var(--line);border-radius:8px;width:88%;margin-bottom:22px"></div>
+      <div style="position:relative;height:52px;margin:6px 0 22px">
+        <div id="s2hl" style="position:absolute;left:-10px;top:0;height:52px;width:0;background:#f6d9a8;border-radius:10px"></div>
+        <div style="position:relative;font-size:30px;font-weight:600;line-height:52px;white-space:nowrap">เก็บข้อมูลจราจร ≥ 90 วัน</div>
+      </div>
+      <div style="height:16px;background:var(--line);border-radius:8px;width:94%;margin-bottom:22px"></div>
+      <div style="position:relative;height:52px;margin:6px 0 22px">
+        <div id="s2hl2" style="position:absolute;left:-10px;top:0;height:52px;width:0;background:#f6d9a8;border-radius:10px"></div>
+        <div style="position:relative;font-size:30px;font-weight:600;line-height:52px;white-space:nowrap">ระบุตัวผู้ใช้บริการได้</div>
+      </div>
+      <div style="height:16px;background:var(--line);border-radius:8px;width:70%"></div>
+    </div>
+    <div class="a" id="s2ring" style="left:640px;top:150px;width:160px;height:160px;border-radius:50%;border:8px solid var(--accent)"></div>
+    <svg class="a" id="s2gavel" style="left:600px;top:20px;width:330px;height:330px;transform-origin:88% 88%" viewBox="0 0 330 330">
+      <path d="M290 290L150 150" stroke="#6b3e1f" stroke-width="26" stroke-linecap="round"/>
+      <g transform="rotate(-45 120 120)"><rect x="40" y="88" width="160" height="64" rx="16" fill="#2e1e13"/><rect x="28" y="80" width="26" height="80" rx="8" fill="#a8591a"/><rect x="186" y="80" width="26" height="80" rx="8" fill="#a8591a"/></g>
+    </svg>
+    <div class="a kick" id="s2k" style="left:930px;top:200px">ร้านที่เปิด Wi-Fi ให้ลูกค้า มีหน้าที่ตามกฎหมาย</div>
+    <div class="a h2" id="s2h" style="left:930px;top:260px">ต้องเก็บข้อมูลจราจร</div>
+    <div class="a" id="s2cnt" style="left:930px;top:360px;display:flex;align-items:baseline;gap:26px;white-space:nowrap">
+      <span style="font-size:44px;font-weight:600;color:var(--ink2)">อย่างน้อย</span>
+      <span id="s2num" style="font:700 220px/1 var(--disp);color:var(--accent);min-width:270px;display:inline-block">90</span>
+      <span style="font:700 72px var(--serif)">วัน</span>
+    </div>
+    <div class="a" id="s2l2" style="left:930px;top:660px;display:flex;align-items:center;gap:26px;white-space:nowrap">
+      <svg style="width:86px;height:86px;color:var(--accent)"><use href="#i-id"/></svg>
+      <span class="h2" style="font-size:58px">และต้องระบุตัวผู้ใช้ได้</span>
+    </div>
+    <div class="a en" id="s2en" style="left:930px;top:790px">Computer Crime Act §26 — keep traffic data ≥ 90 days<br>and be able to identify every user.</div>
+  </div>
+
+  <!-- ============ ฉาก 3: ทางตัน ============ -->
+  <div class="scene" id="s3">
+    <div class="full" style="background:var(--surface2)"></div>
+    <div class="a" id="s3div" style="left:958px;top:150px;width:4px;height:780px;background:var(--line);border-radius:2px"></div>
+    <div class="a" id="s3router" data-art="router" style="left:300px;top:250px;width:400px;height:280px;color:#2e1e13"></div>
+    <svg class="a" id="s3x" style="left:330px;top:220px;width:340px;height:340px" viewBox="0 0 340 340">
+      <path d="M40 40L300 300" stroke="#c0442a" stroke-width="34" stroke-linecap="round"/>
+      <path d="M300 40L40 300" stroke="#c0442a" stroke-width="34" stroke-linecap="round"/>
+    </svg>
+    <div class="a" id="s3c1" style="left:100px;top:620px;width:800px;text-align:center">
+      <div class="h2" style="font-size:58px">เราเตอร์ทั่วไป</div>
+      <div style="font-size:40px;font-weight:600;color:var(--warn);margin-top:8px">เก็บ log ตามกฎหมายไม่ได้</div>
+      <div class="en" style="margin-top:14px">Ordinary routers can't keep the logs</div>
+    </div>
+    <div class="a term" id="s3term" style="left:1030px;top:200px;width:780px;height:400px">
+      <div class="bar"><i style="background:#ff6b5a"></i><i style="background:#f6c04f"></i><i style="background:#62c26b"></i></div>
+      <div class="body"><div id="s3lines"></div></div>
+    </div>
+    <div class="a" id="s3c2" style="left:1020px;top:620px;width:800px;text-align:center">
+      <div class="h2" style="font-size:58px">ระบบสำเร็จรูปส่วนใหญ่</div>
+      <div style="font-size:40px;font-weight:600;color:var(--warn);margin-top:8px">ต้องใช้ช่างที่ถนัด Linux</div>
+      <div class="en" style="margin-top:14px">Most turnkey systems need a Linux technician</div>
+    </div>
+  </div>
+
+  <!-- ============ ฉาก 4: เปิดตัว ============ -->
+  <div class="scene" id="s4">
+    <div class="full" style="background:radial-gradient(1200px 700px at 50% 35%,#4a3020,#2e1e13 70%)"></div>
+    <div class="a" id="s4r1" style="left:760px;top:130px;width:400px;height:400px;border-radius:50%;border:3px solid #e3a35f"></div>
+    <div class="a" id="s4r2" style="left:760px;top:130px;width:400px;height:400px;border-radius:50%;border:3px solid #e3a35f"></div>
+    <div class="a" id="s4grp" style="left:0;top:0;width:1920px;height:700px;transform-origin:960px 220px">
+      <svg class="a" id="s4logo" style="left:860px;top:180px;width:200px;height:200px"><use href="#logo"/></svg>
+      <div class="a" id="s4word" style="left:0;top:400px;width:1920px;text-align:center;font:700 128px/1.1 var(--disp);color:var(--espInk);white-space:nowrap"></div>
+      <div class="a" id="s4tag" style="left:0;top:565px;width:1920px;text-align:center;font-size:44px;font-weight:500;color:var(--espInk2);white-space:nowrap">Wi-Fi ร้านกาแฟ ที่เก็บ log ถูกกฎหมาย</div>
+    </div>
+    <svg class="a" id="s4cable" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <path id="s4path" d="M749 671C900 790 1080 790 1220 662" fill="none" stroke="#e3a35f" stroke-width="12" stroke-linecap="round"/>
+    </svg>
+    <div class="a" id="s4pi" data-art="pi" style="left:420px;top:500px;width:333px;height:216px"></div>
+    <div class="a" id="s4router" data-art="router" style="left:1160px;top:480px;width:360px;height:252px;color:#6b4a35"></div>
+    <div class="a" id="s4lab" style="left:0;top:800px;width:1920px;text-align:center;font:700 62px var(--serif);color:var(--espInk);white-space:nowrap">Pi ตัวเดียว · สาย LAN เส้นเดียว</div>
+    <div class="a" id="s4en" style="left:0;top:900px;width:1920px;text-align:center;font-size:32px;color:var(--espInk2);white-space:nowrap">One Raspberry Pi · one LAN cable · keep the shop's router</div>
+  </div>
+
+  <!-- ============ ฉาก 5: ติดตั้ง ============ -->
+  <div class="scene" id="s5">
+    <div class="a" style="left:120px;top:60px;display:flex;gap:26px" id="s5steps">
+      <div class="step" id="s5p1"><b>1</b>Flash การ์ด SD</div>
+      <div class="step" id="s5p2"><b>2</b>เสียบสาย LAN</div>
+      <div class="step" id="s5p3"><b>3</b>ตั้งค่าจากมือถือ</div>
+    </div>
+    <div class="a pill" id="s5timer" style="left:1530px;top:64px;background:var(--esp);color:var(--espInk);font-size:30px;padding:14px 28px">
+      <svg style="width:34px;height:34px;color:var(--accent2)"><use href="#i-clock"/></svg><span class="mono" id="s5tt">0:00</span>
+    </div>
+    <svg class="a" id="s5cable" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <path id="s5path" d="M672 544C860 770 1080 770 1267 592" fill="none" stroke="#a8591a" stroke-width="13" stroke-linecap="round"/>
+      <g id="s5dots" fill="#e3a35f"></g>
+    </svg>
+    <svg class="a" id="s5sd" style="left:250px;top:420px;width:170px;height:120px" viewBox="0 0 170 120">
+      <path d="M0 10a10 10 0 0 1 10-10h150a10 10 0 0 1 10 10v100a10 10 0 0 1-10 10H34L0 86z" fill="#2e1e13"/>
+      <rect x="30" y="22" width="110" height="76" rx="8" fill="#e3a35f"/>
+      <text x="85" y="58" text-anchor="middle" font-family="Fraunces,serif" font-weight="700" font-size="17" fill="#2e1e13">Cafe-WiFi</text>
+      <text x="85" y="80" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="13" fill="#2e1e13">OS 1.1.0</text>
+    </svg>
+    <div class="a" id="s5pi" data-art="pi" style="left:690px;top:300px;width:555px;height:360px;transform-origin:0 0"></div>
+    <div class="a" id="s5flash" style="left:540px;top:330px;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,#ffe2a8 0,rgba(255,226,168,0) 70%)"></div>
+    <div class="a" id="s5router" data-art="router" style="left:1180px;top:330px;width:520px;height:364px;color:#2e1e13"></div>
+    <div class="a center" id="s5c1" style="top:830px"><div class="h2" style="font-size:56px">Flash image ลงการ์ด แล้วเสียบเข้า Pi</div><div class="en" style="margin-top:10px">Flash the image to a microSD card and insert it</div></div>
+    <div class="a center" id="s5c2" style="top:830px"><div class="h2" style="font-size:56px">สาย LAN เส้นเดียว เข้าเราเตอร์เดิมของร้าน</div><div class="en" style="margin-top:10px">One cable into the router you already have</div></div>
+    <div class="phone" id="s5phone" style="left:470px;top:180px;width:420px;height:860px">
+      <div class="screen"><div class="notch"></div>
+        <div class="layer" id="s5w1" style="background:#fff"><img src="../../image/public/img/wizard-3-network.jpg" style="width:445px;margin-top:36px"></div>
+        <div class="layer" id="s5w2" style="background:#fff"><img src="../../image/public/img/wizard-4-router-check.jpg" style="width:445px;margin-top:36px"></div>
+        <div class="layer" id="s5w3" style="background:#fff"><img src="../../image/public/img/wizard-4-router-ok.jpg" style="width:445px;margin-top:36px"></div>
+      </div>
+    </div>
+    <div class="a" id="s5wt" style="left:1000px;top:190px">
+      <div class="h2" style="font-size:56px">Wizard 5 ขั้น บนเว็บ</div>
+      <div class="en" style="margin-top:6px">A 5-step web wizard — no command line</div>
+    </div>
+    <div id="s5list">
+      <div class="a chk" id="s5i1" style="left:1000px;top:360px"><div class="c">1<svg class="ck"><use href="#i-check"/></svg></div>รหัสติดตั้ง</div>
+      <div class="a chk" id="s5i2" style="left:1000px;top:450px"><div class="c">2<svg class="ck"><use href="#i-check"/></svg></div>บัญชีแอดมิน</div>
+      <div class="a chk" id="s5i3" style="left:1000px;top:540px"><div class="c">3<svg class="ck"><use href="#i-check"/></svg></div>เครือข่ายและข้อมูลร้าน</div>
+      <div class="a chk" id="s5i4" style="left:1000px;top:630px"><div class="c">4<svg class="ck"><use href="#i-check"/></svg></div><div>ตรวจเราเตอร์ให้อัตโนมัติ<small>DHCP และ IPv6 ของเราเตอร์ ปิดแล้วจริง</small></div></div>
+      <div class="a chk" id="s5i5" style="left:1000px;top:750px"><div class="c">5<svg class="ck"><use href="#i-check"/></svg></div>บันทึก</div>
+    </div>
+    <div class="a pill" id="s5ready" style="left:1000px;top:860px;background:var(--okSoft);color:var(--ok);font-size:40px;padding:18px 36px">
+      <svg style="width:46px;height:46px"><use href="#i-check"/></svg>พร้อมใช้งานใน ~6 นาที
+    </div>
+  </div>
+
+  <!-- ============ ฉาก 6: ลูกค้า ============ -->
+  <div class="scene" id="s6">
+    <div class="phone" id="s6phone" style="left:340px;top:100px;width:440px;height:880px">
+      <div class="screen" style="background:#f2f2f6"><div class="notch"></div>
+        <div class="layer" id="s6wifi" style="background:#f2f2f6;padding-top:70px">
+          <div style="font:700 40px var(--sans);padding:0 26px 18px">Wi-Fi</div>
+          <div style="margin:0 16px;background:#fff;border-radius:18px;overflow:hidden">
+            <div class="wrow" id="s6row" style="position:relative"><span class="nm">Baan Cafe Lab<span class="st" id="s6st"></span></span><svg style="width:30px;height:30px;color:#333"><use href="#wf"/></svg></div>
+            <div class="wrow"><span class="nm">Home_5G</span>🔒</div>
+            <div class="wrow"><span class="nm">AIS Fibre</span>🔒</div>
+            <div class="wrow" style="border:0"><span class="nm">TRUE-H 2.4G</span>🔒</div>
+          </div>
+          <div id="s6tap" style="position:absolute;left:160px;top:150px;width:90px;height:90px;border-radius:50%;background:rgba(42,165,138,.35)"></div>
+        </div>
+        <div class="layer" id="s6portal" style="background:#16181b">
+          <div style="position:absolute;left:2px;top:90px;width:900px;height:1468px;transform:scale(.447);transform-origin:0 0">
+            <img src="../../image/public/img/portal-register.jpg" style="width:900px;height:1468px;display:block">
+            <div style="position:absolute;left:135px;top:630px;width:480px;height:100px;background:#111417"></div>
+            <div id="s6dots" class="mono" style="position:absolute;left:150px;top:640px;font-size:50px;line-height:80px;color:#eaeaea;letter-spacing:4px"></div>
+            <div style="position:absolute;left:700px;top:748px;width:80px;height:44px;background:#1b1d20"></div>
+            <div id="s6cnt" style="position:absolute;left:700px;top:750px;font-size:28px;color:#9aa0a6">0/13</div>
+            <div id="s6box" style="position:absolute;left:133px;top:833px;width:38px;height:38px;border-radius:7px;background:#2aa58a;display:grid;place-items:center">
+              <svg viewBox="0 0 24 24" style="width:30px;height:30px"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div id="s6btn" style="position:absolute;left:123px;top:1090px;width:654px;height:115px;border-radius:18px;background:#fff"></div>
+          </div>
+        </div>
+        <div class="layer" id="s6wait" style="background:#16181b;color:#eaeaea;text-align:center;padding-top:200px">
+          <svg id="s6hg" viewBox="0 0 24 24" style="width:96px;height:96px;color:#e3a35f" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/></svg>
+          <div style="font-size:26px;color:#9aa0a6;margin-top:36px">รหัสคำขอของคุณ</div>
+          <div class="mono" style="font-size:104px;font-weight:600;color:#e3a35f;letter-spacing:10px;line-height:1.2">4821</div>
+          <div style="font-size:23px;color:#c9c9c9;line-height:1.5;margin-top:14px">แสดงรหัสนี้ให้พนักงาน<br>พร้อมบัตรประชาชนตัวจริง</div>
+          <div id="s6wt" style="font-size:24px;color:#2aa58a;margin-top:40px;font-weight:600">รอพนักงานอนุมัติ</div>
+        </div>
+        <div id="s6ban" style="position:absolute;left:14px;right:14px;top:56px;height:96px;border-radius:22px;background:rgba(255,255,255,.96);box-shadow:0 10px 30px rgba(0,0,0,.18);display:flex;align-items:center;gap:16px;padding:0 20px;font-size:21px;z-index:10">
+          <div style="width:52px;height:52px;border-radius:14px;background:#2aa58a;display:grid;place-items:center;color:#fff;flex:none"><svg style="width:30px;height:30px"><use href="#wf"/></svg></div>
+          <div><b>ลงชื่อเข้าใช้เครือข่าย Wi-Fi</b><br><span style="color:#666">Baan Cafe Lab</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="a kick" id="s6k" style="left:900px;top:150px">ลูกค้า · Customers</div>
+    <div class="a h2" id="s6h" style="left:900px;top:205px">ลงทะเบียนเองที่หน้า portal</div>
+    <div class="a bul" id="s6b1" style="left:900px;top:370px"><b>1</b>ต่อ Wi-Fi ร้าน — หน้าลงทะเบียนเด้งขึ้นเอง</div>
+    <div class="a bul" id="s6b2" style="left:900px;top:470px"><b>2</b>กรอกเลขบัตรประชาชน + กดยินยอม</div>
+    <div class="a bul" id="s6b3" style="left:900px;top:570px"><b>3</b>ได้รหัสคำขอ ยื่นให้พนักงานพร้อมบัตร</div>
+    <div class="a pill" id="s6tag" style="left:900px;top:710px;background:var(--okSoft);color:var(--ok);font-size:40px;padding:18px 38px">
+      <svg style="width:46px;height:46px"><use href="#i-check"/></svg>ไม่ต้องแจกรหัส Wi-Fi อีกต่อไป
+    </div>
+    <div class="a en" id="s6en" style="left:904px;top:840px">Customers sign up on the captive portal —<br>no Wi-Fi password to hand out.</div>
+  </div>
+
+  <!-- ============ ฉาก 7: พนักงาน ============ -->
+  <div class="scene" id="s7">
+    <div class="a h2" id="s7h" style="left:120px;top:56px">พนักงานคุมได้จากมือถือ</div>
+    <div class="a en" id="s7en" style="left:124px;top:150px">Approve, extend or revoke — from any phone in the shop</div>
+    <svg class="a" id="s7lines" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <path d="M420 400H870" stroke="#d9c6ad" stroke-width="10" stroke-linecap="round"/>
+      <path id="s7l2" d="M1050 400H1500" stroke="#d9c6ad" stroke-width="10" stroke-linecap="round" stroke-dasharray="4 22"/>
+      <path id="s7g" d="M1050 400H1500" stroke="#3f9a45" stroke-width="12" stroke-linecap="round"/>
+      <path id="s7r" d="M1050 400H1240M1310 400H1500" stroke="#c0442a" stroke-width="12" stroke-linecap="round"/>
+      <g id="s7d1" fill="#a8591a"></g><g id="s7d2" fill="#7bd389"></g>
+    </svg>
+    <div class="node" style="left:330px;top:400px"><svg style="width:84px;height:84px;color:var(--ink)"><use href="#i-phone"/></svg></div>
+    <div class="nlabel" style="left:330px;top:510px">มือถือลูกค้า</div>
+    <div class="a" id="s7badge" style="left:385px;top:300px;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 36px var(--sans)"></div>
+    <div class="node" style="left:960px;top:400px;border-color:#a8591a"><div data-art="pi" style="width:130px;height:84px"></div></div>
+    <div class="nlabel" style="left:960px;top:510px">Raspberry Pi</div>
+    <div class="node" id="s7net" style="left:1590px;top:400px"><svg style="width:96px;height:96px;color:var(--ink)"><use href="#i-globe"/></svg></div>
+    <div class="nlabel" style="left:1590px;top:510px">อินเทอร์เน็ต</div>
+    <div class="a" id="s7lock" style="left:1243px;top:368px;width:64px;height:64px;border-radius:50%;background:var(--surface);border:3px solid #d9c6ad;display:grid;place-items:center;color:var(--ink2)"><svg style="width:34px;height:34px"><use href="#i-lock"/></svg></div>
+    <div class="a" id="s7x" style="left:1239px;top:364px;width:72px;height:72px;border-radius:50%;background:var(--warn);display:grid;place-items:center;color:#fff;font:700 40px var(--sans)">✕</div>
+    <div class="a pill" id="s7timer" style="left:1100px;top:240px;background:var(--warnSoft);color:var(--warn);font-size:30px">
+      <svg style="width:34px;height:34px"><use href="#i-cut"/></svg><span id="s7tt">ตัดเน็ตใน 0.0 วิ</span>
+    </div>
+    <div class="a adm" id="s7card" style="left:360px;top:600px;width:1200px;height:380px">
+      <div style="position:absolute;left:40px;top:28px;font-size:24px;color:#9aa0a6">Baan Cafe Lab · Admin &nbsp;›&nbsp; <span style="color:#e8e6e3">คำขอใช้งาน</span></div>
+      <div style="position:absolute;left:40px;top:92px;width:86px;height:86px;border-radius:50%;background:#2c2f33;display:grid;place-items:center;color:#cdb7a0"><svg style="width:48px;height:48px"><use href="#i-person"/></svg></div>
+      <div style="position:absolute;left:150px;top:88px;font-size:44px;font-weight:600">รหัสคำขอ <span class="mono" style="color:#e3a35f">4821</span></div>
+      <div style="position:absolute;left:150px;top:150px;font-size:24px;color:#9aa0a6">มือถือ Android · ขอเมื่อ 14:02 · ตรวจบัตรตัวจริงแล้ว</div>
+      <div class="pill" id="s7st" style="position:absolute;right:40px;top:100px;font-size:28px;padding:12px 26px"></div>
+      <div class="btn" id="s7a1" style="left:40px;top:250px;width:310px;background:#3f9a45;color:#fff">อนุมัติ 2 ชม.</div>
+      <div class="btn" id="s7a2" style="left:370px;top:250px;width:200px;border:2px solid #4a4d52;color:#e8e6e3">ปฏิเสธ</div>
+      <div class="btn" id="s7b1" style="left:40px;top:250px;width:310px;border:2px solid #4a4d52;color:#e8e6e3">ต่อเวลา +1 ชม.</div>
+      <div class="btn" id="s7b2" style="left:370px;top:250px;width:220px;background:#c0442a;color:#fff">ปิดสิทธิ์</div>
+    </div>
+    <div class="a" id="s7cur" style="left:0;top:0;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:rgba(255,255,255,.55);border:4px solid #fff;box-shadow:0 6px 20px rgba(0,0,0,.35)"></div>
+    <div class="a" id="s7rip" style="left:0;top:0;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;border:4px solid #fff"></div>
+  </div>
+
+  <!-- ============ ฉาก 8: หลักฐาน ============ -->
+  <div class="scene" id="s8">
+    <div class="a h2" id="s8h" style="left:120px;top:56px">ทุกการเชื่อมต่อถูกบันทึก</div>
+    <div class="a" id="s8sub" style="left:122px;top:150px;font-size:38px;font-weight:600;color:var(--accent);white-space:nowrap">ผูกกับตัวผู้ใช้ · ตรวจความครบถ้วนด้วย hash</div>
+    <div class="a en" id="s8en" style="left:124px;top:208px">Connection + DNS logs, tied to each user and hash-checked</div>
+    <div id="s8pk"></div>
+    <div class="a" id="s8pi" data-art="pi" style="left:250px;top:520px;width:259px;height:168px"></div>
+    <div class="a" style="left:250px;top:705px;width:259px;text-align:center;font-size:28px;font-weight:600;color:var(--ink2)" id="s8pil">Raspberry Pi</div>
+    <div class="a card" id="s8card" style="left:690px;top:300px;width:1120px;height:620px;transform-origin:50% 50%">
+      <div style="position:absolute;left:30px;top:24px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600"><svg style="width:40px;height:40px;color:var(--accent)"><use href="#i-logs"/></svg>log การเชื่อมต่อ + DNS</div>
+      <div class="row" style="top:84px;color:var(--ink2);font-size:22px;font-weight:600"><span>เวลา</span><span>ผู้ใช้</span><span>ปลายทาง</span><span>hash</span><span></span></div>
+      <div id="s8rows"></div>
+    </div>
+    <svg class="a" id="s8folder" style="left:1060px;top:360px;width:400px;height:320px" viewBox="0 0 400 320">
+      <path d="M20 60a20 20 0 0 1 20-20h110l30 34h180a20 20 0 0 1 20 20v186a20 20 0 0 1-20 20H40a20 20 0 0 1-20-20z" fill="#a8591a"/>
+      <rect x="20" y="100" width="360" height="200" rx="20" fill="#c9752f"/>
+      <g transform="translate(200 200)" fill="none" stroke="#fffaf3" stroke-width="9" stroke-linecap="round"><rect x="-34" y="-12" width="68" height="54" rx="8"/><path d="M-20 -12v-14a20 20 0 0 1 40 0v14"/></g>
+    </svg>
+    <div class="a" id="s8fl" style="left:1060px;top:690px;width:400px;text-align:center;font-size:32px;font-weight:600;white-space:nowrap">ไฟล์หลักฐาน</div>
+    <div class="a" id="s8stamp" style="left:1300px;top:300px;padding:16px 30px;border:7px solid var(--warn);border-radius:16px;color:var(--warn);font:700 40px var(--serif);white-space:nowrap;background:rgba(255,250,243,.85)">ส่งออกได้เมื่อมีหมายศาล</div>
+    <div class="a pill" id="s8c1" style="left:700px;top:830px;background:var(--esp);color:var(--espInk);font-size:32px">เก็บ ≥ 90 วัน (ตั้งได้)</div>
+    <div class="a pill" id="s8c2" style="left:1100px;top:830px;background:var(--esp);color:var(--espInk);font-size:32px">ลบข้อมูลเก่าให้อัตโนมัติ</div>
+  </div>
+
+  <!-- ============ ฉาก 9: ตัวเลข ============ -->
+  <div class="scene" id="s9">
+    <div class="a h1 center" id="s9h" style="top:130px;font-size:76px">ทดสอบบน Raspberry Pi 4B จริงแล้ว</div>
+    <div class="a en center" id="s9en" style="top:250px">Tested end-to-end on real hardware · v1.1.0</div>
+    <div class="a card stat" id="s9c1" style="left:140px"><svg class="ico"><use href="#i-check"/></svg><div class="num" id="s9n1">49/49</div><div class="lb">ทดสอบทั้งระบบผ่าน</div><div class="le">end-to-end tests passed</div></div>
+    <div class="a card stat" id="s9c2" style="left:560px"><svg class="ico"><use href="#i-clock"/></svg><div class="num"><span id="s9n2">~6</span><small>นาที</small></div><div class="lb">เสียบไฟจนพร้อมใช้</div><div class="le">power-on to ready</div></div>
+    <div class="a card stat" id="s9c3" style="left:980px"><svg class="ico"><use href="#i-cut"/></svg><div class="num"><span id="s9n3">~7–8</span><small>วิ</small></div><div class="lb">ปิดสิทธิ์แล้วเน็ตถูกตัด</div><div class="le">revoke to cut-off</div></div>
+    <div class="a card stat" id="s9c4" style="left:1400px"><svg class="ico"><use href="#i-key"/></svg><div class="num" id="s9n4">0</div><div class="lb">ความลับในไฟล์ image</div><div class="le">secrets inside the image</div></div>
+    <div class="a center" id="s9f" style="top:830px;font-size:32px;color:var(--ink2)">กุญแจและรหัสลับ 12 ชุด สร้างใหม่บนเครื่องร้านตอนบูตครั้งแรก</div>
+  </div>
+
+  <!-- ============ ฉาก 10: CTA ============ -->
+  <div class="scene" id="s10">
+    <div class="full" style="background:radial-gradient(1200px 700px at 50% 40%,#4a3020,#2e1e13 70%)"></div>
+    <div class="a" id="s10r" style="left:810px;top:60px;width:300px;height:300px;border-radius:50%;border:3px solid #e3a35f"></div>
+    <svg class="a" id="s10logo" style="left:870px;top:120px;width:180px;height:180px"><use href="#logo"/></svg>
+    <div class="a center" id="s10word" style="top:320px;font:700 124px/1.1 var(--disp);color:var(--espInk);white-space:nowrap">Cafe-WiFi OS</div>
+    <div class="a center" id="s10tag" style="top:480px;font-size:44px;font-weight:500;color:var(--espInk2);white-space:nowrap">Wi-Fi ร้านกาแฟ ที่เก็บ log ถูกกฎหมาย</div>
+    <div class="a center" id="s10badges" style="top:580px;display:flex;justify-content:center;gap:22px">
+      <span class="pill" style="background:#3d2a1c;color:var(--espInk);font-size:30px;border:2px solid #5a3f2b">ฟรี</span>
+      <span class="pill" style="background:#3d2a1c;color:var(--espInk);font-size:30px;border:2px solid #5a3f2b">โอเพนซอร์ส (MIT)</span>
+      <span class="pill" style="background:#3d2a1c;color:var(--espInk);font-size:30px;border:2px solid #5a3f2b">ไม่ต้องพิมพ์ command line</span>
+    </div>
+    <div class="a" id="s10cta" style="left:660px;top:710px;width:600px;height:110px;border-radius:999px;background:#e3a35f;color:#2e1e13;display:flex;align-items:center;justify-content:center;gap:18px;font-size:46px;font-weight:700;white-space:nowrap;box-shadow:0 18px 50px rgba(227,163,95,.35)">
+      <svg style="width:50px;height:50px"><use href="#i-download"/></svg>ดาวน์โหลดฟรีวันนี้
+    </div>
+    <div class="a center mono" id="s10url" style="top:870px;font-size:36px;color:var(--espInk2)">lenulk.github.io/Cafe-wifi-Image</div>
+  </div>
+
+  <div class="full" id="black" style="background:#000;opacity:0;pointer-events:none"></div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="wf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.6 16a5 5 0 0 1 6.8 0"/><circle cx="12" cy="19.3" r="1.3" fill="currentColor" stroke="none"/></symbol>
+</svg>
+
+<div id="ctl"><button id="pp">⏸</button><input id="sc" type="range" min="0" max="86" step="0.01" value="0"><span id="tm">0.00</span></div>
+
+<script>
+const DUR = 86;
+const $ = id => document.getElementById(id);
+const cl = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const P = (t, a, b) => cl((t - a) / (b - a));
+const lerp = (a, b, k) => a + (b - a) * k;
+const eo = x => 1 - Math.pow(1 - x, 3);
+const ei = x => x * x * x;
+const eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eb = x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+
+function S(el, o = {}) {
+  if (typeof el === 'string') el = $(el);
+  const { x = 0, y = 0, s = 1, r = 0, o: op = 1, b = 0 } = o;
+  el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`;
+  el.style.opacity = op;
+  el.style.filter = b > 0.05 ? `blur(${b}px)` : 'none';
+}
+function rise(el, t, a, d = .7, dist = 46) { const k = eo(P(t, a, a + d)); S(el, { y: (1 - k) * dist, o: k }); }
+function pop(el, t, a, d = .6) { const k = P(t, a, a + d); S(el, { s: k <= 0 ? .001 : eb(k), o: cl(k * 3) }); }
+function draw(p, k) {
+  const L = p._L || (p._L = p.getTotalLength());
+  p.style.strokeDasharray = L + ' ' + L; p.style.strokeDashoffset = L * (1 - k);
+  p.style.opacity = k <= 0.001 ? 0 : 1;
+}
+const vis = (el, on) => { (typeof el === 'string' ? $(el) : el).style.opacity = on ? 1 : 0; };
+
+/* ---------- ภาพประกอบที่ใช้ซ้ำ ---------- */
+function piSVG(id) {
+  let g = '';
+  for (let i = 0; i < 20; i++) g += `<rect x="${40 + i * 11}" y="12" width="7" height="7" fill="#e8c66b"/><rect x="${40 + i * 11}" y="23" width="7" height="7" fill="#e8c66b"/>`;
+  return `<svg viewBox="0 0 370 240" style="width:100%;height:100%">
+    <rect x="0" y="0" width="336" height="240" rx="18" fill="#3c8f5a" stroke="#2d6e44" stroke-width="4"/>
+    ${g}
+    <rect x="0" y="96" width="12" height="48" rx="3" fill="#444"/>
+    <rect x="110" y="80" width="92" height="92" rx="8" fill="#c9ccd1"/><rect x="122" y="92" width="68" height="68" rx="4" fill="#b2b6bc"/>
+    <text x="156" y="132" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="13" fill="#555">BCM2711</text>
+    <rect x="216" y="92" width="52" height="66" rx="4" fill="#222"/>
+    <rect x="296" y="18" width="70" height="56" rx="5" fill="#cfd4da"/><rect x="306" y="34" width="50" height="10" fill="#2a64c8"/>
+    <rect x="296" y="86" width="70" height="56" rx="5" fill="#cfd4da"/><rect x="306" y="102" width="50" height="10" fill="#333"/>
+    <rect x="296" y="156" width="70" height="66" rx="5" fill="#d7dbe0"/><rect x="310" y="172" width="42" height="34" rx="3" fill="#555"/>
+    <rect x="60" y="214" width="34" height="16" rx="3" fill="#cfd4da"/><rect x="120" y="214" width="26" height="16" rx="3" fill="#cfd4da"/><rect x="160" y="214" width="26" height="16" rx="3" fill="#cfd4da"/>
+    <circle cx="28" cy="206" r="8" fill="#5a2a2a" id="${id}-led1"/><circle cx="28" cy="184" r="8" fill="#2a3a2a" id="${id}-led2"/>
+  </svg>`;
+}
+function routerSVG(id) {
+  let leds = '';
+  for (let i = 0; i < 5; i++) leds += `<circle cx="${170 + i * 38}" cy="165" r="9" fill="#6b5545" id="${id}-led${i}"/>`;
+  return `<svg viewBox="0 0 400 280" style="width:100%;height:100%">
+    <g stroke="currentColor" stroke-width="13" stroke-linecap="round"><path d="M95 115L70 12"/><path d="M305 115L330 12"/></g>
+    <rect x="20" y="110" width="360" height="130" rx="26" fill="currentColor"/>
+    <rect x="45" y="182" width="44" height="32" rx="4" fill="#d7dbe0"/><rect x="51" y="188" width="32" height="18" rx="2" fill="#555"/>
+    ${leds}
+    <rect x="60" y="238" width="44" height="14" rx="4" fill="currentColor"/><rect x="296" y="238" width="44" height="14" rx="4" fill="currentColor"/>
+  </svg>`;
+}
+document.querySelectorAll('[data-art]').forEach(el => {
+  const id = el.id || ('art' + Math.random().toString(36).slice(2));
+  el.innerHTML = el.dataset.art === 'pi' ? piSVG(id) : routerSVG(id);
+});
+function routerLeds(id, t, on) {
+  for (let i = 0; i < 5; i++) {
+    const c = $(`${id}-led${i}`); if (!c) continue;
+    const blink = on && (Math.sin(t * (6 + i * 1.7) + i * 2) > -0.3);
+    c.setAttribute('fill', on ? (blink ? '#7bd389' : '#3d6b44') : '#6b5545');
+  }
+}
+function piLeds(id, t, on) {
+  const a = $(`${id}-led1`), b = $(`${id}-led2`);
+  if (a) a.setAttribute('fill', on ? '#ff5a4a' : '#5a2a2a');
+  if (b) b.setAttribute('fill', on && Math.sin(t * 13) > 0 ? '#7bd389' : '#2a3a2a');
+}
+
+/* ---------- เนื้อหาที่สร้างด้วยสคริปต์ ---------- */
+const termLines = [
+  '<span class="p">$</span> sudo apt install nftables conntrack dnsmasq',
+  '<span class="p">$</span> sudo nano /etc/dnsmasq.conf',
+  '<span class="p">$</span> sudo sysctl -w net.ipv4.ip_forward=1',
+  '<span class="p">$</span> sudo nft add table inet captive',
+  "<span class=\"p\">$</span> sudo nft 'add chain inet captive pre { type nat hook...'",
+  '<span class="p">$</span> sudo systemctl enable --now opennds',
+  '! Job for opennds.service failed.', '<span class="p">$</span> journalctl -xeu opennds',
+  '<span class="p">$</span> conntrack -E -o timestamp >> /var/log/conn',
+  '! conntrack v1.4.8: Failed to set buffer: ENOBUFS',
+  '<span class="p">$</span> sudo nano /etc/sysctl.d/99-net.conf',
+  '<span class="p">$</span> sha256sum /var/log/conn/*.log > SHA256SUMS',
+  '<span class="p">$</span> crontab -e', '<span class="p">$</span> ip -6 route show',
+  '! RA from 192.168.1.1: IPv6 bypassing portal', '<span class="p">$</span> sudo nft list ruleset | less',
+  '<span class="p">$</span> sudo reboot', '<span class="p">$</span> ???',
+];
+$('s3lines').innerHTML = termLines.map(l => `<div class="ln${l[0] === '!' ? ' err' : ''}">${l}</div>`).join('');
+
+$('s4word').innerHTML = [...'Cafe-WiFi OS'].map(c => `<span style="display:inline-block;white-space:pre">${c}</span>`).join('');
+
+{ let h = ''; for (let i = 0; i < 6; i++) h += `<circle r="9" cx="-50" cy="-50"/>`; $('s5dots').innerHTML = h; }
+{ let h = ''; for (let i = 0; i < 4; i++) h += `<circle r="8" cx="-50" cy="-50"/>`; $('s7d1').innerHTML = h; $('s7d2').innerHTML = h.replace(/r="8"/g, 'r="9"'); }
+
+const pkDomains = ['line.me', 'google.com', 'youtube.com', 'shopee.co.th', 'facebook.com', 'tiktok.com', 'lazada.co.th', 'wikipedia.org', 'grab.com', 'netflix.com'];
+$('s8pk').innerHTML = pkDomains.map((d, i) => `<div class="a pill mono" id="pk${i}" style="left:0;top:0;background:var(--surface);border:2px solid var(--line);font-size:22px;padding:8px 18px;color:var(--ink2)">${d}</div>`).join('');
+const rowData = [
+  ['14:02:11', 'line.me', '9f3a…c21'], ['14:02:14', 'google.com', '1b7e…04d'], ['14:02:19', 'youtube.com', 'c40f…9ab'],
+  ['14:02:23', 'shopee.co.th', '77d2…e13'], ['14:02:30', 'facebook.com', 'a19c…5f0'], ['14:02:36', 'tiktok.com', '3e8b…d72'],
+  ['14:02:41', 'lazada.co.th', 'f05a…118'], ['14:02:47', 'wikipedia.org', '6cd1…a4e'],
+];
+$('s8rows').innerHTML = rowData.map((r, i) => `<div class="row" id="rw${i}" style="top:${146 + i * 58}px"><span class="mono">${r[0]}</span><span>ลูกค้า #4821</span><span>${r[1]}</span><span class="mono" style="color:var(--ink2)">${r[2]}</span><svg style="width:30px;height:30px;color:var(--ok)"><use href="#i-lock"/></svg></div>`).join('');
+
+/* ---------- ฉาก ---------- */
+const scenes = [];
+function scene(id, a, b, fn, opt = {}) { scenes.push({ el: $(id), a, b, fn, ...opt }); }
+
+// 1 · Hook 0–6
+scene('s1', 0, 6, t => {
+  const k = eb(P(t, .1, .9)), slide = eio(P(t, 2.0, 2.9));
+  S('s1cup', { x: -380 * slide, y: Math.sin(t * 2) * 6, s: Math.max(.001, k), o: cl(t * 5) });
+  document.querySelectorAll('#s1steam .stm').forEach((p, i) => {
+    draw(p, eo(P(t, .7 + i * .15, 2.0 + i * .15)));
+    p.setAttribute('transform', `translate(${Math.sin(t * 3 + i) * 4} 0)`);
+  });
+  $('s1steam').style.opacity = 1 - P(t, 2.3, 2.8);
+  const dk = P(t, 2.7, 3.0);
+  $('s1dot').setAttribute('r', 14 * (dk <= 0 ? 0 : eb(dk)));
+  document.querySelectorAll('#s1wifi .arc').forEach((p, i) => {
+    draw(p, eo(P(t, 2.9 + i * .22, 3.3 + i * .22)));
+    const pulse = t > 4 ? .75 + .25 * Math.sin(t * 5 - i * 1.2) : 1;
+    p.style.opacity = P(t, 2.9 + i * .22, 2.95 + i * .22) * pulse;
+  });
+  rise('s1t1', t, 2.6); rise('s1t2', t, 2.85); rise('s1en', t, 3.2);
+}, { noIn: true });
+
+// 2 · ปัญหา 6–16
+scene('s2', 6, 16, t => {
+  const dk = eo(P(t, .1, .9));
+  const shake = t > 1.3 ? Math.sin((t - 1.3) * 60) * 14 * Math.exp(-(t - 1.3) * 6) : 0;
+  S('s2doc', { x: shake, y: (1 - dk) * 300, r: lerp(-14, -3, dk), o: dk });
+  const sw = t < 1.3 ? lerp(-55, 8, ei(P(t, .8, 1.3))) : lerp(8, 0, eo(P(t, 1.3, 1.8)));
+  S('s2gavel', { r: sw, o: P(t, .5, .8) * (1 - P(t, 2.6, 3.0)), x: 0, y: 0 });
+  const rk = P(t, 1.3, 1.9);
+  S('s2ring', { s: .2 + rk * 1.6, o: rk > 0 && rk < 1 ? (1 - rk) * .8 : 0 });
+  rise('s2k', t, 1.8); rise('s2h', t, 2.1);
+  rise('s2cnt', t, 2.4);
+  $('s2num').textContent = Math.round(90 * eo(P(t, 2.5, 4.4)));
+  $('s2hl').style.width = (510 * eio(P(t, 4.4, 5.0))) + 'px';
+  rise('s2l2', t, 5.4);
+  $('s2hl2').style.width = (430 * eio(P(t, 5.6, 6.2))) + 'px';
+  rise('s2en', t, 6.2);
+});
+
+// 3 · ทางตัน 16–22
+scene('s3', 16, 22, t => {
+  S('s3div', { s: 1, o: P(t, .1, .5) });
+  pop('s3router', t, .2); routerLeds('s3router', t, true);
+  const xk = P(t, 1.0, 1.4);
+  document.querySelectorAll('#s3x path').forEach((p, i) => draw(p, eo(P(t, 1.0 + i * .15, 1.3 + i * .15))));
+  S('s3x', { x: t > 1.45 ? Math.sin((t - 1.45) * 50) * 10 * Math.exp(-(t - 1.45) * 5) : 0, o: xk > 0 ? 1 : 0 });
+  rise('s3c1', t, 1.5);
+  const bl = P(t, 3.9, 4.5);
+  S('s3term', { y: (1 - eo(P(t, 1.3, 1.9))) * 60, o: eo(P(t, 1.3, 1.9)) * (1 - bl * .45), b: bl * 5 });
+  const n = Math.floor(cl((t - 1.7) / .13, 0, termLines.length));
+  [...$('s3lines').children].forEach((l, i) => l.style.display = i < n ? 'block' : 'none');
+  $('s3lines').style.transform = `translateY(${-Math.max(0, n - 9) * 34}px)`;
+  rise('s3c2', t, 4.1);
+});
+
+// 4 · เปิดตัว 22–28
+scene('s4', 22, 28, t => {
+  [['s4r1', 0], ['s4r2', .7]].forEach(([id, off]) => {
+    const k = ((t + off) % 1.4) / 1.4;
+    S(id, { s: .4 + k * 1.4, o: (1 - k) * .45 * P(t, .2, .6) * (1 - P(t, 2.6, 3.0)) });
+  });
+  pop('s4logo', t, .25, .7);
+  [...$('s4word').children].forEach((c, i) => {
+    const k = eo(P(t, .7 + i * .045, 1.2 + i * .045)); S(c, { y: (1 - k) * 70, o: k });
+  });
+  rise('s4tag', t, 1.5);
+  const mv = eio(P(t, 2.5, 3.2));
+  S('s4grp', { y: -175 * mv, s: lerp(1, .78, mv) });
+  const pk = eo(P(t, 2.9, 3.6)), rk = eo(P(t, 3.0, 3.7));
+  S('s4pi', { x: (1 - pk) * -500, o: pk }); S('s4router', { x: (1 - rk) * 500, o: rk });
+  piLeds('s4pi', t, t > 3.3); routerLeds('s4router', t, t > 3.4);
+  S('s4cable', { o: 1 }); draw($('s4path'), eio(P(t, 3.7, 4.4)));
+  rise('s4lab', t, 4.2); rise('s4en', t, 4.5);
+});
+
+// 5 · ติดตั้ง 28–42
+scene('s5', 28, 42, t => {
+  const ph = t < 4 ? 0 : t < 8 ? 1 : 2;
+  ['s5p1', 's5p2', 's5p3'].forEach((id, i) => {
+    const e = $(id); e.className = 'step' + (i < ph ? ' done' : i === ph ? ' on' : '');
+  });
+  rise('s5steps', t, .1); rise('s5timer', t, .25);
+  const sec = Math.round(360 * eio(P(t, .3, 12.6)));
+  $('s5tt').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} นาที`;
+  // เฟส 1: การ์ด SD
+  const piIn = eo(P(t, 0, .6));
+  const toP2 = eio(P(t, 4.0, 4.8));
+  const out3 = P(t, 8.0, 8.5);
+  S('s5pi', { x: lerp(0, 260 - 690, toP2), y: lerp((1 - piIn) * 40, 30, toP2), s: lerp(1, .75, toP2), o: piIn * (1 - out3) });
+  piLeds('s5pi', t, t > 2.0);
+  const ins = eio(P(t, .9, 2.0));
+  S('s5sd', { x: lerp(0, 310, ins), r: lerp(-12, 0, ins), o: P(t, .5, .9) * (1 - P(t, 3.9, 4.2)) });
+  const fk = P(t, 2.0, 2.7);
+  S('s5flash', { s: .3 + fk * 1.4, o: fk > 0 && fk < 1 ? 1 - fk : 0 });
+  rise('s5c1', t, .5); if (t > 3.6) S('s5c1', { y: -30 * P(t, 3.6, 4), o: 1 - P(t, 3.6, 4) });
+  // เฟส 2: สาย LAN
+  const rIn = eo(P(t, 4.3, 5.0));
+  S('s5router', { x: (1 - rIn) * 300, o: rIn * (1 - out3) });
+  routerLeds('s5router', t, t > 5.8);
+  draw($('s5path'), eio(P(t, 4.8, 5.8)));
+  $('s5path').style.opacity = t < 4.8 ? 0 : 1 - out3;
+  const path = $('s5path'), L = path._L || path.getTotalLength();
+  [...$('s5dots').children].forEach((c, i) => {
+    const on = t > 5.9 && t < 8;
+    const u = ((t * .45 + i / 6) % 1) * L, pt = path.getPointAtLength(u);
+    c.setAttribute('cx', pt.x); c.setAttribute('cy', pt.y); c.style.opacity = on ? 1 : 0;
+  });
+  rise('s5c2', t, 4.6); if (t > 7.6) S('s5c2', { y: -30 * P(t, 7.6, 8), o: 1 - P(t, 7.6, 8) });
+  if (t < 4.6) vis('s5c2', 0);
+  // เฟส 3: wizard
+  const phn = eo(P(t, 8.3, 9.0));
+  S('s5phone', { y: (1 - phn) * 200, o: phn });
+  vis('s5w1', 1); S('s5w2', { o: P(t, 10.0, 10.3) }); S('s5w3', { o: P(t, 11.0, 11.3) });
+  rise('s5wt', t, 8.6);
+  [9.2, 9.6, 10.0, 11.1, 11.9].forEach((at, i) => {
+    rise(`s5i${i + 1}`, t, 8.8 + i * .12, .5, 30);
+    const e = $(`s5i${i + 1}`), c = e.querySelector('.c'), ck = e.querySelector('.ck');
+    const done = t >= at;
+    c.style.borderColor = done ? '#3f7a3d' : ''; c.style.color = done ? 'transparent' : '';
+    ck.style.color = '#3f7a3d'; ck.style.background = done ? '#fff' : 'none'; ck.style.borderRadius = '50%';
+    const k = P(t, at, at + .35); ck.style.opacity = k; ck.style.transform = `scale(${k <= 0 ? .001 : eb(k)})`;
+  });
+  pop('s5ready', t, 12.3, .6);
+});
+
+// 6 · ลูกค้า 42–52
+scene('s6', 42, 52, t => {
+  const pin = eo(P(t, 0, .6));
+  S('s6phone', { y: (1 - pin) * 120, o: pin });
+  const tk = P(t, .9, 1.4);
+  S('s6tap', { s: .3 + tk * 1.4, o: tk > 0 && tk < 1 ? 1 - tk : 0 });
+  $('s6st').textContent = t < .95 ? '' : t < 1.8 ? 'กำลังเชื่อมต่อ…' : 'เชื่อมต่อแล้ว · ไม่มีอินเทอร์เน็ต';
+  $('s6st').style.color = t < 1.8 ? '#888' : '#2aa58a';
+  const bn = eo(P(t, 1.9, 2.3)) * (1 - P(t, 2.6, 2.9));
+  S('s6ban', { y: (bn - 1) * 130, o: bn });
+  const po = eo(P(t, 2.4, 3.0));
+  S('s6portal', { y: (1 - po) * 860, o: 1 });
+  const nd = Math.floor(cl((t - 3.1) / .085, 0, 13));
+  $('s6dots').textContent = '•'.repeat(nd);
+  $('s6cnt').textContent = nd + '/13';
+  const bx = P(t, 4.4, 4.7); S('s6box', { s: bx <= 0 ? .001 : eb(bx), o: bx > 0 ? 1 : 0 });
+  const bp = P(t, 5.0, 5.4); $('s6btn').style.opacity = bp > 0 && bp < 1 ? (1 - bp) * .35 : 0;
+  const wt = eo(P(t, 5.6, 6.1)); S('s6wait', { x: (1 - wt) * 420, o: wt });
+  $('s6hg').style.transform = `rotate(${Math.floor(t / 1.2) * 180 + 180 * eio(P(t % 1.2, .9, 1.2))}deg)`;
+  $('s6wt').textContent = 'รอพนักงานอนุมัติ' + '.'.repeat(1 + Math.floor(t * 2.5) % 3);
+  rise('s6k', t, .3); rise('s6h', t, .5);
+  [[1, 1.2], [2, 3.0], [3, 5.6]].forEach(([i, at]) => {
+    rise(`s6b${i}`, t, at, .6, 30);
+    const nx = [3.0, 5.6, 99][i - 1];
+    $(`s6b${i}`).className = 'a bul' + (t >= at && t < nx ? ' on' : '');
+  });
+  pop('s6tag', t, 7.0); rise('s6en', t, 7.4);
+});
+
+// 7 · พนักงาน 52–62
+scene('s7', 52, 62, t => {
+  rise('s7h', t, .1); rise('s7en', t, .3);
+  S('s7lines', { o: P(t, .2, .6) });
+  const ap = t >= 2.0, rv = t >= 8.4;
+  draw($('s7g'), eio(P(t, 2.0, 2.6)));
+  $('s7g').style.opacity = ap ? (1 - P(t, 8.4, 8.7)) : 0;
+  $('s7r').style.opacity = P(t, 8.4, 8.6);
+  S('s7lock', { s: 1, o: P(t, .4, .8) * (1 - P(t, 2.0, 2.3)) });
+  pop('s7x', t, 8.45, .5);
+  [...$('s7d1').children].forEach((c, i) => {
+    const x = 420 + ((t * 260 + i * 112) % 450); c.setAttribute('cx', x); c.setAttribute('cy', 400);
+    c.style.opacity = P(t, .5, .9);
+  });
+  [...$('s7d2').children].forEach((c, i) => {
+    const x = 1050 + ((t * 300 + i * 112) % 450); c.setAttribute('cx', x); c.setAttribute('cy', 400);
+    c.style.opacity = t > 2.6 && !rv ? 1 : 0;
+  });
+  $('s7net').style.borderColor = ap && !rv ? '#3f9a45' : '';
+  const bd = $('s7badge');
+  const ic = d => `<svg viewBox="0 0 24 24" style="width:34px;height:34px"><path d="${d}" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const mode = !ap ? 0 : !rv ? 1 : 2;
+  if (bd._m !== mode) {
+    bd._m = mode;
+    bd.style.background = ['#c98a1b', '#3f9a45', '#c0442a'][mode];
+    bd.innerHTML = ic(['M12 7v5l3 2', 'M5 12.5l4.5 4.5L19 7', 'M6 6l12 12M18 6L6 18'][mode]);
+  }
+  const bk = ap && !rv ? P(t, 2.0, 2.4) : rv ? P(t, 8.4, 8.8) : P(t, .5, .9);
+  S(bd, { s: bk <= 0 ? .001 : eb(bk), o: 1 });
+  rise('s7card', t, .5, .7, 80);
+  const st = $('s7st');
+  if (!ap) { st.textContent = 'รออนุมัติ'; st.style.background = '#4a3a17'; st.style.color = '#f2c45a'; }
+  else if (!rv) { st.textContent = 'ใช้งานได้ · เหลือ 1:59:' + String(59 - Math.floor((t - 2) * 3) % 60).padStart(2, '0'); st.style.background = '#1f3a22'; st.style.color = '#8fd18a'; }
+  else { st.textContent = 'ปิดสิทธิ์แล้ว'; st.style.background = '#47201a'; st.style.color = '#ff9b85'; }
+  const swap = P(t, 5.0, 5.4);
+  ['s7a1', 's7a2'].forEach(id => S(id, { o: 1 - swap, y: -20 * swap }));
+  ['s7b1', 's7b2'].forEach(id => S(id, { o: swap, y: 20 * (1 - swap) }));
+  if (t >= 1.9 && t < 2.15) S('s7a1', { s: .95, o: 1 });
+  if (t >= 6.3 && t < 6.55) S('s7b2', { s: .95, o: 1 });
+  // นิ้วแตะ
+  let cx, cy;
+  if (t < 1.3) { cx = 1300; cy = 1060; }
+  else if (t < 1.9) { const k = eio(P(t, 1.3, 1.85)); cx = lerp(1300, 555, k); cy = lerp(1060, 892, k); }
+  else if (t < 5.6) { cx = 555; cy = 892; }
+  else { const k = eio(P(t, 5.6, 6.25)); cx = lerp(555, 840, k); cy = 892; }
+  const press = (t >= 1.9 && t < 2.15) || (t >= 6.3 && t < 6.55);
+  S('s7cur', { x: cx, y: cy, s: press ? .8 : 1, o: P(t, 1.1, 1.4) * (1 - P(t, 7.2, 7.6)) });
+  const rp = t < 6 ? P(t, 1.9, 2.4) : P(t, 6.3, 6.8);
+  S('s7rip', { x: cx, y: cy, s: 1 + rp * 1.6, o: rp > 0 && rp < 1 ? 1 - rp : 0 });
+  // ตัวนับเวลาตัดเน็ต
+  S('s7timer', { y: (1 - eo(P(t, 6.35, 6.7))) * 20, o: P(t, 6.35, 6.7) });
+  const el = 7.5 * P(t, 6.4, 8.4);
+  $('s7tt').textContent = t < 8.4 ? `ตัดเน็ตใน ${el.toFixed(1)} วิ` : 'ตัดเน็ตแล้ว · ~7–8 วิ';
+});
+
+// 8 · หลักฐาน 62–72
+scene('s8', 62, 72, t => {
+  rise('s8h', t, .1); rise('s8sub', t, .3); rise('s8en', t, .5);
+  pop('s8pi', t, .2); piLeds('s8pi', t, true); rise('s8pil', t, .4);
+  pkDomains.forEach((d, i) => {
+    const a = .3 + i * .5, k = P(t, a, a + 1.2);
+    const y0 = 380 + ((i * 137) % 380);
+    const x = lerp(-260, 300, eio(k)), y = lerp(y0, 585, eio(k));
+    S(`pk${i}`, { x, y, s: lerp(1, .5, P(k, .75, 1)), o: k > 0 && k < 1 ? cl(k * 6) * (1 - P(k, .8, 1)) : 0 });
+  });
+  const ck = eo(P(t, .6, 1.2)), col = eio(P(t, 6.0, 6.9));
+  S('s8card', { x: lerp(0, 1260 - 1250, col), y: (1 - ck) * 60 + col * (520 - 610), s: lerp(1, .12, col), o: ck * (1 - P(t, 6.5, 6.9)) });
+  rowData.forEach((r, i) => {
+    const k = eo(P(t, 1.4 + i * .5, 1.8 + i * .5)); S(`rw${i}`, { x: (1 - k) * -80, o: k });
+  });
+  pop('s8folder', t, 6.5, .6); rise('s8fl', t, 6.8);
+  const sk = P(t, 7.0, 7.3);
+  S('s8stamp', { s: sk <= 0 ? 2 : lerp(2.2, 1, ei(sk)), r: -8, o: sk > 0 ? 1 : 0 });
+  const sh = t > 7.3 ? Math.sin((t - 7.3) * 55) * 9 * Math.exp(-(t - 7.3) * 7) : 0;
+  $('s8folder').style.transform += ` translate(${sh}px,0)`;
+  rise('s8c1', t, 7.9); rise('s8c2', t, 8.1);
+});
+
+// 9 · ตัวเลข 72–80
+scene('s9', 72, 80, t => {
+  rise('s9h', t, .1); rise('s9en', t, .35);
+  [.8, 1.2, 1.6, 2.0].forEach((a, i) => pop(`s9c${i + 1}`, t, a, .6));
+  $('s9n1').textContent = Math.round(49 * eo(P(t, .9, 2.1))) + '/49';
+  $('s9n2').textContent = '~' + Math.round(6 * eo(P(t, 1.3, 2.3)));
+  $('s9n4').textContent = Math.round(12 * (1 - eo(P(t, 2.1, 3.3))));
+  rise('s9f', t, 3.6);
+});
+
+// 10 · CTA 80–86
+scene('s10', 80, 86, t => {
+  const k = (t % 1.6) / 1.6; S('s10r', { s: .6 + k * 1.2, o: (1 - k) * .4 });
+  pop('s10logo', t, .2, .7);
+  rise('s10word', t, .5); rise('s10tag', t, .8); rise('s10badges', t, 1.1);
+  const ck = P(t, 1.5, 2.1);
+  S('s10cta', { s: ck <= 0 ? .001 : eb(ck) * (1 + .025 * Math.sin(t * 4) * P(t, 2.2, 2.6)), o: cl(ck * 3) });
+  rise('s10url', t, 2.0);
+}, { noOut: true });
+
+function seek(t) {
+  t = cl(t, 0, DUR - 1e-4);
+  for (const sc of scenes) {
+    const on = t >= sc.a && t < sc.b;
+    sc.el.style.display = on ? 'block' : 'none';
+    if (!on) continue;
+    const lt = t - sc.a, d = sc.b - sc.a;
+    const fin = sc.noIn ? 1 : P(lt, 0, .4), fout = sc.noOut ? 1 : 1 - P(lt, d - .45, d);
+    sc.el.style.opacity = Math.min(fin, fout);
+    sc.fn(lt, d);
+  }
+  S('b1', { x: Math.sin(t * .23) * 120, y: Math.cos(t * .19) * 80 });
+  S('b2', { x: Math.cos(t * .17) * 140, y: Math.sin(t * .21) * 90 });
+  S('b3', { x: Math.sin(t * .13 + 1) * 160, y: Math.cos(t * .15) * 70 });
+  $('black').style.opacity = P(t, DUR - .9, DUR - .1);
+}
+window.seek = seek;
+
+/* ---------- พรีวิว / เรนเดอร์ ---------- */
+const RENDER = new URLSearchParams(location.search).has('render');
+if (RENDER) document.documentElement.classList.add('render');
+function fit() {
+  const st = $('stage');
+  if (RENDER) { st.style.transform = 'none'; return; }
+  const k = Math.min(innerWidth / 1920, (innerHeight - 56) / 1080);
+  st.style.transform = `translate(${(innerWidth - 1920 * k) / 2}px,${(innerHeight - 56 - 1080 * k) / 2}px) scale(${k})`;
+}
+addEventListener('resize', fit); fit();
+
+const FONTS = ['400 40px "IBM Plex Sans Thai"', '500 40px "IBM Plex Sans Thai"', '600 40px "IBM Plex Sans Thai"', '700 40px "IBM Plex Sans Thai"',
+  '600 40px "Noto Serif Thai"', '700 40px "Noto Serif Thai"', '600 40px Fraunces', '700 40px Fraunces',
+  '400 40px "IBM Plex Mono"', '500 40px "IBM Plex Mono"', '600 40px "IBM Plex Mono"'];
+// โหลดฟอนต์ทุกน้ำหนักล่วงหน้า แล้วไล่ seek ทุกฉากหนึ่งรอบ กันข้อความหายในเฟรมแรกที่ใช้ฟอนต์นั้น
+Promise.all([...FONTS.map(f => document.fonts.load(f, 'กขคงก้ำ Cafe-WiFi 0123456789 ~–≥')), ...[...document.images].map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; }))])
+  .then(() => { for (let t = 0; t < DUR; t += .25) seek(t); return document.fonts.ready; })
+  .then(() => new Promise(r => setTimeout(r, 300)))
+  .then(() => {
+    seek(0); window.READY = true;
+    if (RENDER) return;
+    let playing = true, t0 = performance.now(), cur = 0;
+    const sc = $('sc'), tm = $('tm'), pp = $('pp');
+    function loop(now) {
+      if (playing) { cur = ((now - t0) / 1000) % DUR; seek(cur); sc.value = cur; tm.textContent = cur.toFixed(2) + ' s'; }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+    pp.onclick = () => { playing = !playing; pp.textContent = playing ? '⏸' : '▶'; t0 = performance.now() - cur * 1000; };
+    sc.oninput = () => { cur = +sc.value; seek(cur); tm.textContent = cur.toFixed(2) + ' s'; t0 = performance.now() - cur * 1000; };
+  });
+</script>
+</body>
+</html>

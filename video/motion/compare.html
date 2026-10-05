@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cafe-WiFi OS Compare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=block" rel="stylesheet">
+<style>
+/* คลิปเปรียบเทียบ 9:16 -- ร้าน A (ไม่มีระบบ) บน vs ร้าน B (มี Cafe-WiFi OS) ล่าง, 5 สถานการณ์ */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f7f1e8;--surface:#fffaf3;--surface2:#efe4d4;--ink:#2b1d14;--ink2:#6b5545;--line:#e2d3bf;
+  --accent:#a8591a;--accent2:#e3a35f;--esp:#2e1e13;--espInk:#f5ebde;--espInk2:#cdb7a0;
+  --ok:#3f7a3d;--okB:#3f9a45;--okSoft:#e1eedb;--warn:#c0442a;--warnSoft:#f6e0d6;--gray:#8a8079;
+  --sans:"IBM Plex Sans Thai","Leelawadee UI",system-ui,sans-serif;
+  --serif:"Noto Serif Thai","IBM Plex Sans Thai",serif;
+  --disp:"Fraunces",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+html,body{height:100%;background:#0e0a07;overflow:hidden}
+#stage{position:absolute;left:0;top:0;width:1080px;height:1920px;overflow:hidden;background:var(--bg);transform-origin:0 0;font-family:var(--sans);color:var(--ink)}
+.a{position:absolute;will-change:transform,opacity;transform-origin:50% 50%}
+.full{position:absolute;inset:0}
+.blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
+.c{left:0;width:1080px;text-align:center;white-space:nowrap}
+.serif{font-family:var(--serif);font-weight:700}
+.mono{font-family:var(--mono)}
+.pill{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:12px 28px;font-weight:600;white-space:nowrap}
+.panel{position:absolute;left:40px;width:1000px;height:600px;border-radius:36px;overflow:hidden}
+#pA{top:200px;background:#e7e2dc;border:3px solid #d2c9be}
+#pB{top:920px;background:var(--surface);border:3px solid #a9d1a3;box-shadow:0 24px 60px rgba(63,122,61,.12)}
+.plab{position:absolute;left:30px;top:20px;font-size:32px;font-weight:700;white-space:nowrap;z-index:5}
+.score{position:absolute;right:24px;top:16px;font-size:28px;z-index:5}
+.layer{position:absolute;inset:0}
+.cap{position:absolute;left:20px;right:20px;top:515px;text-align:center;font-size:34px;font-weight:600;white-space:nowrap}
+#pA .cap{color:#5b524b}
+#pB .cap{color:var(--ok)}
+.v{position:absolute;left:880px;top:395px;width:96px;height:96px;border-radius:50%;display:grid;place-items:center;z-index:6;box-shadow:0 10px 24px rgba(0,0,0,.18)}
+.v svg{width:58px;height:58px}
+.sign{background:#fff;border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.12);padding:26px 30px;line-height:1.35}
+.q{width:58px;height:58px;border-radius:50%;background:#fff;border:3px solid var(--warn);color:var(--warn);display:grid;place-items:center;font:700 34px var(--sans)}
+.tag{font-size:24px;padding:6px 14px;border-radius:999px;background:var(--okSoft);color:var(--ok);font-weight:700;white-space:nowrap;font-family:var(--mono)}
+.mphone{position:absolute;background:#1a1410;border-radius:30px;padding:10px;box-shadow:0 14px 30px rgba(46,30,19,.25)}
+.mscreen{position:relative;width:100%;height:100%;border-radius:22px;overflow:hidden;background:#16181b}
+.term{background:#1d1612;border-radius:18px;overflow:hidden}
+.term .bar{height:40px;background:#2b211b;display:flex;align-items:center;gap:10px;padding-left:18px}
+.term .bar i{width:13px;height:13px;border-radius:50%;display:block}
+.term .ln{font-family:var(--mono);font-size:22px;line-height:33px;color:#e9dccb;white-space:nowrap}
+.term .ln.err{color:#ff8a70}
+.lrow{position:absolute;left:24px;right:24px;height:62px;display:grid;grid-template-columns:150px 120px 1fr 150px 34px;align-items:center;font-size:25px;border-bottom:1px solid var(--line);white-space:nowrap}
+.btn{position:absolute;border-radius:18px;display:grid;place-items:center;font-size:32px;font-weight:700;white-space:nowrap;color:#fff}
+#tbar{position:absolute;left:40px;top:815px;width:1000px;height:92px;border-radius:46px;background:var(--esp);overflow:hidden}
+.tt{position:absolute;left:0;right:0;top:0;height:92px;display:flex;align-items:center;justify-content:center;gap:18px;color:var(--espInk);font-size:38px;font-weight:700;white-space:nowrap}
+.tt b{font-family:var(--mono);font-size:28px;color:var(--accent2);font-weight:600}
+svg{overflow:visible}
+#ctl{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;gap:14px;padding:0 16px;background:#1b1410;color:#f5ebde;font:14px var(--sans)}
+#ctl button{background:#a8591a;color:#fff;border:0;border-radius:8px;padding:8px 16px;font:600 14px var(--sans);cursor:pointer}
+#ctl input{flex:1;accent-color:#e3a35f}
+#ctl span{font-family:var(--mono);min-width:80px}
+.render #ctl{display:none}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ok" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="no" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+  <symbol id="dl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2.5h6"/></symbol>
+  <symbol id="env" viewBox="0 0 120 84"><rect x="2" y="2" width="116" height="80" rx="8" fill="#fffaf3" stroke="#6b5545" stroke-width="4"/><path d="M4 6l56 42 56-42" fill="none" stroke="#6b5545" stroke-width="4" stroke-linejoin="round"/><circle cx="60" cy="50" r="15" fill="#c0442a"/><circle cx="60" cy="50" r="8" fill="none" stroke="#fff" stroke-width="2.5"/></symbol>
+  <symbol id="arrow" viewBox="0 0 100 40"><path d="M4 20h80M68 6l16 14-16 14" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#3d2a1c"/><path d="M8 14h13v5a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6z" fill="#e3a35f"/><path d="M21 15.5h1.5a2.5 2.5 0 0 1 0 5H21" stroke="#e3a35f" stroke-width="2" fill="none"/><path d="M10 10a8 8 0 0 1 9 0M12 7.5a5 5 0 0 1 5 0" stroke="#e3a35f" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+</svg>
+
+<div id="stage">
+  <div class="full">
+    <div class="blob" id="b1" style="width:700px;height:700px;background:#f0cfa6;left:-260px;top:-200px"></div>
+    <div class="blob" id="b2" style="width:640px;height:640px;background:#ead9c2;left:600px;top:1300px"></div>
+  </div>
+
+  <!-- ฮุก 0–3 -->
+  <div class="full" id="hook">
+    <div class="a c" id="h1" style="top:560px;display:flex;justify-content:center;align-items:center;gap:40px">
+      <span class="pill" style="background:#e7e2dc;color:#5b524b;font-size:64px;padding:18px 44px;border:3px solid #d2c9be">ร้าน A</span>
+      <span style="font:700 72px var(--disp);color:var(--accent)">vs</span>
+      <span class="pill" style="background:var(--okSoft);color:var(--ok);font-size:64px;padding:18px 44px;border:3px solid #a9d1a3">ร้าน B</span>
+    </div>
+    <div class="a c serif" id="h2" style="top:760px;font-size:66px">เปิด Wi-Fi ฟรีให้ลูกค้า</div>
+    <div class="a c serif" id="h3" style="top:860px;font-size:66px">เหมือนกัน</div>
+    <div class="a c serif" id="h4" style="top:1010px;font-size:84px;color:var(--accent)">แต่ร้านไหนพร้อมกว่า?</div>
+  </div>
+
+  <!-- ร้าน A -->
+  <div class="panel a" id="pA">
+    <div class="plab" style="color:#5b524b">ร้าน A · ไม่มีระบบ</div>
+    <div class="score pill" style="background:#d9d2ca;color:#5b524b">ผ่าน <span class="mono" id="scA">0/5</span></div>
+    <div class="v" id="vA" style="background:var(--warn)"><svg><use href="#no"/></svg></div>
+
+    <!-- A1 แจกรหัส -->
+    <div class="layer" id="A1">
+      <div class="a sign" id="A1s" style="left:70px;top:110px;width:400px">
+        <div style="font-size:40px;font-weight:700">Wi-Fi ฟรี!</div>
+        <div style="font-size:28px;color:#666">ชื่อ: CafeFree</div>
+        <div class="mono" style="font-size:34px;font-weight:600">รหัส: cafe1234</div>
+      </div>
+      <div class="ppl" data-c="#9a918a" data-q="1" style="left:520px;top:150px"></div>
+    </div>
+    <!-- A2 log -->
+    <div class="layer" id="A2">
+      <div class="a" data-art="router" id="A2r" style="left:80px;top:150px;width:300px;height:210px;color:#7a7069"></div>
+      <svg class="a" style="left:410px;top:230px;width:130px;height:52px;color:#a39a92"><use href="#arrow"/></svg>
+      <svg class="a" id="A2f" style="left:590px;top:120px;width:260px;height:210px" viewBox="0 0 260 210">
+        <path d="M10 30a14 14 0 0 1 14-14h70l20 22h122a14 14 0 0 1 14 14v134a14 14 0 0 1-14 14H24a14 14 0 0 1-14-14z" fill="none" stroke="#9a918a" stroke-width="7" stroke-dasharray="16 10"/>
+      </svg>
+      <div class="a" id="A2t" style="left:590px;top:345px;width:260px;text-align:center;font-size:34px;font-weight:700;color:var(--warn)">0 รายการ</div>
+    </div>
+    <!-- A3 หมายศาล -->
+    <div class="layer" id="A3">
+      <svg class="a" id="A3e" style="left:90px;top:140px;width:290px;height:203px"><use href="#env"/></svg>
+      <div class="ppl" data-c="#9a918a" data-n="1" id="A3p" style="left:620px;top:170px"></div>
+      <div class="a sign" id="A3b" style="left:560px;top:84px;padding:12px 24px;font-size:30px;font-weight:600;white-space:nowrap">log อยู่ไหน…?</div>
+      <div class="a" id="A3d" style="left:760px;top:180px;font-size:40px">💧</div>
+    </div>
+    <!-- A4 ตัดเน็ตคนเดียว -->
+    <div class="layer" id="A4">
+      <div class="a sign" id="A4s" style="left:70px;top:110px;width:400px">
+        <div style="font-size:36px;font-weight:700;color:var(--warn)">เปลี่ยนรหัสแล้ว!</div>
+        <div class="mono" style="font-size:28px;color:#999;text-decoration:line-through">cafe1234</div>
+        <div class="mono" style="font-size:34px;font-weight:600">รหัสใหม่: cafe5678</div>
+      </div>
+      <div class="ppl" data-c="#9a918a" data-q="1" style="left:520px;top:150px"></div>
+    </div>
+    <!-- A5 ติดตั้ง -->
+    <div class="layer" id="A5">
+      <div class="a term" id="A5t" style="left:50px;top:90px;width:900px;height:300px">
+        <div class="bar"><i style="background:#ff6b5a"></i><i style="background:#f6c04f"></i><i style="background:#62c26b"></i></div>
+        <div style="padding:12px 22px" id="A5l"></div>
+      </div>
+      <div class="a pill" id="A5p" style="left:300px;top:410px;background:var(--warnSoft);color:var(--warn);font-size:32px">ต้องเรียกช่าง Linux</div>
+    </div>
+    <div class="cap a" id="cA1">ติดรหัสไว้ที่ผนัง — ไม่รู้ว่าใครใช้เน็ตอยู่</div>
+    <div class="cap a" id="cA2">เราเตอร์ทั่วไป ไม่เก็บ log ให้</div>
+    <div class="cap a" id="cA3">ไม่มีหลักฐานให้เจ้าหน้าที่</div>
+    <div class="cap a" id="cA4">ต้องเปลี่ยนรหัส แจ้งลูกค้าทั้งร้านใหม่</div>
+    <div class="cap a" id="cA5">ระบบทำเองต้องใช้ command line</div>
+  </div>
+
+  <div id="tbar" class="a">
+    <div class="tt a" id="t1"><b>1/5</b>แจกรหัส Wi-Fi ให้ลูกค้า</div>
+    <div class="tt a" id="t2"><b>2/5</b>บันทึกการใช้งาน (log)</div>
+    <div class="tt a" id="t3"><b>3/5</b>เจ้าหน้าที่ขอข้อมูล</div>
+    <div class="tt a" id="t4"><b>4/5</b>ต้องตัดเน็ตลูกค้าคนเดียว</div>
+    <div class="tt a" id="t5"><b>5/5</b>การติดตั้ง</div>
+  </div>
+
+  <!-- ร้าน B -->
+  <div class="panel a" id="pB">
+    <div class="plab" style="color:var(--ok)">ร้าน B · มี Cafe-WiFi OS</div>
+    <div class="score pill" style="background:var(--okSoft);color:var(--ok)">ผ่าน <span class="mono" id="scB">0/5</span></div>
+    <div class="v" id="vB" style="background:var(--okB)"><svg><use href="#ok"/></svg></div>
+
+    <!-- B1 -->
+    <div class="layer" id="B1">
+      <div class="mphone a" id="B1m" style="left:90px;top:90px;width:220px;height:400px">
+        <div class="mscreen" style="padding:60px 18px 0;color:#eaeaea;text-align:center">
+          <div style="font-size:20px;font-weight:600">Baan Cafe Lab</div>
+          <div style="font-size:13px;color:#9aa0a6;margin:10px 0 8px">เลขบัตรประชาชน 13 หลัก</div>
+          <div class="mono" style="border:2px solid #2aa58a;border-radius:10px;height:44px;line-height:40px;font-size:18px;letter-spacing:2px" id="B1d"></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:14px;font-size:13px;text-align:left"><span id="B1c" style="width:20px;height:20px;border-radius:4px;border:2px solid #777;flex:none"></span>ยินยอมตามนโยบาย</div>
+          <div id="B1b" style="margin-top:20px;height:46px;border-radius:10px;background:#2aa58a;color:#111;font-weight:700;line-height:46px;font-size:18px">ขอใช้งาน</div>
+        </div>
+      </div>
+      <svg class="a" style="left:340px;top:250px;width:130px;height:52px;color:var(--ok)"><use href="#arrow"/></svg>
+      <div class="ppl" data-c="#3f9a45" data-tag="1" style="left:520px;top:150px"></div>
+    </div>
+    <!-- B2 -->
+    <div class="layer" id="B2">
+      <div class="a" id="B2c" style="left:40px;top:90px;width:920px;height:320px;background:#fff;border:2px solid var(--line);border-radius:22px">
+        <div class="lrow" style="top:6px;color:var(--ink2);font-size:21px;font-weight:600"><span>เวลา</span><span>ผู้ใช้</span><span>ปลายทาง</span><span>hash</span><span></span></div>
+      </div>
+      <div class="a pill" id="B2p" style="left:620px;top:425px;background:var(--esp);color:var(--espInk);font-size:28px;padding:10px 26px">เก็บ ≥ 90 วัน</div>
+    </div>
+    <!-- B3 -->
+    <div class="layer" id="B3">
+      <svg class="a" id="B3e" style="left:60px;top:150px;width:240px;height:168px"><use href="#env"/></svg>
+      <div class="btn a" id="B3b" style="left:350px;top:185px;width:310px;height:96px;background:var(--accent);gap:10px;display:flex"><svg style="width:40px;height:40px"><use href="#dl"/></svg>ส่งออกหลักฐาน</div>
+      <svg class="a" id="B3f" style="left:730px;top:110px;width:150px;height:190px" viewBox="0 0 150 190">
+        <path d="M10 14a12 12 0 0 1 12-12h80l38 38v136a12 12 0 0 1-12 12H22a12 12 0 0 1-12-12z" fill="#fffaf3" stroke="#a8591a" stroke-width="6"/>
+        <path d="M102 4v36h36" fill="none" stroke="#a8591a" stroke-width="6"/>
+        <g transform="translate(75 110)" fill="none" stroke="#3f7a3d" stroke-width="7" stroke-linecap="round"><rect x="-24" y="-8" width="48" height="38" rx="6"/><path d="M-14 -8v-10a14 14 0 0 1 28 0v10"/></g>
+      </svg>
+      <div class="a" id="B3t" style="left:690px;top:315px;width:230px;text-align:center;font-size:28px;font-weight:700;color:var(--ok)">หลักฐาน.zip</div>
+    </div>
+    <!-- B4 -->
+    <div class="layer" id="B4">
+      <div class="btn a" id="B4b" style="left:60px;top:130px;width:380px;height:96px;background:var(--warn)">ปิดสิทธิ์ #4822</div>
+      <div class="a pill" id="B4t" style="left:60px;top:260px;background:var(--warnSoft);color:var(--warn);font-size:30px"><svg style="width:32px;height:32px"><use href="#clock"/></svg><span id="B4tt">ตัดใน 0.0 วิ</span></div>
+      <div class="ppl" data-c="#3f9a45" data-tag="1" id="B4p" style="left:520px;top:150px"></div>
+    </div>
+    <!-- B5 -->
+    <div class="layer" id="B5">
+      <div class="a" data-art="pi" id="B5pi" style="left:60px;top:170px;width:300px;height:195px"></div>
+      <div class="mphone a" id="B5m" style="left:410px;top:80px;width:210px;height:410px">
+        <div class="mscreen" style="background:#fff"><img src="../../image/public/img/wizard-4-router-ok.jpg" style="width:220px;margin-top:16px"></div>
+      </div>
+      <div class="a" id="B5t" style="left:660px;top:170px;text-align:center;width:300px">
+        <div class="pill" style="background:var(--esp);color:var(--espInk);font-size:44px;padding:16px 34px"><svg style="width:44px;height:44px;color:var(--accent2)"><use href="#clock"/></svg>~6 นาที</div>
+        <div style="font-size:28px;font-weight:600;color:var(--ok);margin-top:14px">เสียบไฟจนพร้อมใช้</div>
+      </div>
+    </div>
+    <div class="cap a" id="cB1">ลงทะเบียน + พนักงานอนุมัติ — รู้ว่าเครื่องไหนของใคร</div>
+    <div class="cap a" id="cB2">log การเชื่อมต่อ + DNS ผูกกับผู้ใช้ ตรวจด้วย hash</div>
+    <div class="cap a" id="cB3">กดส่งออกหลักฐานได้จากหน้าแอดมิน</div>
+    <div class="cap a" id="cB4">ปิดสิทธิ์เฉพาะคน — เน็ตถูกตัดใน ~7–8 วิ</div>
+    <div class="cap a" id="cB5">flash การ์ด + wizard บนมือถือ ไม่ต้องพิมพ์คำสั่ง</div>
+  </div>
+
+  <!-- ปิดท้าย 24–28 -->
+  <div class="full" id="out" style="opacity:0">
+    <div class="full" style="background:radial-gradient(900px 1100px at 50% 38%,#4a3020,#2e1e13 70%)"></div>
+    <div class="a c serif" id="o1" style="top:300px;font-size:68px;color:var(--espInk)">ร้าน B พร้อมกว่า</div>
+    <div class="a c" id="o2" style="top:400px;font:700 190px/1.1 var(--disp);color:var(--accent2)">5/5</div>
+    <svg class="a" id="o3" style="left:465px;top:690px;width:150px;height:150px"><use href="#logo"/></svg>
+    <div class="a c" id="o4" style="top:860px;font:700 116px/1.1 var(--disp);color:var(--espInk)">Cafe-WiFi OS</div>
+    <div class="a c" id="o5" style="top:1020px;display:flex;justify-content:center;gap:18px">
+      <span class="pill" style="background:#3d2a1c;color:var(--espInk);font-size:34px;border:2px solid #5a3f2b">ฟรี</span>
+      <span class="pill" style="background:#3d2a1c;color:var(--espInk);font-size:34px;border:2px solid #5a3f2b">โอเพนซอร์ส (MIT)</span>
+      <span class="pill" style="background:#3d2a1c;color:var(--espInk);font-size:34px;border:2px solid #5a3f2b">ใช้เราเตอร์เดิม</span>
+    </div>
+    <div class="a" id="o6" style="left:160px;top:1160px;width:760px;height:124px;border-radius:999px;background:#e3a35f;color:#2e1e13;display:flex;align-items:center;justify-content:center;gap:20px;font-size:52px;font-weight:700;white-space:nowrap;box-shadow:0 18px 50px rgba(227,163,95,.35)">
+      <svg style="width:56px;height:56px"><use href="#dl"/></svg>ดาวน์โหลดฟรี
+    </div>
+    <div class="a c mono" id="o7" style="top:1330px;font-size:38px;color:var(--espInk2)">lenulk.github.io/Cafe-wifi-Image</div>
+  </div>
+  <div class="full" id="black" style="background:#000;opacity:0"></div>
+</div>
+
+<div id="ctl"><button id="pp">⏸</button><input id="sc" type="range" min="0" max="28" step="0.01" value="0"><span id="tm">0.00</span></div>
+
+<script>
+const DUR = 28, T0 = 3.0, SD = 4.2;             // สถานการณ์ k เริ่มที่ T0 + k*SD
+const $ = id => document.getElementById(id);
+const cl = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const P = (t, a, b) => cl((t - a) / (b - a));
+const lerp = (a, b, k) => a + (b - a) * k;
+const eo = x => 1 - Math.pow(1 - x, 3);
+const eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eb = x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+function S(el, o = {}) {
+  if (typeof el === 'string') el = $(el);
+  const { x = 0, y = 0, s = 1, r = 0, o: op = 1 } = o;
+  el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`;
+  el.style.opacity = op;
+}
+const rise = (el, t, a, d = .45, dist = 40) => { const k = eo(P(t, a, a + d)); S(el, { y: (1 - k) * dist, o: k }); };
+const pop = (el, t, a, d = .4) => { const k = P(t, a, a + d); S(el, { s: k <= 0 ? .001 : eb(k), o: cl(k * 3) }); };
+const shake = (t, a, amp = 12) => t > a ? Math.sin((t - a) * 55) * amp * Math.exp(-(t - a) * 6) : 0;
+
+/* ภาพประกอบ */
+function piSVG() {
+  let g = '';
+  for (let i = 0; i < 20; i++) g += `<rect x="${40 + i * 11}" y="12" width="7" height="7" fill="#e8c66b"/><rect x="${40 + i * 11}" y="23" width="7" height="7" fill="#e8c66b"/>`;
+  return `<svg viewBox="0 0 370 240" style="width:100%;height:100%"><rect x="0" y="0" width="336" height="240" rx="18" fill="#3c8f5a" stroke="#2d6e44" stroke-width="4"/>${g}
+    <rect x="110" y="80" width="92" height="92" rx="8" fill="#c9ccd1"/><rect x="122" y="92" width="68" height="68" rx="4" fill="#b2b6bc"/><rect x="216" y="92" width="52" height="66" rx="4" fill="#222"/>
+    <rect x="296" y="18" width="70" height="56" rx="5" fill="#cfd4da"/><rect x="306" y="34" width="50" height="10" fill="#2a64c8"/>
+    <rect x="296" y="86" width="70" height="56" rx="5" fill="#cfd4da"/><rect x="296" y="156" width="70" height="66" rx="5" fill="#d7dbe0"/><rect x="310" y="172" width="42" height="34" rx="3" fill="#555"/>
+    <circle cx="28" cy="206" r="8" fill="#ff5a4a"/><circle cx="28" cy="184" r="8" fill="#7bd389"/></svg>`;
+}
+function routerSVG() {
+  return `<svg viewBox="0 0 400 280" style="width:100%;height:100%"><g stroke="currentColor" stroke-width="13" stroke-linecap="round"><path d="M95 115L70 12"/><path d="M305 115L330 12"/></g>
+    <rect x="20" y="110" width="360" height="130" rx="26" fill="currentColor"/><rect x="45" y="182" width="44" height="32" rx="4" fill="#d7dbe0"/>
+    ${[0, 1, 2, 3, 4].map(i => `<circle cx="${170 + i * 38}" cy="165" r="9" fill="#bfe7c4"/>`).join('')}</svg>`;
+}
+document.querySelectorAll('[data-art]').forEach(el => el.innerHTML = el.dataset.art === 'pi' ? piSVG() : routerSVG());
+const person = c => `<svg viewBox="0 0 110 140" style="width:110px;height:140px"><circle cx="55" cy="38" r="28" fill="${c}"/><path d="M8 140a47 47 0 0 1 94 0z" fill="${c}"/></svg>`;
+// กลุ่มคน 3 คน (data-n=1 → คนเดียว), มีป้าย ? หรือป้ายรหัส
+document.querySelectorAll('.ppl').forEach((g, gi) => {
+  g.style.position = 'absolute'; const n = g.dataset.n ? 1 : 3;
+  let h = '';
+  for (let i = 0; i < n; i++) {
+    h += `<div class="a pp" style="left:${i * 140}px;top:0"><div class="pb">${person(g.dataset.c)}</div>
+      ${g.dataset.q || g.dataset.n ? `<div class="q a qq" style="left:70px;top:-36px">?</div>` : ''}
+      ${g.dataset.tag ? `<div class="tag a tg" style="left:4px;top:160px">#${4821 + i}</div><div class="a xx" style="left:66px;top:-24px;width:52px;height:52px;border-radius:50%;background:#c0442a;display:grid;place-items:center"><svg style="width:32px;height:32px"><use href="#no"/></svg></div>` : ''}</div>`;
+  }
+  g.innerHTML = h;
+});
+const termLines = ['$ sudo apt install nftables dnsmasq conntrack', '$ sudo nano /etc/dnsmasq.conf', '$ sudo nft add table inet captive',
+  '! Error: syntax error, unexpected newline', '$ sudo systemctl enable --now opennds', '! Job for opennds.service failed.', '$ journalctl -xeu opennds'];
+$('A5l').innerHTML = termLines.map(l => `<div class="ln${l[0] === '!' ? ' err' : ''}">${l}</div>`).join('');
+const logs = [['14:02:11', 'line.me', '9f3a…c21'], ['14:02:14', 'google.com', '1b7e…04d'], ['14:02:19', 'youtube.com', 'c40f…9ab'], ['14:02:23', 'shopee.co.th', '77d2…e13']];
+$('B2c').insertAdjacentHTML('beforeend', logs.map((r, i) => `<div class="lrow a" id="B2r${i}" style="top:${68 + i * 62}px"><span class="mono">${r[0]}</span><span class="mono">#4821</span><span>${r[1]}</span><span class="mono" style="color:var(--ink2)">${r[2]}</span><svg style="width:28px;height:28px;color:var(--ok)"><use href="#lock"/></svg></div>`).join(''));
+
+const ppl = sel => [...document.querySelectorAll(sel + ' .pp')];
+const inner = {
+  A1: t => { S('A1s', { r: -3, x: shake(t, .3, 4) }); ppl('#A1').forEach((p, i) => { rise(p, t, .4 + i * .15); pop(p.querySelector('.qq'), t, 1.0 + i * .3); }); },
+  B1: t => {
+    S('B1m', { y: (1 - eo(P(t, .2, .6))) * 40, o: P(t, .2, .5) });
+    $('B1d').textContent = '•'.repeat(Math.floor(cl((t - .5) / .05, 0, 13)));
+    $('B1c').style.background = t > 1.25 ? '#2aa58a' : ''; $('B1c').style.borderColor = t > 1.25 ? '#2aa58a' : '';
+    $('B1b').style.transform = `scale(${t > 1.45 && t < 1.65 ? .94 : 1})`;
+    ppl('#B1').forEach((p, i) => { rise(p, t, .5 + i * .15); pop(p.querySelector('.tg'), t, 1.6 + i * .25); p.querySelector('.xx').style.opacity = 0; });
+  },
+  A2: t => { pop('A2r', t, .3); S('A2f', { x: shake(t, 1.4, 14), o: P(t, .6, .9) }); pop('A2t', t, 1.4); },
+  B2: t => { rise('B2c', t, .3); logs.forEach((r, i) => rise(`B2r${i}`, t, .7 + i * .35, .35, 0) || S(`B2r${i}`, { x: (1 - eo(P(t, .7 + i * .35, 1.05 + i * .35))) * -60, o: P(t, .7 + i * .35, 1.0 + i * .35) })); pop('B2p', t, 2.2); },
+  A3: t => {
+    S('A3e', { y: (1 - eo(P(t, .2, .6))) * -200, r: lerp(-20, -4, eo(P(t, .2, .7))), o: P(t, .2, .4) });
+    const p = ppl('#A3')[0]; S(p, { x: Math.sin(t * 16) * 3 * P(t, 1.2, 1.4), o: P(t, .5, .8) }); pop(p.querySelector('.qq'), t, 1.1);
+    pop('A3b', t, 1.4); S('A3d', { y: ((t * 1.6) % 1) * 40, o: P(t, 1.6, 1.8) * (1 - ((t * 1.6) % 1)) });
+  },
+  B3: t => {
+    S('B3e', { y: (1 - eo(P(t, .2, .6))) * -200, r: lerp(-20, -4, eo(P(t, .2, .7))), o: P(t, .2, .4) });
+    pop('B3b', t, .7); if (t > 1.4 && t < 1.6) S('B3b', { s: .93 });
+    pop('B3f', t, 1.8, .5); rise('B3t', t, 2.0);
+  },
+  A4: t => { S('A4s', { r: -3, x: shake(t, .4, 6), o: P(t, .2, .4) }); ppl('#A4').forEach((p, i) => { rise(p, t, .3 + i * .1); pop(p.querySelector('.qq'), t, .9 + i * .2); S(p.querySelector('.pb'), { x: Math.sin(t * 9 + i) * 4 }); }); },
+  B4: t => {
+    pop('B4b', t, .2); if (t > .9 && t < 1.1) S('B4b', { s: .93 });
+    rise('B4t', t, 1.0);
+    $('B4tt').textContent = t < 2.2 ? `ตัดใน ${(7.5 * P(t, 1.0, 2.2)).toFixed(1)} วิ` : 'ตัดแล้ว · ~7–8 วิ';
+    ppl('#B4').forEach((p, i) => {
+      rise(p, t, .3 + i * .1); S(p.querySelector('.tg'), { o: 1 });
+      const cut = i === 1 && t >= 2.2;
+      p.querySelector('.pb').innerHTML = person(cut ? '#c0442a' : '#3f9a45');
+      p.querySelector('.tg').style.background = cut ? 'var(--warnSoft)' : ''; p.querySelector('.tg').style.color = cut ? 'var(--warn)' : '';
+      const x = p.querySelector('.xx'); if (i === 1) pop(x, t, 2.2); else x.style.opacity = 0;
+    });
+  },
+  A5: t => {
+    rise('A5t', t, .2); const n = Math.floor(cl((t - .5) / .2, 0, termLines.length));
+    [...$('A5l').children].forEach((l, i) => l.style.display = i < n ? 'block' : 'none');
+    pop('A5p', t, 2.0);
+  },
+  B5: t => { pop('B5pi', t, .3); S('B5m', { y: (1 - eo(P(t, .7, 1.2))) * 80, o: P(t, .7, 1.0) }); pop('B5t', t, 1.5, .5); },
+};
+
+function seek(t) {
+  t = cl(t, 0, DUR - 1e-4);
+  // ฮุก
+  $('hook').style.display = t < 3.2 ? 'block' : 'none';
+  if (t < 3.2) { pop('h1', t, .1, .5); rise('h2', t, .6); rise('h3', t, .8); pop('h4', t, 1.3, .5); $('hook').style.opacity = 1 - P(t, 2.6, 3.0); }
+  // แผงบน/ล่าง
+  const pin = eo(P(t, 2.7, 3.2)), pout = P(t, 23.9, 24.4);
+  S('pA', { y: (1 - pin) * -900, o: pin * (1 - pout) }); S('pB', { y: (1 - pin) * 900, o: pin * (1 - pout) });
+  S('tbar', { s: Math.max(.001, eb(P(t, 3.0, 3.4))), o: P(t, 3.0, 3.2) * (1 - pout) });
+  $('pA').style.filter = 'saturate(.55)';
+  let passed = 0, cur = -1;
+  for (let k = 0; k < 5; k++) {
+    const lt = t - (T0 + k * SD);
+    if (lt >= 2.9) passed++;
+    const on = lt > -.01 && lt < SD;
+    const n = k + 1;
+    ['A', 'B'].forEach((side, si) => {
+      const L = $(side + n); L.style.display = on ? 'block' : 'none';
+      if (!on) { $(`c${side}${n}`).style.opacity = 0; return; }
+      L.style.opacity = 1 - P(lt, SD - .35, SD);
+      inner[side + n](lt);
+      rise(`c${side}${n}`, lt, 1.0 + si * .3); if (lt > SD - .35) $(`c${side}${n}`).style.opacity = 1 - P(lt, SD - .35, SD);
+    });
+    const tt = $('t' + n);
+    S(tt, { y: on ? (1 - eo(P(lt, 0, .35))) * 60 - eo(P(lt, SD - .3, SD)) * 60 : 80, o: on ? P(lt, 0, .3) * (1 - P(lt, SD - .3, SD)) : 0 });
+    if (on) cur = lt;
+  }
+  if (cur >= 0) {
+    const a = P(cur, 2.6, 2.95), b = P(cur, 2.9, 3.25), fade = 1 - P(cur, SD - .35, SD);
+    S('vA', { s: a <= 0 ? .001 : eb(a), o: (a > 0 ? 1 : 0) * fade });
+    S('vB', { s: b <= 0 ? .001 : eb(b), o: (b > 0 ? 1 : 0) * fade });
+  } else { $('vA').style.opacity = 0; $('vB').style.opacity = 0; }
+  $('scB').textContent = passed + '/5';
+  const sb = $('scB').parentElement; sb.style.transform = `scale(${1 + .15 * Math.max(0, ...[0, 1, 2, 3, 4].map(k => { const x = t - (T0 + k * SD) - 2.9; return x > 0 && x < .4 ? Math.sin(x / .4 * Math.PI) : 0; }))})`;
+  // ปิดท้าย
+  const ot = t - 24;
+  $('out').style.display = ot > 0 ? 'block' : 'none';
+  if (ot > 0) {
+    $('out').style.opacity = P(ot, 0, .4);
+    rise('o1', ot, .3); pop('o2', ot, .5, .5); pop('o3', ot, 1.0); rise('o4', ot, 1.2); rise('o5', ot, 1.5);
+    const ck = P(ot, 1.8, 2.3); S('o6', { s: ck <= 0 ? .001 : eb(ck) * (1 + .03 * Math.sin(ot * 5) * P(ot, 2.4, 2.8)), o: cl(ck * 3) });
+    rise('o7', ot, 2.1);
+  }
+  S('b1', { x: Math.sin(t * .5) * 100, y: Math.cos(t * .4) * 80 });
+  S('b2', { x: Math.cos(t * .35) * 120, y: Math.sin(t * .45) * 90 });
+  $('black').style.opacity = P(t, DUR - .5, DUR - .05);
+}
+window.seek = seek;
+
+const RENDER = new URLSearchParams(location.search).has('render');
+if (RENDER) document.documentElement.classList.add('render');
+function fit() {
+  const st = $('stage'); if (RENDER) { st.style.transform = 'none'; return; }
+  const k = Math.min(innerWidth / 1080, (innerHeight - 56) / 1920);
+  st.style.transform = `translate(${(innerWidth - 1080 * k) / 2}px,${(innerHeight - 56 - 1920 * k) / 2}px) scale(${k})`;
+}
+addEventListener('resize', fit); fit();
+const FONTS = ['400 40px "IBM Plex Sans Thai"', '500 40px "IBM Plex Sans Thai"', '600 40px "IBM Plex Sans Thai"', '700 40px "IBM Plex Sans Thai"',
+  '600 40px "Noto Serif Thai"', '700 40px "Noto Serif Thai"', '600 40px Fraunces', '700 40px Fraunces',
+  '400 40px "IBM Plex Mono"', '500 40px "IBM Plex Mono"', '600 40px "IBM Plex Mono"'];
+Promise.all([...FONTS.map(f => document.fonts.load(f, 'กขคงก้ำ Cafe-WiFi 0123456789 ~–≥…')),
+  ...[...document.images].map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; }))])
+  .then(() => { for (let t = 0; t < DUR; t += .1) seek(t); return document.fonts.ready; })
+  .then(() => new Promise(r => setTimeout(r, 300)))
+  .then(() => {
+    seek(0); window.READY = true;
+    if (RENDER) return;
+    let playing = true, t0 = performance.now(), cur = 0;
+    const sc = $('sc'), tm = $('tm'), pp = $('pp');
+    (function loop(now) {
+      if (playing && now) { cur = ((now - t0) / 1000) % DUR; seek(cur); sc.value = cur; tm.textContent = cur.toFixed(2); }
+      requestAnimationFrame(loop);
+    })();
+    pp.onclick = () => { playing = !playing; pp.textContent = playing ? '⏸' : '▶'; t0 = performance.now() - cur * 1000; };
+    sc.oninput = () => { cur = +sc.value; seek(cur); tm.textContent = cur.toFixed(2); t0 = performance.now() - cur * 1000; };
+  });
+</script>
+</body>
+</html>

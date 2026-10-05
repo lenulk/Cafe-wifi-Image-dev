@@ -21,3 +21,5 @@
 - [openNDS restores clients on restart](opennds-restores-clients-on-restart.md) — N44: openNDS re-auths remembered MACs ignoring DB; enforce sweeps orphans + runs 45s after openNDS start
 - [Admin HTTPS vs Chrome captive](admin-https-captive-chrome.md) — unapproved Android Chrome blocked on self-signed admin.cafe.wifi; SOLVED 1.1.0: install name-constrained shop cert as CA from http://<gw>:8080/cafe-wifi.crt
 - [systemd AccuracySec gotcha](systemd-timer-accuracysec.md) — 5 s timer fired 8–25 s apart (default AccuracySec=1min) → revoke took ~25 s; set AccuracySec=1s, measure latency end-to-end
+- [GitHub Pages site](github-pages-site.md) — https://lenulk.github.io/Cafe-wifi-Image/ live 2026-10-05; source in image/public/site (branch image) → publish-public.sh → Actions; every text needs th+en pair; claims must be test-backed
+- [Motion video pipeline](motion-video-pipeline.md) — 3 promo videos in video/motion (branch image): HTML seek(t) → Playwright Chrome + imageio-ffmpeg; preload all font weights or text vanishes
