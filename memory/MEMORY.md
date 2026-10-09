@@ -22,4 +22,7 @@
 - [Admin HTTPS vs Chrome captive](admin-https-captive-chrome.md) — unapproved Android Chrome blocked on self-signed admin.cafe.wifi; SOLVED 1.1.0: install name-constrained shop cert as CA from http://<gw>:8080/cafe-wifi.crt
 - [systemd AccuracySec gotcha](systemd-timer-accuracysec.md) — 5 s timer fired 8–25 s apart (default AccuracySec=1min) → revoke took ~25 s; set AccuracySec=1s, measure latency end-to-end
 - [GitHub Pages site](github-pages-site.md) — https://lenulk.github.io/Cafe-wifi-Image/ live 2026-10-05; source in image/public/site (branch image) → publish-public.sh → Actions; every text needs th+en pair; claims must be test-backed
+- [Report language pass 6 ต.ค.](report-language-pass-2026-10-06.md) — เล่มฉบับปรับภาษา: สิ่งที่แก้แล้ว, unit test 526/10/2 ยืนยันแล้ว, กับดักตาราง (ต่อ) + Word COM
 - [Motion video pipeline](motion-video-pipeline.md) — 3 promo videos in video/motion (branch image): HTML seek(t) → Playwright Chrome + imageio-ffmpeg; preload all font weights or text vanishes
+- [Report format spec + progress](report-format-spec-and-progress.md) — 2026-10-06 whole thesis (44 pp) done & TOC verified; open items for user (timeline table 1-1, bio pages, AI-use disclosure); python-docx traps: Thai runs need <w:cs/>, never search headings across the TOC, never hide chars to evade Turnitin
+- [Full book review 9 ต.ค.](report-full-review-2026-10-09.md) — ทีม Sonnet/Haiku ตรวจทั้งเล่ม: 20 จุดที่แก้ตามโค้ด, แจ้งเตือนผิดที่ไม่ต้องแก้, Docker 538/538 ยืนยันแล้วพร้อมไฟล์ผล
