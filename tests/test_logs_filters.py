@@ -65,6 +65,21 @@ def test_site_ip_dns_matches_answer(env):
     assert "AND dl.mac = %s" in sql and "AND dl.answer = %s" in sql
 
 
+def test_site_ip_dns_without_answers_box_still_finds_answers(env):
+    # dl.answer มีเฉพาะแถว answer -- ถ้ายังกรอง event_kind='query' จะได้ 0 แถวเสมอ (ผลลบลวง)
+    for site in ("93.184.216.34", "93.184.216.0/24"):
+        r = _get(env, log_type="dns", site=site)
+        assert r.status_code == 200
+        sql, _ = _main(env)
+        assert "dl.answer" in sql and "event_kind = 'query'" not in sql
+        assert "แสดงคำตอบ DNS ให้อัตโนมัติ" in r.get_data(as_text=True)
+
+
+def test_site_domain_dns_keeps_query_only_default(env):
+    _get(env, log_type="dns", site="example.com")
+    assert "dl.event_kind = 'query'" in _main(env)[0]
+
+
 def test_site_only_without_q_searches(env):
     r = env.get("/logs", query_string={"site": "1.1.1.1"})
     assert r.status_code == 200

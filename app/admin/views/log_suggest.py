@@ -141,22 +141,29 @@ def _vouchers(q: str, items: list) -> None:
 
 
 # ---------------------------------------------------------------- ชื่อเครื่อง
+def _first_unique(rows, key: str, build, cap: int = 5) -> list:
+    """แถวแรก ๆ ที่ไม่ซ้ำตามคอลัมน์ key (คงลำดับเดิม) สูงสุด cap รายการ -> build(row)"""
+    seen: set = set()
+    out: list = []
+    for r in rows:
+        if r[key] in seen:
+            continue
+        seen.add(r[key])
+        out.append(build(r))
+        if len(seen) >= cap:
+            break
+    return out
+
+
 def _devices(q: str, items: list) -> None:
     if not any(ch.isalpha() for ch in q):
         return
     rows = core.query_all(
         "SELECT mac, hostname, os_label, started_at FROM portal_session WHERE hostname LIKE %s "
         "ORDER BY started_at DESC LIMIT 30", ("%" + _like_escape(q) + "%",))
-    seen = set()
-    for r in rows:
-        if r["mac"] in seen:
-            continue
-        seen.add(r["mac"])
-        items.append(dict(group="device", label=r["hostname"],
-                          detail=f"{r['os_label'] or '-'} · {r['mac']} · เห็นล่าสุด {_when(r['started_at'])}",
-                          q=r["mac"]))
-        if len(seen) >= 5:
-            break
+    items.extend(_first_unique(rows, "mac", lambda r: dict(
+        group="device", label=r["hostname"],
+        detail=f"{r['os_label'] or '-'} · {r['mac']} · เห็นล่าสุด {_when(r['started_at'])}", q=r["mac"])))
 
 
 # ---------------------------------------------------------------- MAC บางส่วน
@@ -170,14 +177,8 @@ def _macs(q: str, items: list) -> None:
     rows = core.query_all(
         "SELECT mac, hostname, started_at FROM portal_session WHERE mac LIKE %s "
         "ORDER BY started_at DESC LIMIT 30", (_like_escape(prefix) + "%",))
-    seen = set()
-    for r in rows:
-        if r["mac"] in seen:
-            continue
-        seen.add(r["mac"])
-        items.append(dict(group="mac", label=r["mac"], detail=r["hostname"] or "-", q=r["mac"]))
-        if len(seen) >= 5:
-            break
+    items.extend(_first_unique(rows, "mac", lambda r: dict(
+        group="mac", label=r["mac"], detail=r["hostname"] or "-", q=r["mac"])))
 
 
 # ---------------------------------------------------------------- IP บางส่วน
@@ -189,12 +190,5 @@ def _ips(q: str, items: list) -> None:
     rows = core.query_all(
         "SELECT ip, hostname, started_at FROM portal_session WHERE ip LIKE %s "
         "ORDER BY started_at DESC LIMIT 30", (_like_escape(q) + "%",))
-    seen = set()
-    for r in rows:
-        if r["ip"] in seen:
-            continue
-        seen.add(r["ip"])
-        items.append(dict(group="ip", label=r["ip"],
-                          detail=f"{r['hostname'] or '-'} · {_when(r['started_at'])}", q=r["ip"]))
-        if len(seen) >= 5:
-            break
+    items.extend(_first_unique(rows, "ip", lambda r: dict(
+        group="ip", label=r["ip"], detail=f"{r['hostname'] or '-'} · {_when(r['started_at'])}", q=r["ip"])))

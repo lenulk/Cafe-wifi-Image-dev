@@ -28,4 +28,5 @@
 - [Full book review 9 ต.ค.](report-full-review-2026-10-09.md) — ทีม Sonnet/Haiku ตรวจทั้งเล่ม: 20 จุดที่แก้ตามโค้ด, แจ้งเตือนผิดที่ไม่ต้องแก้, Docker 538/538 ยืนยันแล้วพร้อมไฟล์ผล
 - [Log search upgrade 12 ต.ค.](log-search-upgrade-2026-10-12.md) — autocomplete, เลขเต็มเฉพาะ admin, site/port/CIDR, /logs/summary, /audit, sql 014/015; 10 Windows test fails = เดิม; ต้องทดสอบบน Pi + 015 ก่อน restart logger
 - [Thesis skill edition 9 ต.ค.](thesis-skill-edition-2026-10-09.md) — สกิล thai-thesis-form ที่ .claude/skills/; เล่มฉบับตามสกิล 104 หน้า; กับดัก szCs ปก, spacer 2", สารบัญตายตัว→tocnum; เครื่องนี้มี Word แล้ว
+- [Admin sees everything](admin-sees-everything-unmasked.md) — admin dashboard unmasked by design (staff only masked); don't flag as leak, but wrong log→customer attribution is still a bug
 - [Model routing preference](model-routing-preference.md) — Sonnet/Haiku subagents do simple/bulk work; Opus orchestrates, reviews, hard parts

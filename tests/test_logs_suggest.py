@@ -378,3 +378,13 @@ def test_logs_without_cid_still_has_cid_param(env):
     base._login_as(client, "admin")
     r = client.get("/logs")
     assert r.status_code == 200
+
+
+def test_logs_pages_no_store(env):
+    """/logs และ /logs/suggest โชว์เลขบัตรเต็มให้ admin -- ห้ามอยู่ในแคชเบราว์เซอร์"""
+    client, _, _ = env
+    base._login_as(client, "admin")
+    r = client.get("/logs/suggest", query_string={"q": "abc"})
+    assert r.status_code == 200 and r.headers["Cache-Control"] == "no-store"
+    r = client.get("/logs", query_string=base._q())
+    assert r.status_code == 200 and r.headers["Cache-Control"] == "no-store"

@@ -49,7 +49,9 @@ app.config.update(
 
 @app.after_request
 def no_cache_sensitive(response):
-    if request.path.endswith("/reveal") or request.path == "/requests":
+    # หน้าที่แสดงเลขบัตรเต็ม (reveal / requests / ค้น log เฉพาะ admin) ห้ามเก็บในแคชเบราว์เซอร์
+    if request.path.endswith("/reveal") or request.path in (
+            "/requests", "/logs", "/logs/summary", "/logs/suggest", "/logs/export"):
         response.headers["Cache-Control"] = "no-store"
     return response
 if not os.environ.get("SECRET_KEY"):

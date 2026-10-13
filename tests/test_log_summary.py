@@ -139,6 +139,8 @@ def test_cid_summary_restricts_by_customer_windows(env):
     start, end = datetime(2026, 10, 1), datetime(2026, 10, 2)
     sql, args = db.find("from dns_log x")[0]
     assert "= %s" in sql and "s.authenticated_at <= x.ts" in sql
+    from common.log_mapping import session_match   # ต้องเป็นกฎชุดเดียวกับ /logs + export เป๊ะ
+    assert session_match("x", "client_ip", "x.ts") in sql
     # กฎเดียวกับ MAPPING_JOIN: ตรงหลาย session = ไม่ระบุตัว ห้ามใช้ EXISTS (แถวกำกวมจะไปโผล่ในสรุปทุกคน)
     assert "CASE WHEN COUNT(*)=1 THEN MAX(s.id) END" in sql and "EXISTS" not in sql
     assert args == (start, end, MAC, 7, 20)
@@ -191,3 +193,11 @@ def test_hostname_html_escaped(env):
     base._login_as(client, "staff")
     html = client.get("/logs/summary", query_string=dict(RANGE, mac=MAC)).get_data(as_text=True)
     assert "<b>iPhone</b>" not in html and "&lt;b&gt;iPhone&lt;/b&gt;" in html
+
+
+def test_summary_no_store(env):
+    """หน้าที่โชว์เลขบัตรเต็มต้องไม่ถูกแคช"""
+    client, _ = env
+    base._login_as(client, "admin")
+    r = client.get("/logs/summary", query_string=dict(RANGE, mac=MAC))
+    assert r.status_code == 200 and r.headers["Cache-Control"] == "no-store"

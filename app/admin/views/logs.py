@@ -15,7 +15,7 @@ from common import audit, crypto
 from common.customer import PURGED_MARK
 from common.domain_match import domain_condition, normalize_domain
 from common.log_mapping import conn_mapping_join, dns_mapping_join
-from common.sqlutil import format_natid, like_escape
+from common.sqlutil import COLUMN_STATE, format_natid, has_column, like_escape
 from logger.integrity import SqlManifestStore, verify_chain
 
 from admin import app as core
@@ -153,6 +153,11 @@ def search_logs():
         args += ca
         if site_kind in ("domain", "name") and log_type == "conn":
             ctx["note"] = ctx["note"] or _conn_name_note()
+        if site_kind in ("ip", "cidr") and log_type == "dns" and not show_answers:
+            # dl.answer มีเฉพาะแถว event_kind='answer' -- ถ้ากรองเหลือแค่ query จะได้ 0 แถวเสมอ (ผลลบลวง)
+            show_answers = True
+            ctx["note"] = ("ค้น IP ปลายทางใน DNS ได้จากแถวคำตอบเท่านั้น จึงแสดงคำตอบ DNS ให้อัตโนมัติ" +
+                           (" · " + ctx["note"] if ctx["note"] else ""))
     if port is not None:
         where.append("cl.dst_port = %s")
         args.append(port)
@@ -303,22 +308,15 @@ def _site_label(kind, value, subdomain: bool = False):
 
 
 # ---------------------------------------------------------------- ตรวจคอลัมน์ที่มาจาก migration (014/015)
-# Pi บางตัวอาจยังไม่รัน migration -- ตรวจครั้งเดียวต่อ process แล้วจำ · error = ถือว่าไม่มี (ไม่จำผล)
-_COLUMN_CACHE: dict = {}
+# ใช้ตัวช่วยกลางใน common.sqlutil (เจอแล้วจำตลอด · ไม่เจอ/error เช็กใหม่ทุก 5 นาที)
+_COLUMN_CACHE = COLUMN_STATE
 
 
 def _has_column(table: str, column: str) -> bool:
-    key = (table, column)
-    if key in _COLUMN_CACHE:
-        return _COLUMN_CACHE[key]
-    try:
-        row = core.query_one(
-            "SELECT 1 AS ok FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
-            "AND TABLE_NAME = %s AND COLUMN_NAME = %s", (table, column))
-    except Exception:  # noqa: BLE001
-        return False
-    _COLUMN_CACHE[key] = bool(row)
-    return _COLUMN_CACHE[key]
+    def fetch(sql, args):
+        row = core.query_one(sql, args)
+        return next(iter(row.values())) if row else 0
+    return has_column(fetch, table, column)
 
 
 def _conn_name_note() -> str:

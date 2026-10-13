@@ -17,15 +17,24 @@ from __future__ import annotations
 # staff ไม่เคยผ่านขั้นนั้น จึงเห็นแต่เลข masked ตาม §6.2 ข้อ 5
 # R2-02: conn_log.ts คือเวลาจบ connection (DESTROY) ซึ่งอาจเลยช่วง session ของเจ้าของไปแล้ว
 # จึงจับคู่ด้วยเวลาเริ่ม ({tsexpr} = COALESCE(cl.started_at, cl.ts)) ส่วน dns_log ใช้ ts ตรง ๆ
-MAPPING_JOIN = (
-    " LEFT JOIN portal_session ps ON ps.id = ("
-    " SELECT CASE WHEN COUNT(*)=1 THEN MAX(s.id) END FROM portal_session s"
+# SESSION_MATCH = subquery คืน portal_session.id ที่เป็นเจ้าของแถว log (NULL ถ้า 0 หรือ > 1 session)
+# ใช้ทั้งใน MAPPING_JOIN และหน้าสรุปรายลูกค้า (admin/views/log_summary.py) -- แก้กฎที่นี่ที่เดียว
+SESSION_MATCH = (
+    "SELECT CASE WHEN COUNT(*)=1 THEN MAX(s.id) END FROM portal_session s"
     " WHERE s.mac={alias}.mac AND s.ip={alias}.{ipfield}"
     " AND s.authenticated_at <= {tsexpr}"
-    " AND (s.ended_at IS NULL OR {tsexpr} <= s.ended_at))"
+    " AND (s.ended_at IS NULL OR {tsexpr} <= s.ended_at)"
+)
+
+MAPPING_JOIN = (
+    " LEFT JOIN portal_session ps ON ps.id = (" + SESSION_MATCH + ")"
     " LEFT JOIN voucher v ON v.id=ps.voucher_id"
     " LEFT JOIN customer c ON c.id=v.customer_id"
 )
+
+
+def session_match(alias: str, ipfield: str, tsexpr: str) -> str:
+    return SESSION_MATCH.format(alias=alias, ipfield=ipfield, tsexpr=tsexpr)
 
 CONN_TSEXPR = "COALESCE(cl.started_at, cl.ts)"
 DNS_TSEXPR = "dl.ts"

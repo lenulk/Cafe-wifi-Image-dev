@@ -353,27 +353,14 @@ _dst_name_state: dict = {"ok": False, "checked": None}
 
 def _has_dst_name(cur) -> bool:
     """conn_log มีคอลัมน์ dst_name (sql/015) หรือยัง -- เจอแล้วจำตลอด, ไม่เจอเช็กใหม่ทุก 5 นาที"""
-    import time
+    from common.sqlutil import has_column
 
-    st = _dst_name_state
-    if st["ok"]:
-        return True
-    now = time.monotonic()
-    if st["checked"] is not None and now - st["checked"] < _DST_NAME_RECHECK:
-        return False
-    st["checked"] = now
-    try:
-        cur.execute("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
-                    "AND TABLE_NAME = 'conn_log' AND COLUMN_NAME = 'dst_name'")
+    def fetch(sql, args):
+        cur.execute(sql, args)
         row = cur.fetchone()
-        n = (row[0] if isinstance(row, (tuple, list)) else next(iter(row.values()))) if row else 0
-        st["ok"] = bool(n)
-    except Exception:
-        log.warning("เช็กคอลัมน์ conn_log.dst_name ไม่สำเร็จ -- เขียนแบบไม่มีชื่อเว็บ", exc_info=True)
-        return False
-    if not st["ok"]:
-        log.warning("conn_log ยังไม่มีคอลัมน์ dst_name -- รัน sql/015_conn_dst_name.sql (เขียนแบบเดิมไปก่อน)")
-    return st["ok"]
+        return (row[0] if isinstance(row, (tuple, list)) else next(iter(row.values()))) if row else 0
+
+    return has_column(fetch, "conn_log", "dst_name", _DST_NAME_RECHECK, state=_dst_name_state)
 
 
 def insert_conn_records(records: list[ConnRecord], mac_cache: MacCache | None = None,

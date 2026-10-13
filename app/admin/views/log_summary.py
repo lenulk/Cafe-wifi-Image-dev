@@ -18,6 +18,7 @@ from flask import g, render_template, request, session
 
 from common import audit, crypto
 from common.customer import PURGED_MARK
+from common.log_mapping import session_match
 
 from admin import app as core
 from admin.routes import Routes
@@ -36,11 +37,7 @@ MAC_SCOPE = "x.mac = %s"
 # กฎเดียวกับ MAPPING_JOIN เป๊ะ (R2-10): แถวที่เข้าได้ > 1 session = ไม่ระบุตัว -> ไม่นับให้ใครเลย
 # (เดิมใช้ EXISTS แถวกำกวมจึงไปโผล่ในสรุปของลูกค้าทุกคนที่ session ซ้อนกัน ทั้งที่ /logs ว่า "ไม่ระบุตัว")
 CID_SCOPE = ("x.mac IN ({macs}) AND (SELECT v.customer_id FROM portal_session ps "
-             "JOIN voucher v ON v.id = ps.voucher_id WHERE ps.id = ("
-             "SELECT CASE WHEN COUNT(*)=1 THEN MAX(s.id) END FROM portal_session s "
-             "WHERE s.mac = x.mac AND s.ip = x.{ipfield} "
-             "AND s.authenticated_at <= {tsexpr} "
-             "AND (s.ended_at IS NULL OR {tsexpr} <= s.ended_at))) = %s")
+             "JOIN voucher v ON v.id = ps.voucher_id WHERE ps.id = ({match})) = %s")
 
 
 def _err(message: str, status: int):
@@ -63,7 +60,8 @@ def _scope(kind: str, value, macs: list[str], table: str):
         return MAC_SCOPE, [value]
     ipfield, tsexpr = (("src_ip", "COALESCE(x.started_at, x.ts)") if table == "conn"
                        else ("client_ip", "x.ts"))
-    frag = CID_SCOPE.format(macs=", ".join(["%s"] * len(macs)), ipfield=ipfield, tsexpr=tsexpr)
+    frag = CID_SCOPE.format(macs=", ".join(["%s"] * len(macs)),
+                            match=session_match("x", ipfield, tsexpr))
     return frag, list(macs) + [value]
 
 
