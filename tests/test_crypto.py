@@ -58,3 +58,12 @@ def test_missing_key_raises_clear_error(monkeypatch):
     monkeypatch.delenv("NATID_DEK", raising=False)
     with pytest.raises(crypto.SecretsMissingError):
         crypto.natid_encrypt(SAMPLE)
+
+
+def test_constant_time_eq_non_ascii_and_empty():
+    assert crypto.constant_time_eq("ก", "abc") is False  # ต้องไม่ raise TypeError
+    assert crypto.constant_time_eq("ก", "ก") is True
+    assert crypto.constant_time_eq("", "") is False
+    assert crypto.constant_time_eq("  ", "\n") is False
+    assert crypto.constant_time_eq("", "abc") is False
+    assert crypto.constant_time_eq(" abc\n", "abc") is True

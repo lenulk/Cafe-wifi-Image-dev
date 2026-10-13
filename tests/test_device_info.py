@@ -59,3 +59,14 @@ def test_dhcp_pool_size(tmp_path):
     f.write_text("# x\ninterface=eth0\ndhcp-range=10.10.0.100,10.10.0.250,255.255.255.0,4h\n")
     assert di.dhcp_pool_size(str(f)) == 151
     assert di.dhcp_pool_size(str(tmp_path / "missing")) is None
+
+
+@pytest.mark.parametrize("ua", [
+    "Mozilla/5.0 (Windows NT 10." + "0" * 200 + ")",
+    "Mozilla/5.0 (Linux; Android " + "1." * 100 + "; X)",
+    "Mozilla/5.0 (Linux; Android 14; " + "M" * 200 + ")",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS " + "1_" * 100 + "1 like Mac OS X)",
+])
+def test_os_label_fits_varchar_64(ua):
+    label = di.os_from_user_agent(ua)
+    assert label is None or len(label) <= di.OS_LABEL_MAX == 64

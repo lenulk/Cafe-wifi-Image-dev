@@ -330,3 +330,9 @@ def test_every_admin_post_form_has_csrf_field():
         html = tpl.read_text(encoding="utf-8")
         for m in re.finditer(r'<form[^>]*method="post"[^>]*>(.*?)</form>', html, re.S | re.I):
             assert 'name="csrf_token"' in m.group(1), f"{tpl.name}: ฟอร์ม POST ไม่มี csrf_token"
+
+
+def test_non_ascii_token_is_rejected_not_500(client):
+    r = _post(client, token="ก" * 10)
+    assert r.status_code == 400
+    assert STAFF == []

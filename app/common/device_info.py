@@ -19,6 +19,7 @@ LEASE_FILE = "/var/lib/misc/dnsmasq.leases"  # ชื่อตายตัว �
 DNSMASQ_CONF = "/etc/dnsmasq.d/cafe-wifi.conf"  # install.sh เขียน dhcp-range ไว้ที่นี่
 HOSTNAME_MAX = 63
 UA_MAX = 255
+OS_LABEL_MAX = 64  # = VARCHAR(64) ของ access_request.os_label / portal_session.os_label
 
 _HOST_BAD = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -86,14 +87,19 @@ def _ver(raw: str) -> str:
 
 def os_from_user_agent(ua: str | None) -> str | None:
     """User-Agent -> ข้อความสั้นที่พนักงานอ่านรู้เรื่อง เช่น "iPhone · iOS 17.5", "Android 14 · SM-A546E" """
-    ua = ua or ""
+    label = _os_label(ua or "")
+    return label[:OS_LABEL_MAX] if label else label
+
+
+def _os_label(ua: str) -> str | None:
     if not ua:
         return None
-    m = re.search(r"\((iPhone|iPad|iPod)[^)]*?OS (\d+(?:_\d+)*)", ua)
+    # เลขรุ่นจำกัดความยาว -- UA มาจากลูกค้า ห้ามให้ label ยาวเกินคอลัมน์
+    m = re.search(r"\((iPhone|iPad|iPod)[^)]*?OS (\d{1,4}(?:_\d{1,4}){0,3})", ua)
     if m:
         dev, ver = m.group(1), _ver(m.group(2))
         return f"{dev} · {'iPadOS' if dev == 'iPad' else 'iOS'} {ver}"
-    m = re.search(r"Android (\d+(?:\.\d+)*)(?:; ([^;)]+))?", ua)
+    m = re.search(r"Android (\d{1,4}(?:\.\d{1,4}){0,3})(?:; ([^;)]+))?", ua)
     if m:
         model = (m.group(2) or "").strip()
         model = re.sub(r"\s*Build/.*$", "", model)
@@ -101,7 +107,7 @@ def os_from_user_agent(ua: str | None) -> str | None:
         if model and model != "K" and not model.startswith(("wv", "Linux")):
             return f"Android {m.group(1)} · {model[:40]}"
         return f"Android {m.group(1)}"
-    m = re.search(r"Windows NT (\d+\.\d+)", ua)
+    m = re.search(r"Windows NT (\d{1,3}\.\d{1,3})", ua)
     if m:
         # Windows 11 ยังส่ง "NT 10.0" เหมือน Windows 10 -- แยกจาก UA ไม่ได้
         return {"10.0": "Windows 10/11", "6.3": "Windows 8.1", "6.2": "Windows 8",

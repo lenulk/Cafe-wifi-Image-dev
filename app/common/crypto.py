@@ -162,4 +162,8 @@ def check_admin_password(password: str) -> list[str]:
 
 
 def constant_time_eq(a: str, b: str) -> bool:
-    return hmac.compare_digest((a or "").strip(), (b or "").strip())
+    a, b = (a or "").strip(), (b or "").strip()
+    if not a or not b:  # ค่าว่างห้ามเท่ากับค่าว่าง (ไฟล์ token ว่าง = ผ่าน)
+        return False
+    # compare_digest กับ str ที่ไม่ใช่ ASCII = TypeError -> เทียบเป็น bytes
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))

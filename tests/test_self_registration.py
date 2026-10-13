@@ -834,3 +834,8 @@ def test_arabic_digit_natid_rejected(fas):
 def test_natid_field_converts_thai_digits_in_browser(fas):
     html = fas.get(_gw_url()).get_data(as_text=True)
     assert "\u0E50-\u0E59" in html and "0x0E50" in html
+
+
+def test_non_ascii_nonce_is_rejected_not_500(fas):
+    r = fas.post("/login", data=dict(nonce="ก" * 40, natid=NATID, consent="on"))
+    assert 400 <= r.status_code < 500

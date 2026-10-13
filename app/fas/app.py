@@ -98,7 +98,8 @@ def _save_context(ctx: ClientContext, ip: str) -> str:
 
 
 def _load_context(nonce: str, ip: str) -> ClientContext | None:
-    if len(nonce) < 32 or len(nonce) > 128 or not ip:
+    # nonce มาจาก token_urlsafe -> [A-Za-z0-9_-] เท่านั้น (ไม่ใช่ ASCII ทำ encode พัง = 500)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", nonce or "") or not ip:
         return None
     row = query_one("SELECT payload, request_ip, expires_at, consumed_at FROM fas_context "
                     "WHERE nonce_hash=%s", (_nonce_hash(nonce),))
