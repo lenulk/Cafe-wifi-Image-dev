@@ -49,9 +49,9 @@ app.config.update(
 
 @app.after_request
 def no_cache_sensitive(response):
-    # หน้าที่แสดงเลขบัตรเต็ม (reveal / requests / ค้น log เฉพาะ admin) ห้ามเก็บในแคชเบราว์เซอร์
-    if request.path.endswith("/reveal") or request.path in (
-            "/requests", "/logs", "/logs/summary", "/logs/suggest", "/logs/export", "/audit"):
+    # ทุกหน้าหลังล็อกอินมีข้อมูลส่วนบุคคล (เลขบัตร, log, audit) -- ห้ามเก็บในแคชเบราว์เซอร์ทั้งหมด
+    # ไม่ใช้รายชื่อ path (เดิมต้องจำเพิ่มทีละหน้า และเคยลืม /audit) · ไฟล์ static ยังแคชได้ตามปกติ
+    if session.get("staff_id") and request.endpoint != "static":
         response.headers["Cache-Control"] = "no-store"
     return response
 if not os.environ.get("SECRET_KEY"):

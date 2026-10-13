@@ -15,7 +15,7 @@ from common import audit, crypto
 from common.customer import PURGED_MARK
 from common.domain_match import domain_condition, normalize_domain
 from common.log_mapping import conn_mapping_join, dns_mapping_join
-from common.sqlutil import COLUMN_STATE, format_natid, has_column, like_escape
+from common.sqlutil import COLUMN_STATE, ascii_int, format_natid, has_column, like_escape
 from logger.integrity import SqlManifestStore, verify_chain
 
 from admin import app as core
@@ -76,8 +76,9 @@ def search_logs():
     # ใช้ cid ก็ต่อเมื่อ q ยังตรงกับ masked ของลูกค้านั้นเป๊ะ ๆ (พนักงานแก้ข้อความแล้ว = ทิ้ง cid กลับไปเดาชนิดตามปกติ)
     kind = value = error = None
     cid_raw = (request.args.get("cid") or "").strip()
-    if q and cid_raw.isdigit() and len(cid_raw) <= 19 and 0 < int(cid_raw) < 2**63:
-        cust = core.query_one("SELECT id, natid_masked FROM customer WHERE id = %s", (int(cid_raw),))
+    cid = ascii_int(cid_raw)
+    if q and cid is not None and 0 < cid < 2**63:
+        cust = core.query_one("SELECT id, natid_masked FROM customer WHERE id = %s", (cid,))
         if cust and cust["natid_masked"] != PURGED_MARK and q == cust["natid_masked"]:
             kind, value = "customer", cust["id"]
             params["cid"] = str(cust["id"])
@@ -157,8 +158,10 @@ def search_logs():
         # ค้น IP ทั้งช่องหลัก (client_ip OR answer) และช่องปลายทาง (answer) -- dl.answer มีเฉพาะแถว
         # event_kind='answer' ถ้ากรองเหลือแค่ query IP ปลายทางจะได้ 0 แถวเสมอ (ผลลบลวง)
         show_answers = True
-        ctx["note"] = ("ค้น IP ปลายทางใน DNS ได้จากแถวคำตอบเท่านั้น จึงแสดงคำตอบ DNS ให้อัตโนมัติ" +
-                       (" · " + ctx["note"] if ctx["note"] else ""))
+        params["answers"] = "1"     # ให้ช่องติ๊ก "แสดงคำตอบ DNS ด้วย" ตรงกับสิ่งที่แสดงจริง
+        why = ("IP ปลายทางหาได้จากแถวคำตอบเท่านั้น" if kind not in ("ip", "cidr")
+               else "IP นี้อาจเป็นได้ทั้งเครื่องลูกค้าและปลายทาง (ปลายทางอยู่ในแถวคำตอบ)")
+        ctx["note"] = (why + " จึงแสดงคำตอบ DNS ให้อัตโนมัติ" + (" · " + ctx["note"] if ctx["note"] else ""))
     if port is not None:
         where.append("cl.dst_port = %s")
         args.append(port)
@@ -405,9 +408,10 @@ def _classify_target(x: str):
 def _parse_port(raw: str):
     if not raw:
         return None, None
-    if not raw.isdigit() or not 1 <= int(raw) <= 65535:
+    port = ascii_int(raw, 5)
+    if port is None or not 1 <= port <= 65535:
         return None, "พอร์ตต้องเป็นตัวเลข 1–65535"
-    return int(raw), None
+    return port, None
 
 
 PROTOS = ("tcp", "udp", "icmp", "other")

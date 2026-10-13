@@ -19,6 +19,7 @@ from flask import g, render_template, request, session
 from common import audit, crypto
 from common.customer import PURGED_MARK
 from common.log_mapping import session_match
+from common.sqlutil import ascii_int
 
 from admin import app as core
 from admin.routes import Routes
@@ -87,9 +88,10 @@ def log_summary():
         hexes = re.sub(r"[:-]", "", mac_raw).upper()
         value = ":".join(hexes[i:i + 2] for i in range(0, 12, 2))
     else:
-        if not (cid_raw.isdigit() and len(cid_raw) <= 19 and 0 < int(cid_raw) < 2**63):
+        cid = ascii_int(cid_raw)
+        if cid is None or not 0 < cid < 2**63:
             return _err("รหัสลูกค้า (cid) ต้องเป็นจำนวนเต็มบวก", 400)
-        value = int(cid_raw)
+        value = cid
 
     params = dict(range=rng, start=start_raw, end=end_raw)
     ctx = dict(kind=kind, params=params, ranges=LOG_RANGES, mac=value if kind == "mac" else "",

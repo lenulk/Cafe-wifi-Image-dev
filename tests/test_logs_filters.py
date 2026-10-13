@@ -6,6 +6,7 @@ T-LogsFilters — ช่อง "ปลายทาง" (site), พอร์ต/�
 """
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -80,8 +81,11 @@ def test_main_q_ip_dns_also_shows_answers(env):
         r = _get(env, log_type="dns", q=q)
         assert r.status_code == 200
         sql, _ = _main(env)
-        assert "dl.answer" in sql and "event_kind = 'query'" not in sql
-        assert "แสดงคำตอบ DNS ให้อัตโนมัติ" in r.get_data(as_text=True)
+        assert "dl.event_kind = 'query'" not in sql
+        html = r.get_data(as_text=True)
+        assert "อาจเป็นได้ทั้งเครื่องลูกค้าและปลายทาง" in html
+        # ช่องติ๊กต้องตรงกับสิ่งที่แสดงจริง
+        assert re.search(r'name="answers" value="1"[^>]*\s+checked>', html)
 
 
 def test_site_domain_dns_keeps_query_only_default(env):
@@ -165,6 +169,12 @@ def test_proto_other(env):
                                 dict(proto="sctp"), dict(proto="tcp;drop")])
 def test_port_proto_invalid_400(env, kw):
     assert _get(env, **kw).status_code == 400
+    assert not base.AUDIT
+
+
+def test_port_superscript_400_not_500(env):
+    # '²' ผ่าน isdigit() แต่ int() พัง -- ต้องตอบ 400 ไม่ใช่ 500
+    assert _get(env, port="²").status_code == 400
     assert not base.AUDIT
 
 

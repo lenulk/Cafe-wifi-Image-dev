@@ -101,11 +101,12 @@ def test_bad_params_400(env, qs):
     assert not base.AUDIT
 
 
-def test_huge_cid_400_not_500(env):
-    # ตัวเลขยาวมาก -- int() เกินลิมิตของ CPython (4300 หลัก) ต้องตอบ 400 ไม่ใช่ 500
+@pytest.mark.parametrize("cid", ["9" * 5000, "²"])
+def test_huge_cid_400_not_500(env, cid):
+    # ตัวเลขยาวมาก -- int() เกินลิมิตของ CPython (4300 หลัก) / '²' ผ่าน isdigit() แต่ int() พัง ต้องตอบ 400 ไม่ใช่ 500
     client, db = env
     base._login_as(client, "admin")
-    assert client.get("/logs/summary", query_string=dict(RANGE, cid="9" * 5000)).status_code == 400
+    assert client.get("/logs/summary", query_string=dict(RANGE, cid=cid)).status_code == 400
     assert not db.calls and not base.AUDIT
 
 

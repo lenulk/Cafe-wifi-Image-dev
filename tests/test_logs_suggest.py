@@ -373,12 +373,27 @@ def test_logs_cid_searches_by_customer(env, monkeypatch):
     assert r.status_code == 200 and "kind=mac" in base.AUDIT[-1][4]
 
 
-def test_logs_huge_cid_not_500(env):
-    # cid ยาวมาก -- ห้ามให้ int() ระเบิดเป็น 500 ต้องถูกมองข้ามแล้วค้นตามปกติ
+@pytest.mark.parametrize("cid", ["9" * 5000, "²", "١٢"])
+def test_logs_huge_cid_not_500(env, cid):
+    # cid ยาวมาก / ตัวเลขที่ isdigit() ยอมแต่ int() ไม่ยอม ('²') -- ห้ามให้ระเบิดเป็น 500 ต้องถูกมองข้ามแล้วค้นตามปกติ
     client, _, _ = env
     base._login_as(client, "admin")
-    r = client.get("/logs", query_string=base._q(q="abc", cid="9" * 5000))
-    assert r.status_code != 500
+    r = client.get("/logs", query_string=base._q(q="abc", cid=cid))
+    assert r.status_code == 200
+
+
+def test_logs_natid_with_superscript_not_500(env):
+    # 13 อักขระที่มี '²' -- ผ่าน isdigit() ได้ แต่ต้องไม่ระเบิดตอนตรวจ checksum (ตอบ 400 "เลขบัตรไม่ถูกต้อง")
+    client, _, _ = env
+    base._login_as(client, "admin")
+    assert client.get("/logs", query_string=base._q(q="123456789012²")).status_code == 400
+
+
+def test_logs_suggest_superscript_not_500(env):
+    client, _, _ = env
+    base._login_as(client, "admin")
+    r, _ = _get(client, "12²")
+    assert r.status_code == 200
 
 
 def test_logs_without_cid_still_has_cid_param(env):

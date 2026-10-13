@@ -953,6 +953,23 @@ def test_insert_conn_records_survives_dns_lookup_failure(monkeypatch):
     assert inserted[0][6] is None
 
 
+def test_has_column_does_not_cache_transient_error():
+    # DB สะดุดครั้งเดียวต้องไม่ทำให้จำว่า "ไม่มีคอลัมน์" ไป 5 นาที (logger จะเขียนแบบไม่มีชื่อเว็บทั้งช่วง)
+    from common.sqlutil import has_column
+    st = {"ok": False, "checked": None}
+    calls = []
+
+    def flaky(sql, args):
+        calls.append(sql)
+        if len(calls) == 1:
+            raise RuntimeError("MariaDB restart")
+        return 1
+
+    assert has_column(flaky, "conn_log", "dst_name", state=st) is False
+    assert has_column(flaky, "conn_log", "dst_name", state=st) is True
+    assert len(calls) == 2
+
+
 def test_insert_conn_records_without_dst_name_column_falls_back(monkeypatch):
     """โค้ดใหม่บน Pi ที่ยังไม่รัน sql/015 -- ต้องเขียน conn_log แบบเดิมได้ ไม่ใช่ error ทุก batch
     และเช็กคอลัมน์ซ้ำแค่ทุก _DST_NAME_RECHECK วินาที ไม่ใช่ทุก batch"""
