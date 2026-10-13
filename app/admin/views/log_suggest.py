@@ -80,7 +80,6 @@ def _customers(digits: str, items: list) -> str | None:
             ok = full.startswith(digits)
             if ok:
                 r = dict(r, natid_full=full)   # เก็บเลขเต็มเฉพาะแถวที่ตรง ใช้ทำ label เท่านั้น
-            full = None
         else:
             ok = _masked_match(r["natid_masked"], digits)
         if ok:

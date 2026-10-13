@@ -87,7 +87,7 @@ def log_summary():
         hexes = re.sub(r"[:-]", "", mac_raw).upper()
         value = ":".join(hexes[i:i + 2] for i in range(0, 12, 2))
     else:
-        if not (cid_raw.isdigit() and 0 < int(cid_raw) < 2**63):
+        if not (cid_raw.isdigit() and len(cid_raw) <= 19 and 0 < int(cid_raw) < 2**63):
             return _err("รหัสลูกค้า (cid) ต้องเป็นจำนวนเต็มบวก", 400)
         value = int(cid_raw)
 
@@ -150,7 +150,7 @@ def log_summary():
     audit.log_required(audit.SEARCH_LOG, staff_id=session["staff_id"], client_ip=g.client_ip,
                        detail=f"summary {target} start={start.isoformat()} end={end.isoformat()}")
     if full_count:
-        audit.log_required(getattr(audit, "VIEW_NATID_LOG", "view_natid_log"),
+        audit.log_required(audit.VIEW_NATID_LOG,
                            staff_id=session["staff_id"], client_ip=g.client_ip,
                            detail=f"summary {target} count={full_count}")
 

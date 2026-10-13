@@ -75,6 +75,15 @@ def test_site_ip_dns_without_answers_box_still_finds_answers(env):
         assert "แสดงคำตอบ DNS ให้อัตโนมัติ" in r.get_data(as_text=True)
 
 
+def test_main_q_ip_dns_also_shows_answers(env):
+    for q in ("93.184.216.34", "93.184.216.0/24"):
+        r = _get(env, log_type="dns", q=q)
+        assert r.status_code == 200
+        sql, _ = _main(env)
+        assert "dl.answer" in sql and "event_kind = 'query'" not in sql
+        assert "แสดงคำตอบ DNS ให้อัตโนมัติ" in r.get_data(as_text=True)
+
+
 def test_site_domain_dns_keeps_query_only_default(env):
     _get(env, log_type="dns", site="example.com")
     assert "dl.event_kind = 'query'" in _main(env)[0]

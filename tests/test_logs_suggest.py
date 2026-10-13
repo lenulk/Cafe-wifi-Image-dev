@@ -373,6 +373,14 @@ def test_logs_cid_searches_by_customer(env, monkeypatch):
     assert r.status_code == 200 and "kind=mac" in base.AUDIT[-1][4]
 
 
+def test_logs_huge_cid_not_500(env):
+    # cid ยาวมาก -- ห้ามให้ int() ระเบิดเป็น 500 ต้องถูกมองข้ามแล้วค้นตามปกติ
+    client, _, _ = env
+    base._login_as(client, "admin")
+    r = client.get("/logs", query_string=base._q(q="abc", cid="9" * 5000))
+    assert r.status_code != 500
+
+
 def test_logs_without_cid_still_has_cid_param(env):
     client, _, _ = env
     base._login_as(client, "admin")

@@ -139,6 +139,13 @@ def test_view_writes_audit_row(env):
     assert "start=2026-10-01" in a[4]
 
 
+def test_audit_no_store(env):
+    client, _ = env
+    base._login_as(client, "admin")
+    r = client.get("/audit", query_string=RANGE)
+    assert r.status_code == 200 and r.headers["Cache-Control"] == "no-store"
+
+
 def test_html_escaped(env):
     client, db = env
     base._login_as(client, "admin")

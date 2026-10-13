@@ -76,7 +76,7 @@ def search_logs():
     # ใช้ cid ก็ต่อเมื่อ q ยังตรงกับ masked ของลูกค้านั้นเป๊ะ ๆ (พนักงานแก้ข้อความแล้ว = ทิ้ง cid กลับไปเดาชนิดตามปกติ)
     kind = value = error = None
     cid_raw = (request.args.get("cid") or "").strip()
-    if q and cid_raw.isdigit() and 0 < int(cid_raw) < 2**63:
+    if q and cid_raw.isdigit() and len(cid_raw) <= 19 and 0 < int(cid_raw) < 2**63:
         cust = core.query_one("SELECT id, natid_masked FROM customer WHERE id = %s", (int(cid_raw),))
         if cust and cust["natid_masked"] != PURGED_MARK and q == cust["natid_masked"]:
             kind, value = "customer", cust["id"]
@@ -153,11 +153,12 @@ def search_logs():
         args += ca
         if site_kind in ("domain", "name") and log_type == "conn":
             ctx["note"] = ctx["note"] or _conn_name_note()
-        if site_kind in ("ip", "cidr") and log_type == "dns" and not show_answers:
-            # dl.answer มีเฉพาะแถว event_kind='answer' -- ถ้ากรองเหลือแค่ query จะได้ 0 แถวเสมอ (ผลลบลวง)
-            show_answers = True
-            ctx["note"] = ("ค้น IP ปลายทางใน DNS ได้จากแถวคำตอบเท่านั้น จึงแสดงคำตอบ DNS ให้อัตโนมัติ" +
-                           (" · " + ctx["note"] if ctx["note"] else ""))
+    if log_type == "dns" and not show_answers and (kind in ("ip", "cidr") or site_kind in ("ip", "cidr")):
+        # ค้น IP ทั้งช่องหลัก (client_ip OR answer) และช่องปลายทาง (answer) -- dl.answer มีเฉพาะแถว
+        # event_kind='answer' ถ้ากรองเหลือแค่ query IP ปลายทางจะได้ 0 แถวเสมอ (ผลลบลวง)
+        show_answers = True
+        ctx["note"] = ("ค้น IP ปลายทางใน DNS ได้จากแถวคำตอบเท่านั้น จึงแสดงคำตอบ DNS ให้อัตโนมัติ" +
+                       (" · " + ctx["note"] if ctx["note"] else ""))
     if port is not None:
         where.append("cl.dst_port = %s")
         args.append(port)
@@ -384,16 +385,21 @@ def _classify_site(site: str):
     """ช่อง "ชื่อเว็บ / IP ปลายทาง" -> (kind, value, error) · kind: ip/cidr/domain/name หรือ None (ว่าง)"""
     if not site:
         return None, None, None
-    if "/" in site:
-        v, err = _parse_cidr(site)
-        return ("cidr", v, None) if v else (None, None, err)
+    return _classify_target(site) or (None, None, "ช่องปลายทางต้องเป็น IP, ช่วง IP (เช่น 1.2.3.0/24) หรือชื่อเว็บ")
+
+
+def _classify_target(x: str):
+    """ส่วนที่ช่องค้นหลักกับช่องปลายทางใช้ร่วมกัน -> (kind, value, error) ของ ip/cidr/domain/name หรือ None"""
     try:
-        return "ip", str(ipaddress.ip_address(site)), None
+        return "ip", str(ipaddress.ip_address(x)), None
     except ValueError:
         pass
-    if _DOMAIN_RE.match(site) and any(ch.isalpha() for ch in site):
-        return ("domain" if "." in site.strip(".") else "name"), site.lower(), None
-    return None, None, "ช่องปลายทางต้องเป็น IP, ช่วง IP (เช่น 1.2.3.0/24) หรือชื่อเว็บ"
+    if "/" in x:
+        v, err = _parse_cidr(x)
+        return ("cidr", v, None) if v else (None, None, err)
+    if _DOMAIN_RE.match(x) and any(ch.isalpha() for ch in x):
+        return ("domain" if "." in x.strip(".") else "name"), x.lower(), None
+    return None
 
 
 def _parse_port(raw: str):
@@ -471,17 +477,8 @@ def _classify_log_query(q: str):
     if _MAC_RE.match(q):
         hexes = re.sub(r"[:-]", "", q).upper()
         return "mac", ":".join(hexes[i:i + 2] for i in range(0, 12, 2)), None
-    try:
-        return "ip", str(ipaddress.ip_address(q)), None
-    except ValueError:
-        pass
-    if "/" in q:
-        v, err = _parse_cidr(q)
-        return ("cidr", v, None) if v else (None, None, err)
-    if _DOMAIN_RE.match(q) and any(ch.isalpha() for ch in q):
-        return ("domain" if "." in q.strip(".") else "name"), q.lower(), None
-    return None, None, ("ไม่รู้จักรูปแบบนี้ — พิมพ์เลขบัตร 13 หลัก, เลขอ้างอิง CAFE-xxxxx, MAC, IP, "
-                        "ชื่อเครื่อง หรือชื่อเว็บ")
+    return _classify_target(q) or (None, None, "ไม่รู้จักรูปแบบนี้ — พิมพ์เลขบัตร 13 หลัก, เลขอ้างอิง "
+                                               "CAFE-xxxxx, MAC, IP, ชื่อเครื่อง หรือชื่อเว็บ")
 
 
 def _logs_csv(log_type: str, rows):
