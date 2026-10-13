@@ -7,7 +7,7 @@ admin/views/log_summary.py — สรุปการใช้งานราย�
 
 การจับคู่ log -> ลูกค้า: ถ้าสรุปรายลูกค้า (cid) จำกัดแถว log ให้อยู่ในช่วง session ของลูกค้านั้นเท่านั้น
 (mac + ip + เวลา ตามหลักเดียวกับ common/log_mapping.py) เพราะ MAC เดียวใช้กับหลายคนต่างเวลาได้
-ใช้ EXISTS (ไม่ใช่ JOIN) เพื่อไม่ให้ session ซ้อนกันทำให้นับแถวซ้ำ
+ใช้ subquery สเกลาร์ (ไม่ใช่ JOIN) เพื่อไม่ให้นับแถวซ้ำ และแถวที่ตรงหลาย session ไม่นับให้ใคร
 """
 from __future__ import annotations
 
@@ -33,11 +33,14 @@ OWNERS_MAX = 20
 
 MAC_SCOPE = "x.mac = %s"
 # เวลาเริ่มของ conn_log = started_at (ถ้ามี) ตามเหตุผล R2-02 ใน log_mapping.py
-CID_SCOPE = ("x.mac IN ({macs}) AND EXISTS (SELECT 1 FROM portal_session ps "
-             "JOIN voucher v ON v.id = ps.voucher_id WHERE v.customer_id = %s "
-             "AND ps.mac = x.mac AND ps.ip = x.{ipfield} "
-             "AND ps.authenticated_at <= {tsexpr} "
-             "AND (ps.ended_at IS NULL OR {tsexpr} <= ps.ended_at))")
+# กฎเดียวกับ MAPPING_JOIN เป๊ะ (R2-10): แถวที่เข้าได้ > 1 session = ไม่ระบุตัว -> ไม่นับให้ใครเลย
+# (เดิมใช้ EXISTS แถวกำกวมจึงไปโผล่ในสรุปของลูกค้าทุกคนที่ session ซ้อนกัน ทั้งที่ /logs ว่า "ไม่ระบุตัว")
+CID_SCOPE = ("x.mac IN ({macs}) AND (SELECT v.customer_id FROM portal_session ps "
+             "JOIN voucher v ON v.id = ps.voucher_id WHERE ps.id = ("
+             "SELECT CASE WHEN COUNT(*)=1 THEN MAX(s.id) END FROM portal_session s "
+             "WHERE s.mac = x.mac AND s.ip = x.{ipfield} "
+             "AND s.authenticated_at <= {tsexpr} "
+             "AND (s.ended_at IS NULL OR {tsexpr} <= s.ended_at))) = %s")
 
 
 def _err(message: str, status: int):

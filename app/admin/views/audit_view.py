@@ -9,6 +9,7 @@ from __future__ import annotations
 from flask import g, render_template, request, session
 
 from common import audit
+from common.sqlutil import like_escape as _like_escape
 
 from admin import app as core
 from admin.routes import Routes
@@ -28,10 +29,6 @@ def _known_actions() -> list[str]:
               if k.isupper() and isinstance(v, str) and v}
     consts.add(VIEW_AUDIT)
     return sorted(consts)
-
-
-def _like_escape(s: str) -> str:
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @routes.get("/audit")

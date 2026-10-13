@@ -15,6 +15,7 @@ import re
 from datetime import datetime
 from flask import g, jsonify, request, session
 from common import audit, crypto
+from common.customer import PURGED_MARK
 from common.sqlutil import format_natid, like_escape as _like_escape
 
 from admin import app as core
@@ -26,11 +27,6 @@ MAX_ITEMS = 8
 MAX_CUSTOMERS = 5
 SUGGEST_NATID_LIMIT = 120       # คำขอถอดรหัสต่อพนักงานต่อ WINDOW_SEC (600 วินาที)
 _NATID_SCAN_MAX = 5000          # ลูกค้าที่อ่านต่อคำขอ (ร้านเดียว ไม่ควรถึง)
-
-
-def _like_escape(s: str) -> str:
-    """escape ตัวแทน LIKE (% _) และเครื่องหมาย \\ ให้เป็นตัวอักษรธรรมดา (MySQL ใช้ \\ เป็น escape ตั้งต้น)"""
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _when(v) -> str:
@@ -71,7 +67,7 @@ def _customers(digits: str, items: list) -> str | None:
     cols = "id, natid_enc, natid_masked" if is_admin else "id, natid_masked"
     rows = core.query_all(
         f"SELECT {cols}, last_seen, visit_count FROM customer "
-        "WHERE natid_masked <> 'PURGED' ORDER BY last_seen DESC LIMIT %s", (_NATID_SCAN_MAX,))
+        "WHERE natid_masked <> %s ORDER BY last_seen DESC LIMIT %s", (PURGED_MARK, _NATID_SCAN_MAX))
     hits: list[dict] = []
     for r in rows:
         if len(hits) >= MAX_CUSTOMERS:

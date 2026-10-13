@@ -347,6 +347,35 @@ def lookup_dst_names(cur, items) -> list[str | None]:
         return empty
 
 
+_DST_NAME_RECHECK = 300.0  # วินาที -- ถ้ายังไม่มีคอลัมน์ เช็กใหม่เป็นระยะ (รัน 015 ทีหลังได้โดยไม่ต้อง restart)
+_dst_name_state: dict = {"ok": False, "checked": None}
+
+
+def _has_dst_name(cur) -> bool:
+    """conn_log มีคอลัมน์ dst_name (sql/015) หรือยัง -- เจอแล้วจำตลอด, ไม่เจอเช็กใหม่ทุก 5 นาที"""
+    import time
+
+    st = _dst_name_state
+    if st["ok"]:
+        return True
+    now = time.monotonic()
+    if st["checked"] is not None and now - st["checked"] < _DST_NAME_RECHECK:
+        return False
+    st["checked"] = now
+    try:
+        cur.execute("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                    "AND TABLE_NAME = 'conn_log' AND COLUMN_NAME = 'dst_name'")
+        row = cur.fetchone()
+        n = (row[0] if isinstance(row, (tuple, list)) else next(iter(row.values()))) if row else 0
+        st["ok"] = bool(n)
+    except Exception:
+        log.warning("เช็กคอลัมน์ conn_log.dst_name ไม่สำเร็จ -- เขียนแบบไม่มีชื่อเว็บ", exc_info=True)
+        return False
+    if not st["ok"]:
+        log.warning("conn_log ยังไม่มีคอลัมน์ dst_name -- รัน sql/015_conn_dst_name.sql (เขียนแบบเดิมไปก่อน)")
+    return st["ok"]
+
+
 def insert_conn_records(records: list[ConnRecord], mac_cache: MacCache | None = None,
                         on_unmapped=None) -> int:
     """เขียนกลุ่ม record ลง conn_log เป็น batch — คืนจำนวนแถวที่เขียนสำเร็จ
@@ -372,12 +401,21 @@ def insert_conn_records(records: list[ConnRecord], mac_cache: MacCache | None = 
                 unmapped += 1
             rows.append((datetime.fromtimestamp(r.ts), started, mac, r.src_ip, r.src_port,
                          r.dst_ip, r.dst_port, r.proto, r.bytes_out, r.bytes_in))
-        # dst_name: 2 query ต่อ batch (ดู lookup_dst_names) · at = เวลาเริ่ม ถ้าไม่รู้ใช้ ts
-        names = lookup_dst_names(cur, [(row[3], row[5], row[1] or row[0]) for row in rows])
-        rows = [row[:6] + (nm,) + row[6:] for row, nm in zip(rows, names)]
-        cur.executemany(
-            "INSERT INTO conn_log (ts, started_at, mac, src_ip, src_port, dst_ip, dst_name, "
-            "dst_port, proto, bytes_out, bytes_in) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", rows)
+        if _has_dst_name(cur):
+            # dst_name: 2 query ต่อ batch (ดู lookup_dst_names) · at = เวลาเริ่ม ถ้าไม่รู้ใช้ ts
+            names = lookup_dst_names(cur, [(row[3], row[5], row[1] or row[0]) for row in rows])
+            rows = [row[:6] + (nm,) + row[6:] for row, nm in zip(rows, names)]
+            cur.executemany(
+                "INSERT INTO conn_log (ts, started_at, mac, src_ip, src_port, dst_ip, dst_name, "
+                "dst_port, proto, bytes_out, bytes_in) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                rows)
+        else:
+            # ยังไม่ได้รัน sql/015 (อัปเดตโค้ดแล้ว restart โดยไม่รัน install.sh) -- เขียนแบบเดิม
+            # ไม่ให้ทุก batch error จน log จราจรหาย (ข้อจากรีวิว: ฝั่งอ่าน logs.py เช็กคอลัมน์แล้ว ฝั่งเขียนไม่เช็ก)
+            cur.executemany(
+                "INSERT INTO conn_log (ts, started_at, mac, src_ip, src_port, dst_ip, "
+                "dst_port, proto, bytes_out, bytes_in) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                rows)
     if on_unmapped and unmapped:
         on_unmapped(unmapped)
     return len(rows)

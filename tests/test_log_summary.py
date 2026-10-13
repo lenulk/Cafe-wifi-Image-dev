@@ -138,10 +138,12 @@ def test_cid_summary_restricts_by_customer_windows(env):
     assert r.status_code == 200
     start, end = datetime(2026, 10, 1), datetime(2026, 10, 2)
     sql, args = db.find("from dns_log x")[0]
-    assert "v.customer_id = %s" in sql and "ps.authenticated_at <= x.ts" in sql
+    assert "= %s" in sql and "s.authenticated_at <= x.ts" in sql
+    # กฎเดียวกับ MAPPING_JOIN: ตรงหลาย session = ไม่ระบุตัว ห้ามใช้ EXISTS (แถวกำกวมจะไปโผล่ในสรุปทุกคน)
+    assert "CASE WHEN COUNT(*)=1 THEN MAX(s.id) END" in sql and "EXISTS" not in sql
     assert args == (start, end, MAC, 7, 20)
     sql, args = db.find("sum(x.bytes_out)")[0]
-    assert "v.customer_id = %s" in sql and "COALESCE(x.started_at, x.ts)" in sql
+    assert "CASE WHEN COUNT(*)=1" in sql and "COALESCE(x.started_at, x.ts)" in sql
     assert args == (start, end, MAC, 7)
     html = r.get_data(as_text=True)
     assert "example.com" in html and "93.184.216.34" in html and "1.9 KB" in html or "KB" in html

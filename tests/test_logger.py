@@ -920,6 +920,7 @@ def test_insert_conn_records_stores_dst_name_with_two_dns_queries_per_batch(monk
         def cursor(self): return Cursor()
 
     monkeypatch.setattr(db, "get_conn", lambda: contextlib.nullcontext(Conn()))
+    monkeypatch.setitem(conn_collector._dst_name_state, "ok", True)
     start = _T0.timestamp()
     recs = [conn_collector.replace(_rec(), mac="AA:AA:AA:AA:AA:01", started_at=start)
             for _ in range(3)]
@@ -946,6 +947,36 @@ def test_insert_conn_records_survives_dns_lookup_failure(monkeypatch):
         def cursor(self): return Cursor()
 
     monkeypatch.setattr(db, "get_conn", lambda: contextlib.nullcontext(Conn()))
+    monkeypatch.setitem(conn_collector._dst_name_state, "ok", True)
     rec = conn_collector.replace(_rec(), mac="AA:AA:AA:AA:AA:01", started_at=_T0.timestamp())
     assert conn_collector.insert_conn_records([rec]) == 1
     assert inserted[0][6] is None
+
+
+def test_insert_conn_records_without_dst_name_column_falls_back(monkeypatch):
+    """โค้ดใหม่บน Pi ที่ยังไม่รัน sql/015 -- ต้องเขียน conn_log แบบเดิมได้ ไม่ใช่ error ทุก batch
+    และเช็กคอลัมน์ซ้ำแค่ทุก _DST_NAME_RECHECK วินาที ไม่ใช่ทุก batch"""
+    import contextlib
+    import common.db as db
+    executed, inserted = [], []
+
+    class Cursor:
+        def execute(self, sql, args=None):
+            executed.append(sql)
+        def fetchone(self): return (0,)
+        def executemany(self, sql, rows): inserted.append((sql, rows))
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class Conn:
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(db, "get_conn", lambda: contextlib.nullcontext(Conn()))
+    monkeypatch.setattr(conn_collector, "_dst_name_state", {"ok": False, "checked": None})
+    rec = conn_collector.replace(_rec(), mac="AA:AA:AA:AA:AA:01", started_at=_T0.timestamp())
+    assert conn_collector.insert_conn_records([rec]) == 1
+    assert conn_collector.insert_conn_records([rec]) == 1
+    for sql, rows in inserted:
+        assert "dst_name" not in sql and sql.count("%s") == len(rows[0]) == 10
+    assert sum("information_schema" in s for s in executed) == 1
+    assert not any("dns_log" in s for s in executed), "ไม่มีคอลัมน์ก็ไม่ต้องค้นชื่อเว็บ"
