@@ -4,7 +4,22 @@
 สถานะในตาราง: **ยืนยัน** = Opus เปิดโค้ด/รันทดสอบแล้วเห็นจริง · **น่าจะจริง** = เหตุผลถูก แต่ยังไม่ได้ทดลอง/ขึ้นกับสภาพบน Pi
 ยกเว้นตามการตัดสินใจเดิม: เลขบัตรผ่าน HTTP, admin เห็นข้อมูลเต็ม, Pi ตัวเดียวสายเดียว
 
-**แก้แล้ว (14 ต.ค.):** H1, M8, M9, nonce ภาษาไทย (ข้อแรกในหมวดต่ำ) — ที่เหลือยังเปิดอยู่
+**แก้แล้ว (14 ต.ค.):** H1, H3, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12 (ดัชนี sql/016) และหมวดต่ำ: nonce ภาษาไทย,
+ขอบเวลา SESSION_MATCH (`<` ended_at ทุกจุด), flush backoff, offset หาย → log_gap, DB timeout, docker-compose 008–016, หมายเหตุ sql/008
+· เพิ่มเติม: DSR ปิดคำขอ pending ของลูกค้าเป็น expired · parse dnsmasq รับ CRLF
+**ยังเปิด:** M1, M2, H2 (ดูตารางข้างล่าง) · fas consent ไม่มีเวอร์ชันนโยบาย / double-tap deadlock / `/request` ซ่อนคำขอเก่า ·
+`common/traffic.py` ใช้ขอบเวลาคนละแบบ (นับโควตา — ตั้งใจยังไม่แตะ) · ทั้งหมดที่แก้ผ่านเทสต์ในเครื่อง แต่**ยังไม่ได้รันบน Pi/MariaDB จริง**
+
+## ⏳ ต้องตรวจบน Pi ก่อนแก้ (ห้ามแก้จากการเดา)
+
+| ข้อ | ต้องดูอะไรบน Pi | คำสั่ง | ถ้าเจอ… |
+|---|---|---|---|
+| M1 DNS HTTPS/SVCB | dnsmasq รุ่นนี้พิมพ์ชนิด record ที่ไม่รู้จักยังไง | `dnsmasq --version` แล้ว `grep -oE 'query\[[^]]+\]' /var/log/cafe-wifi/dnsmasq.log \| sort \| uniq -c` (path ดูจาก install.sh) | มี `query[type=65]` / `query[type=64]` → แก้ `_QUERY_RE` ให้รับ `[\w=]+` และ map เลข→ชื่อ · ถ้าเป็น `query[HTTPS]` อยู่แล้ว = ปิดข้อนี้ |
+| M2 บรรทัดหายตอน logrotate | dnsmasq เขียนไฟล์เก่าต่อหลัง rename นานแค่ไหน และ collector อ่านทันไหม | สั่ง `logrotate -f` กลางวันที่มีลูกค้า แล้วเทียบ `zcat dnsmasq.log-<วันนี้>* \| tail -50` กับ `SELECT ... FROM dns_log ORDER BY ts DESC` ช่วงเวลาเดียวกัน | บรรทัดท้ายไฟล์เก่าไม่มีใน DB → แก้ dns_collector ให้อ่าน fd เก่าต่ออีกสักครู่หลัง inode เปลี่ยน (หรือใช้ `copytruncate`) |
+| H2 แยกสิทธิ์ DB + ยึด hash chain นอกเครื่อง | **งานออกแบบ ต้องคุยก่อน** — แยก user DB ต่อ service (logger INSERT-only, ไม่มีใคร UPDATE/DELETE audit_log), ผนึก conn_log/dns_log รายวันเข้า chain, ส่ง head hash ออกนอกเครื่อง (อีเมล/USB/พิมพ์) | — | ต้องทดสอบ install.sh + ทุก service บน Pi หลังแยก user |
+| M2/M6 ผลจริงหลังแก้ | ดู audit `log_gap` หลังทดสอบ ENOBUFS / ปิด MariaDB 1 นาที | `systemctl stop mariadb; sleep 60; systemctl start mariadb` แล้วดูหน้า audit | ต้องเห็นแถว log_gap พร้อมจำนวนที่ทิ้ง |
+| H3 install.sh ซ้ำ | หลังแก้: รัน `install.sh` ซ้ำ **โดยไม่ใส่** `--enable-partitions` บน Pi ที่เปิด partition ไว้ | `mysql -e "SELECT @@event_scheduler"` | ต้องยังเป็น `ON` |
+| M12 ดัชนีใหม่ | หลังรัน sql/016 | `EXPLAIN SELECT DISTINCT mac FROM portal_session WHERE ip='10.10.0.50' AND authenticated_at <= NOW()` | ต้องใช้ `idx_ip_auth` |
 
 ## สูง — กระทบความถูกต้องของหลักฐาน ม.26
 
