@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .netutil import MacCache
-from .telemetry import CollectorTelemetry
+from .telemetry import CollectorTelemetry, FlushBackoff, GapLedger
 
 log = logging.getLogger("cafe-wifi.dns_collector")
 
@@ -72,7 +72,7 @@ class DnsAnswerEvent:
 
 def parse_dnsmasq_line(line: str, now: datetime | None = None):
     """คืน DnsQueryEvent | DnsAnswerEvent | None"""
-    line = line.rstrip("\n")
+    line = line.rstrip("\r\n")  # CRLF (ไฟล์ที่เขียนบน Windows) ไม่ให้ \r ค้างจน regex ไม่ตรง
     m = _TS_PREFIX.match(line)
     if not m:
         return None
@@ -105,13 +105,28 @@ class DnsCorrelator:
         return None
 
 
+def stamp_mac(row: dict, mac_cache: MacCache) -> dict:
+    """ใส่ MAC ของเจ้าของ client_ip ณ ตอนที่บรรทัดถูกอ่าน (ไม่ใช่ตอนเขียน DB)"""
+    row["mac"] = mac_cache.get(row["client_ip"]) if row.get("client_ip") else None
+    return row
+
+
+# ยอดเหตุการณ์ที่ทิ้ง -- เขียนลง audit_log (LOG_GAP) พร้อม dropped=<n> ไม่หายตอน cooldown/DB ล่ม
+_gap_ledger = GapLedger("dns_log")
+
+
 def insert_dns_rows(rows: list[dict], mac_cache: MacCache, on_unmapped=None) -> int:
     from common.db import get_conn
 
     values = []
     unmapped = 0
     for r in rows:
-        mac = mac_cache.get(r["client_ip"]) if r["client_ip"] else None
+        # MAC ถูกตีตราตอน parse บรรทัด (stamp_mac) -- ถ้าอ่านตอน flush ลูกค้าอีกคนที่ได้ IP เดิมต่อ
+        # (DHCP lease ถูกใช้ซ้ำ, DB ล่มหลายชั่วโมง) จะถูกบันทึกเป็นเจ้าของ query ผิดคน (เหมือน R2-02)
+        if "mac" in r:
+            mac = r["mac"]
+        else:
+            mac = mac_cache.get(r["client_ip"]) if r["client_ip"] else None
         if r["client_ip"] and not mac:
             unmapped += 1
         values.append((r["ts"], r["client_ip"], mac, r["qname"][:255],
@@ -152,6 +167,7 @@ def flush_buffer(buffer: list[dict], mac_cache: MacCache,
                       len(dropped), dropped[0]["ts"], dropped[-1]["ts"])
             if telemetry:
                 telemetry.drop(len(dropped))
+            _gap_ledger.add(len(dropped), f"dns_log buffer เกิน {max_pending}")
         return 0
     buffer.clear()
     if telemetry:
@@ -209,6 +225,16 @@ def _record_gap(detail: str) -> None:
         log.exception("บันทึก audit_log เรื่อง dns_log ขาดช่วงไม่สำเร็จ")
 
 
+def missing_state_gap(state_path: str, telemetry: CollectorTelemetry) -> str | None:
+    """ไฟล์ตำแหน่งหาย/เสีย = ไม่รู้ว่าอ่านถึงไหน จึง seek ท้ายไฟล์ -- บรรทัดที่เขียนตอน logger ดับ
+    ถูกข้ามเงียบ ๆ · ติดตั้งใหม่จริง = ไม่มีทั้งไฟล์ตำแหน่งและ heartbeat ของรอบก่อน (ไม่ฟ้อง)
+    ถ้าสัญญาณกำกวมให้ฟ้อง: แถว audit เกินดีกว่าช่องว่างเงียบ"""
+    if os.path.exists(state_path) or telemetry.previous_heartbeat() is not None:
+        return ("ไฟล์ตำแหน่งที่อ่านถึงหาย/เสีย — บรรทัดที่ dnsmasq เขียนระหว่างที่ logger ดับ "
+                "อาจถูกข้าม (offset state missing)")
+    return None
+
+
 def run_forever(log_path: str = "/var/log/cafe-wifi/dnsmasq.log",
                 batch_size: int = 200, flush_interval: float = 5.0,
                 stop_event: threading.Event | None = None,
@@ -228,11 +254,15 @@ def run_forever(log_path: str = "/var/log/cafe-wifi/dnsmasq.log",
     buffer: list[dict] = []
     last_flush = time.time()
     saved: tuple[int, int] | None = None
+    backoff = FlushBackoff()
 
     log.info("เริ่ม dns_collector: tail -F %s", log_path)
     f = open(log_path, "rb")
     inode = os.fstat(f.fileno()).st_ino
-    start, gap = resume_position(load_offset(state_path), inode, os.fstat(f.fileno()).st_size)
+    state = load_offset(state_path)
+    start, gap = resume_position(state, inode, os.fstat(f.fileno()).st_size)
+    if state is None:
+        gap = missing_state_gap(state_path, telemetry)
     if gap:
         _record_gap(gap)
     f.seek(start)
@@ -255,8 +285,10 @@ def run_forever(log_path: str = "/var/log/cafe-wifi/dnsmasq.log",
                 line = b""
             if not line:
                 now = time.time()
-                if buffer and now - last_flush >= flush_interval:
+                _gap_ledger.flush()  # เขียนยอดที่สะสมไว้ถ้าพ้น cooldown
+                if buffer and now - last_flush >= flush_interval and backoff.ready():
                     flush_buffer(buffer, mac_cache, telemetry=telemetry)
+                    backoff.failed() if buffer else backoff.ok()
                     last_flush = now
                 checkpoint()
                 try:
@@ -276,10 +308,13 @@ def run_forever(log_path: str = "/var/log/cafe-wifi/dnsmasq.log",
                 continue
             row = correlator.feed_line(line.decode("utf-8", errors="replace"))
             if row:
+                stamp_mac(row, mac_cache)
                 buffer.append(row)
                 telemetry.event()
-            if len(buffer) >= batch_size:
+            if len(buffer) >= batch_size and backoff.ready():
+                # DB ล่ม: หน่วงการลองซ้ำ ไม่เชื่อมต่อ+log.exception ทุกบรรทัดที่อ่านเข้ามา
                 flush_buffer(buffer, mac_cache, telemetry=telemetry)
+                backoff.failed() if buffer else backoff.ok()
                 last_flush = time.time()
                 checkpoint()
     finally:
@@ -288,6 +323,7 @@ def run_forever(log_path: str = "/var/log/cafe-wifi/dnsmasq.log",
             log.warning("ปิด dns_collector ทั้งที่ยังเขียน %d รายการไม่สำเร็จ — "
                         "จะอ่านซ้ำจากตำแหน่งที่บันทึกไว้ตอนเริ่มครั้งหน้า", len(buffer))
         checkpoint()
+        _gap_ledger.flush(force=True)  # ปิดตัว: เขียนยอดที่ทิ้งค้างไว้
         telemetry.heartbeat(force=True)
         f.close()
 

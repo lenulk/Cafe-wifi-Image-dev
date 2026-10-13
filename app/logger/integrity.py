@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import subprocess
+import zlib
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -26,6 +27,10 @@ from typing import Protocol
 log = logging.getLogger("cafe-wifi.integrity")
 
 CHUNK_SIZE = 1024 * 1024
+
+# .gz ที่ตัดท้าย/เสียโยน EOFError, gzip.BadGzipFile (OSError), zlib.error -- ต้องจับเป็นรายไฟล์
+# ไม่งั้นทั้งรอบ crash ก่อนรายงานอะไร (ไม่มีแถว INTEGRITY_FAILED) และทุกรอบถัดไป crash ซ้ำ
+_UNREADABLE = (OSError, EOFError, zlib.error)
 
 
 def sha256_file(path: Path) -> str:
@@ -132,31 +137,56 @@ def seal_directory(
     # ไม่เคยผนึกไฟล์อะไรเลยบนเครื่องจริง ทั้งที่เทสต์ผ่านหมดเพราะเทสต์ใช้ชื่อไฟล์สมมติ
     # "day1.log" ที่ไม่ตรงกับรูปแบบจริงของ logrotate
     patterns: tuple[str, ...] = ("*.log-*.gz", "*.log-*", "*.log.gz", "*.log"),
+    issues: "list[IntegrityIssue] | None" = None,
 ) -> list[ManifestEntry]:
     """
     เดินดูไฟล์ที่ยังไม่เคยผนึกในไดเรกทอรี (เรียงตาม mtime เก่า->ใหม่ เพื่อให้สาย hash
     เรียงตามเวลาจริง) แล้วผนึกทีละไฟล์ต่อจาก prev hash ล่าสุด คืนรายการที่เพิ่งผนึกใหม่
+
+    issues (ถ้าส่งมา) รับปัญหาที่พบตอนผนึก: unreadable (อ่าน/แตก .gz ไม่ได้ -- ข้ามไฟล์นั้น รอบอื่นทำต่อ)
+    และ unexpected_file (ไม่มีแถว manifest แต่วันที่ในชื่อเก่ากว่าไฟล์ล่าสุดที่ผนึกแล้ว = ไฟล์ย้อนหลังโผล่มาทีหลัง)
     """
     candidates: list[Path] = []
     for pat in patterns:
         candidates.extend(directory.glob(pat))
+    candidates = list(dict.fromkeys(candidates))  # pattern ซ้อนกัน (*.log-* ครอบ *.log-*.gz) เจอไฟล์ซ้ำ
     candidates.sort(key=lambda p: p.stat().st_mtime)
 
     sealed: list[ManifestEntry] = []
     prev = store.last_entry()
     prev_hash = prev.sha256 if prev else None
-    sealed_hash = {e.filename: e.sha256 for e in store.all_entries()}
+    existing = store.all_entries()
+    sealed_hash = {e.filename: e.sha256 for e in existing}
+    newest_sealed = max((m[1] for e in existing if (m := _ARCHIVE_DATE.search(e.filename))),
+                        default=None)  # ISO date เทียบเป็นสตริงได้
 
     for path in candidates:
         if store.has(path.name):
             continue
-        digest = sha256_file(path)
+        try:
+            digest = sha256_file(path)
+        except _UNREADABLE as exc:
+            log.error("ผนึก %s ไม่ได้: อ่านไม่ได้/ไฟล์เสีย (%s: %s)", path.name, type(exc).__name__, exc)
+            if issues is not None:
+                issues.append(IntegrityIssue(path.name, "unreadable",
+                                             f"อ่านไฟล์เพื่อผนึกไม่ได้ ({type(exc).__name__}: {exc}) — ไม่ผนึก"))
+            continue
         # N25: logrotate ตั้ง delaycompress ไว้ ไฟล์ที่หมุนรอบก่อน (X.log-DATE) จะถูกบีบอัดเป็น
         # X.log-DATE.gz ในรอบถัดไป ถ้าเนื้อหาเหมือนตอนผนึกทุกไบต์ (sha256_file hash เนื้อหาที่
         # decompress แล้ว) ก็คือไฟล์เดิมที่แค่เปลี่ยนชื่อ ไม่ต้องผนึกซ้ำ -- verify_chain() ตาม
         # ชื่อ .gz ให้เอง ถ้าเนื้อหาต่างไปจะผนึกเป็นรายการใหม่ และชื่อเดิมจะถูกฟ้อง hash_mismatch
         if path.name.endswith(".gz") and sealed_hash.get(path.name[:-3]) == digest:
             continue
+        m = _ARCHIVE_DATE.search(path.name)
+        if newest_sealed and m and m[1] < newest_sealed:
+            # ไฟล์ที่ไม่มีแถว manifest แต่วันที่เก่ากว่าที่ผนึกไปแล้ว = ไฟล์ย้อนหลังโผล่มาทีหลัง
+            # (อาจถูกสร้าง/แทรกเอง) ยังผนึกต่อ (ไม่งั้นไม่มีหลักฐาน) แต่ต้องเตือนให้คนตรวจ
+            log.warning("ผนึก %s ที่ไม่เคยมี manifest แต่วันที่เก่ากว่าไฟล์ล่าสุดที่ผนึก (%s)",
+                        path.name, newest_sealed)
+            if issues is not None:
+                issues.append(IntegrityIssue(
+                    path.name, "unexpected_file",
+                    f"ไฟล์ลงวันที่ {m[1]} โผล่หลังจากผนึกไฟล์ลงวันที่ {newest_sealed} ไปแล้ว"))
         entry = ManifestEntry(filename=path.name, sha256=digest,
                               prev_sha256=prev_hash, size_bytes=path.stat().st_size)
         store.add(entry)
@@ -169,7 +199,7 @@ def seal_directory(
 @dataclass(frozen=True)
 class IntegrityIssue:
     filename: str
-    kind: str    # 'hash_mismatch' | 'missing_file' | 'chain_broken'
+    kind: str    # 'hash_mismatch' | 'missing_file' | 'chain_broken' | 'unreadable' | 'unexpected_file'
     detail: str
 
 
@@ -212,7 +242,14 @@ def verify_chain(store: ManifestStore, directory: Path) -> list[IntegrityIssue]:
             issues.append(IntegrityIssue(entry.filename, "missing_file",
                                          f"ไม่พบไฟล์ {path} — อาจถูกลบทิ้งนอกกระบวนการปกติ"))
         else:
-            actual = sha256_file(path)
+            try:
+                actual = sha256_file(path)
+            except _UNREADABLE as exc:
+                issues.append(IntegrityIssue(
+                    entry.filename, "unreadable",
+                    f"อ่าน {path.name} ไม่ได้ ({type(exc).__name__}: {exc}) — ไฟล์อาจเสีย/ถูกตัด"))
+                prev_hash = entry.sha256
+                continue
             if actual != entry.sha256:
                 issues.append(IntegrityIssue(
                     entry.filename, "hash_mismatch",
@@ -325,10 +362,11 @@ def main() -> int:
     archive_dir = log_dir / "archive"
     store = SqlManifestStore()
 
-    sealed = seal_directory(archive_dir, store)
+    seal_issues: list[IntegrityIssue] = []
+    sealed = seal_directory(archive_dir, store, issues=seal_issues)
     log.info("ผนึกไฟล์ใหม่ %d ไฟล์", len(sealed))
 
-    issues = verify_chain(store, archive_dir)
+    issues = seal_issues + verify_chain(store, archive_dir)
     # R2-07: เดิม return 1 ก่อนถึง prune เมื่อเจอ issue ใดก็ได้ -- ไฟล์เดียวที่ hash ไม่ตรง (ต้องเก็บไว้
     # เป็นหลักฐาน) ทำให้ไม่มีไฟล์ไหนถูกลบตามอายุอีกเลยจนดิสก์เต็ม ตอนนี้กันไว้เฉพาะไฟล์ที่มีปัญหา
     hold = {i.filename for i in issues if i.kind not in _RESUMABLE_KINDS}

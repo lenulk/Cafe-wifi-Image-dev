@@ -26,7 +26,7 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from .netutil import MacCache
-from .telemetry import CollectorTelemetry
+from .telemetry import CollectorTelemetry, FlushBackoff, GapLedger
 
 log = logging.getLogger("cafe-wifi.conn_collector")
 
@@ -266,7 +266,7 @@ def _flow_key(rec: ConnRecord) -> tuple:
 _SESSION_MAC_SQL = (
     "SELECT DISTINCT mac FROM portal_session WHERE ip=%s"
     " AND authenticated_at IS NOT NULL AND authenticated_at <= %s"
-    " AND (ended_at IS NULL OR %s <= ended_at) LIMIT 2"
+    " AND (ended_at IS NULL OR %s < ended_at) LIMIT 2"
 )
 
 
@@ -454,6 +454,7 @@ def flush_buffer(buffer: list[ConnRecord], mac_cache: MacCache,
                      "(หลักฐานช่วงนั้นจะไม่ครบ)", max_pending, dropped)
             if telemetry:
                 telemetry.drop(dropped)
+            _gap_ledger.add(dropped, f"conn_log buffer เกิน {max_pending}")
         return 0
     buffer.clear()
     if telemetry:
@@ -507,19 +508,15 @@ def build_conntrack_cmd(client_network) -> list[str]:
             "-s", str(client_network), "--buffer-size", str(NETLINK_BUFFER_BYTES)]
 
 
-def _record_event_loss(detail: str, cooldown_seconds: int = 300,
-                       _last: list[float] = []) -> None:  # pragma: no cover (ต้องมี DB)
+# ยอดเหตุการณ์ที่ทิ้ง/หาย -- สะสมไว้เขียนลง audit_log (LOG_GAP) พร้อมจำนวน ไม่หายตอน cooldown/DB ล่ม
+_gap_ledger = GapLedger("conn_log")
+
+
+def _record_event_loss(detail: str, dropped: int = 0) -> None:
     """บันทึกลง audit_log ว่ามีช่วงที่เก็บ log ได้ไม่ครบ -- หลักฐานความซื่อสัตย์ของระบบเอง
-    ตาม ม.26 ดีกว่าปล่อยให้ข้อมูลขาดไปเงียบ ๆ · จำกัดความถี่กันถม audit_log"""
-    now = time.time()
-    if _last and now - _last[-1] < cooldown_seconds:
-        return
-    _last.append(now)
-    try:
-        from common import audit
-        audit.log(audit.LOG_GAP, target="conn_log", detail=detail[:200])
-    except Exception:
-        log.exception("บันทึก audit_log เรื่องเหตุการณ์ที่หายไม่สำเร็จ")
+    ตาม ม.26 ดีกว่าปล่อยให้ข้อมูลขาดไปเงียบ ๆ · จำกัดความถี่กันถม audit_log แต่ไม่ทิ้งยอด:
+    เหตุการณ์ที่เกิดในช่วง cooldown ถูกสะสมแล้วเขียนรวม (dropped=<n>) ในแถวถัดไป"""
+    _gap_ledger.add(dropped, detail)
 
 
 def _enlarge_pipe(stream, target: int = PIPE_BUFFER_BYTES) -> int:  # pragma: no cover (ขึ้นกับ OS)
@@ -580,6 +577,7 @@ def run_forever(batch_size: int = 100, flush_interval: float = 5.0,
     events: queue.Queue = queue.Queue(maxsize=EVENT_QUEUE_MAX)
     overflow = [0]
     last_flush = time.time()
+    backoff = FlushBackoff()
 
     cmd = build_conntrack_cmd(client_iface.network)
     log.info("เริ่ม conn_collector: %s", " ".join(cmd))
@@ -630,12 +628,16 @@ def run_forever(batch_size: int = 100, flush_interval: float = 5.0,
                 reported_overflow = overflow[0]
                 log.error("log_gap conn_log: stdout queue เต็ม ทิ้ง %d เหตุการณ์", lost)
                 telemetry.drop(lost)
-                _record_event_loss(f"conntrack stdout queue full, dropped={lost}")
+                _record_event_loss("conntrack stdout queue full", lost)
+            _gap_ledger.flush()  # เขียนยอดที่สะสมไว้ถ้าพ้น cooldown (ไม่ต้องรอเหตุการณ์ใหม่)
             now = time.time()
-            if len(buffer) >= batch_size or (buffer and now - last_flush >= flush_interval):
+            if ((len(buffer) >= batch_size or (buffer and now - last_flush >= flush_interval))
+                    and backoff.ready()):
+                # DB ล่ม: ไม่ลองซ้ำทุกเหตุการณ์ (เชื่อมต่อ+log.exception ทุกบรรทัด) -- หน่วยแบบ exponential
                 n = flush_buffer(buffer, mac_cache, telemetry=telemetry)
                 log.debug("บันทึก conn_log %d แถว", n)
                 last_flush = now
+                backoff.failed() if buffer else backoff.ok()
         if stop_event.is_set():
             proc.terminate()
             try:
@@ -664,6 +666,8 @@ def run_forever(batch_size: int = 100, flush_interval: float = 5.0,
         if buffer:
             log.error("log_gap conn_log: ปิดตัวทั้งที่ยังเขียน %d รายการไม่สำเร็จ", len(buffer))
             telemetry.drop(len(buffer))
+            _gap_ledger.add(len(buffer), "ปิดตัวทั้งที่ buffer ยังไม่ลง DB")
+        _gap_ledger.flush(force=True)  # ปิดตัว: เขียนยอดค้างทั้งหมดก่อนจบ
         telemetry.heartbeat(force=True)
         proc.terminate()
 

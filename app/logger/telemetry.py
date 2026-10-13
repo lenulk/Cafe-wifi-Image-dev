@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -84,3 +85,80 @@ def read_collector_status(directory: str | os.PathLike,
                         last_write_at=None, last_error="ยังไม่พบ heartbeat")
         result[name] = data
     return result
+
+
+class GapLedger:
+    """
+    ตัวนับเหตุการณ์ที่ทิ้ง/หายของ collector ที่ทนต่อ cooldown และ DB ล่ม
+
+    เดิมจำนวนที่ทิ้งไปอยู่แค่ใน log ไฟล์/telemetry (หายตอน restart) และ audit LOG_GAP ถูกจำกัดที่
+    1 แถวต่อ 300 วินาทีโดย "ทิ้ง" เหตุการณ์ที่ซ้ำในช่วงนั้นทั้งดุ้น ตอนนี้สะสมตัวเลขไว้ในหน่วยความจำ
+    เขียนรวมเป็น `dropped=<n>` เมื่อพ้น cooldown / ตอนปิดตัวปกติ และถ้าเขียนไม่สำเร็จ (DB ล่ม)
+    ตัวเลขยังอยู่ให้เขียนรอบหน้า -- ห้ามหายเงียบ
+    """
+
+    def __init__(self, target: str, cooldown: float = 300.0, clock=time.monotonic):
+        self.target = target
+        self.cooldown = cooldown
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._dropped = 0     # จำนวนที่รู้แน่ (ขอบล่าง) -- ENOBUFS ไม่บอกจำนวนจึงนับเป็น incident
+        self._incidents = 0
+        self._reasons: list[str] = []
+        self._last_write: float | None = None
+
+    @property
+    def pending(self) -> int:
+        return self._dropped + self._incidents
+
+    def add(self, dropped: int, reason: str) -> None:
+        with self._lock:
+            self._dropped += dropped
+            self._incidents += 1
+            if reason and reason not in self._reasons and len(self._reasons) < 5:
+                self._reasons.append(reason)
+        self.flush()
+
+    def flush(self, force: bool = False) -> bool:
+        """เขียนยอดสะสมลง audit_log ถ้าพ้น cooldown (หรือ force) -- คืน True ถ้าเขียนแล้ว"""
+        with self._lock:
+            if not (self._dropped or self._incidents):
+                return False
+            now = self._clock()
+            if not force and self._last_write is not None and now - self._last_write < self.cooldown:
+                return False
+            reason = "; ".join(self._reasons)
+            detail = f"dropped={self._dropped} incidents={self._incidents} reason={reason}"
+            try:
+                from common import audit
+                audit.log_required(audit.LOG_GAP, target=self.target, detail=detail[:200])
+            except Exception:
+                log.exception("บันทึก audit_log LOG_GAP ของ %s ไม่สำเร็จ — เก็บยอดไว้เขียนรอบหน้า",
+                              self.target)
+                self._last_write = now  # DB ล่ม: อย่าไล่เชื่อมต่อทุกลูป รอ cooldown
+                return False
+            self._dropped = self._incidents = 0
+            self._reasons = []
+            self._last_write = now
+            return True
+
+
+class FlushBackoff:
+    """หน่วงการ flush ซ้ำหลังเขียน DB ล้มเหลว: min(60, 2**ครั้งที่ล้ม) วินาที, รีเซ็ตเมื่อสำเร็จ
+    (เดิม DB ล่ม + buffer >= batch_size = ต่อ/log.exception ทุกบรรทัดที่อ่านเข้ามา)"""
+
+    def __init__(self, clock=time.monotonic):
+        self._clock = clock
+        self.failures = 0
+        self._not_before = 0.0
+
+    def ready(self) -> bool:
+        return self._clock() >= self._not_before
+
+    def failed(self) -> None:
+        self.failures += 1
+        self._not_before = self._clock() + min(60, 2 ** self.failures)
+
+    def ok(self) -> None:
+        self.failures = 0
+        self._not_before = 0.0

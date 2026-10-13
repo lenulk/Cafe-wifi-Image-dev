@@ -14,6 +14,19 @@ from logger.integrity import (MemoryManifestStore, sha256_file, seal_directory,
                               verify_chain, prune_archives, ManifestEntry)
 from logger.netutil import MacCache, resolve_mac
 
+@pytest.fixture(autouse=True)
+def _gap_audit(monkeypatch):
+    """GapLedger เขียน audit_log จริงไม่ได้ในเทสต์ -- เก็บแถวที่ "จะเขียน" ไว้ตรวจ และล้างยอดสะสมทุกเทสต์"""
+    import common.audit as audit
+    rows = []
+    monkeypatch.setattr(audit, "log_required", lambda action, **kw: rows.append((action, kw)))
+    for mod in (conn_collector, dns_collector):
+        mod._gap_ledger._dropped = mod._gap_ledger._incidents = 0
+        mod._gap_ledger._reasons = []
+        mod._gap_ledger._last_write = None
+    return rows
+
+
 # ---------------------------------------------------------------- conntrack
 # หมายเหตุ (แก้บั๊ก 2026-08-28): ตัวอย่างเหล่านี้เคยไม่มี "ipv4     2 " นำหน้าชื่อโปรโตคอล
 # ซึ่งไม่ตรงกับ `conntrack -E -o timestamp,extended` ตัวจริงเลย (มี address family ขึ้นก่อน
@@ -1031,3 +1044,221 @@ def test_insert_conn_records_without_dst_name_column_falls_back(monkeypatch):
         assert "dst_name" not in sql and sql.count("%s") == len(rows[0]) == 10
     assert sum("information_schema" in s for s in executed) == 1
     assert not any("dns_log" in s for s in executed), "ไม่มีคอลัมน์ก็ไม่ต้องค้นชื่อเว็บ"
+
+
+# ================================================= รีวิว 14 ต.ค.: หลักฐานต้องไม่หายเงียบ
+def test_dns_mac_is_stamped_when_line_is_parsed_not_at_flush(monkeypatch):
+    """IP เปลี่ยนเจ้าของ (DHCP lease ถูกใช้ซ้ำ) ระหว่าง parse กับ flush -> แถวต้องเก็บ MAC เดิม"""
+    owner = {"mac": "AA:AA:AA:AA:AA:01"}
+
+    class Cache:
+        def get(self, ip):
+            return owner["mac"]
+
+    captured = []
+
+    class Cur:
+        def executemany(self, sql, values):
+            captured.extend(values)
+
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class Conn:
+        def cursor(self): return Cur()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    import common.db as db
+    monkeypatch.setattr(db, "get_conn", lambda: Conn())
+    row = DnsCorrelator().feed_line("Aug 22 10:15:32 dnsmasq[1]: query[A] a.test from 10.10.0.5\n")
+    dns_collector.stamp_mac(row, Cache())
+    owner["mac"] = "BB:BB:BB:BB:BB:02"  # ลูกค้าคนใหม่ได้ IP เดิมก่อน flush
+    dns_collector.insert_dns_rows([row], Cache())
+    assert captured[0][2] == "AA:AA:AA:AA:AA:01"
+
+
+def _gz_truncated(path):
+    with gzip.open(path, "wb") as f:
+        f.write(bytes(range(256)) * 2000)
+    data = path.read_bytes()
+    path.write_bytes(data[:len(data) // 2])
+
+
+def test_seal_skips_truncated_gz_and_reports_unreadable(tmp_path):
+    _gz_truncated(tmp_path / "dnsmasq.log-2026-09-01.gz")
+    (tmp_path / "portal.log-2026-09-02").write_text("ok\n")
+    issues = []
+    store = MemoryManifestStore()
+    sealed = seal_directory(tmp_path, store, issues=issues)
+    assert [e.filename for e in sealed] == ["portal.log-2026-09-02"]
+    assert [(i.filename, i.kind) for i in issues] == [("dnsmasq.log-2026-09-01.gz", "unreadable")]
+
+
+def test_verify_reports_truncated_gz_and_continues(tmp_path):
+    (tmp_path / "a.log-2026-09-01.gz").write_bytes(gzip.compress(bytes(range(256)) * 2000))
+    (tmp_path / "b.log-2026-09-02").write_text("second")
+    store = MemoryManifestStore()
+    seal_directory(tmp_path, store)
+    _gz_truncated(tmp_path / "a.log-2026-09-01.gz")
+    (tmp_path / "b.log-2026-09-02").write_text("tampered")
+    kinds = {(i.filename, i.kind) for i in verify_chain(store, tmp_path)}
+    assert ("a.log-2026-09-01.gz", "unreadable") in kinds
+    assert ("b.log-2026-09-02", "hash_mismatch") in kinds, "ไฟล์อื่นต้องยังถูกตรวจต่อ"
+
+
+def test_main_does_not_crash_on_truncated_gz_and_writes_audit(tmp_path, monkeypatch):
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    _gz_truncated(archive / "dnsmasq.log-2026-09-01.gz")
+    store = MemoryManifestStore()
+    monkeypatch.setattr(integrity, "SqlManifestStore", lambda: store)
+    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    import common.audit as audit
+    logged = []
+    monkeypatch.setattr(audit, "log", lambda action, **kw: logged.append((action, kw)))
+    assert integrity.main() == 1
+    assert integrity.main() == 1, "รอบถัดไปต้องไม่ crash ซ้ำ"
+    assert logged and "unreadable" in logged[0][1]["detail"]
+
+
+def test_backdated_unsealed_file_is_sealed_but_flagged(tmp_path):
+    (tmp_path / "x.log-2026-09-10").write_text("new")
+    store = MemoryManifestStore()
+    seal_directory(tmp_path, store)
+    (tmp_path / "x.log-2026-09-03").write_text("backdated")
+    issues = []
+    sealed = seal_directory(tmp_path, store, issues=issues)
+    assert [e.filename for e in sealed] == ["x.log-2026-09-03"]
+    assert [(i.filename, i.kind) for i in issues] == [("x.log-2026-09-03", "unexpected_file")]
+
+
+def test_normal_next_day_archive_is_not_flagged(tmp_path):
+    (tmp_path / "x.log-2026-09-10").write_text("a")
+    store = MemoryManifestStore()
+    seal_directory(tmp_path, store)
+    (tmp_path / "x.log-2026-09-11").write_text("b")
+    (tmp_path / "y.log-2026-09-10").write_text("c")  # วันเดียวกับล่าสุด ไม่ใช่ย้อนหลัง
+    issues = []
+    seal_directory(tmp_path, store, issues=issues)
+    assert issues == []
+
+
+def test_gap_ledger_sums_events_within_cooldown(_gap_audit):
+    clock = [1000.0]
+    from logger.telemetry import GapLedger
+    g = GapLedger("conn_log", cooldown=300, clock=lambda: clock[0])
+    g.add(0, "ENOBUFS")             # เขียนทันที (ครั้งแรก)
+    assert len(_gap_audit) == 1
+    g.add(0, "ENOBUFS")
+    g.add(5, "queue full")          # ในช่วง cooldown -> ไม่เขียน แต่ต้องไม่หาย
+    assert len(_gap_audit) == 1
+    clock[0] += 301
+    g.flush()
+    assert len(_gap_audit) == 2
+    detail = _gap_audit[1][1]["detail"]
+    assert "dropped=5" in detail and "incidents=2" in detail and "queue full" in detail
+    assert g.pending == 0
+
+
+def test_gap_ledger_keeps_counts_when_db_down_and_writes_on_force(monkeypatch, _gap_audit):
+    import common.audit as audit
+    from logger.telemetry import GapLedger
+    g = GapLedger("dns_log", cooldown=0)
+
+    def boom(*a, **kw):
+        raise RuntimeError("DB down")
+
+    monkeypatch.setattr(audit, "log_required", boom)
+    g.add(7, "x")
+    assert g.pending == 8
+    monkeypatch.setattr(audit, "log_required", lambda action, **kw: _gap_audit.append((action, kw)))
+    assert g.flush(force=True)
+    assert "dropped=7" in _gap_audit[-1][1]["detail"]
+
+
+def test_conn_enobufs_events_accumulate_into_next_audit_row(_gap_audit):
+    conn_collector._drain_stderr(iter(["ENOBUFS one", "ENOBUFS two"]),
+                                 on_event_loss=conn_collector._record_event_loss)
+    assert len(_gap_audit) == 1                       # ครั้งที่สองอยู่ใน cooldown
+    conn_collector._gap_ledger._last_write -= 301
+    conn_collector._gap_ledger.flush()
+    assert "incidents=1" in _gap_audit[1][1]["detail"]
+    assert _gap_audit[1][0] == "log_gap"
+
+
+def test_conn_buffer_cap_drop_is_recorded_in_gap_ledger(monkeypatch, _gap_audit):
+    monkeypatch.setattr(conn_collector, "insert_conn_records",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("DB ล่ม")))
+    flush_buffer([_rec(i) for i in range(10)], _Cache(), max_pending=6)
+    assert "dropped=4" in _gap_audit[0][1]["detail"]
+
+
+def test_flush_backoff_limits_retries():
+    from logger.telemetry import FlushBackoff
+    t = [0.0]
+    b = FlushBackoff(clock=lambda: t[0])
+    assert b.ready()
+    b.failed()
+    assert not b.ready()
+    t[0] = 1.9
+    assert not b.ready()
+    t[0] = 2.1
+    assert b.ready()
+    for _ in range(10):
+        b.failed()
+    t[0] += 59
+    assert not b.ready(), "เพดาน 60 วินาที"
+    b.ok()
+    assert b.ready() and b.failures == 0
+
+
+def test_dns_run_forever_does_not_retry_flush_on_every_line_when_db_down(tmp_path, monkeypatch):
+    import threading
+    import time
+    path = tmp_path / "dnsmasq.log"
+    path.write_text("", encoding="utf-8")
+    attempts = [0]
+
+    def failing(rows, cache, **kw):
+        attempts[0] += 1
+        raise RuntimeError("DB down")
+
+    monkeypatch.setattr(dns_collector, "insert_dns_rows", failing)
+    stop = threading.Event()
+    t = threading.Thread(target=dns_collector.run_forever, args=(str(path),),
+                         kwargs=dict(batch_size=1, flush_interval=0, stop_event=stop,
+                                     state_path=str(tmp_path / "off.json")), daemon=True)
+    t.start()
+    time.sleep(0.3)
+    with open(path, "a", encoding="utf-8") as f:
+        for n in range(20):
+            f.write(f"Aug 22 10:15:{n:02d} dnsmasq[1]: query[A] h{n}.test from 10.10.0.5\n")
+    time.sleep(1.0)
+    assert attempts[0] == 1, "หลังล้มเหลวต้องหน่วงการลองซ้ำ ไม่ใช่ลองทุกบรรทัด"
+    stop.set()
+    t.join(timeout=5)
+    assert attempts[0] == 2  # รอบสุดท้ายตอนปิดตัวไม่ผ่าน backoff
+
+
+def test_dns_missing_offset_state_records_gap_unless_fresh_install(tmp_path, monkeypatch):
+    gaps = []
+    monkeypatch.setattr(dns_collector, "_record_gap", gaps.append)
+    monkeypatch.setattr(dns_collector, "insert_dns_rows", lambda rows, cache, **kw: len(rows))
+    import threading
+
+    def run_once(state):
+        stop = threading.Event()
+        stop.set()
+        dns_collector.run_forever(str(tmp_path / "dnsmasq.log"), stop_event=stop, state_path=state)
+
+    (tmp_path / "dnsmasq.log").write_text("", encoding="utf-8")
+    state = str(tmp_path / "off.json")
+    run_once(state)                       # ติดตั้งใหม่: ไม่มีทั้ง state และ heartbeat -> ไม่ฟ้อง
+    assert gaps == []
+    (tmp_path / "off.json").unlink()      # state หาย แต่เคยรันมาแล้ว (มี heartbeat)
+    run_once(state)
+    assert len(gaps) == 1 and "offset state missing" in gaps[0]
+    (tmp_path / "off.json").write_text("{corrupt", encoding="utf-8")  # state เสีย
+    run_once(state)
+    assert len(gaps) == 2
