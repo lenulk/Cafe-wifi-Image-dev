@@ -38,7 +38,10 @@
     var count = document.getElementById('natid-count');
     // พิมพ์/วางได้เฉพาะตัวเลข ตัดที่เกิน 13 หลักทิ้งทันที (วางเลขที่มีขีดมาก็ใช้ได้)
     input.addEventListener('input', function () {
-      var digits = input.value.replace(/\D/g, '').slice(0, 13);
+      // เลขไทย ๐-๙ (คีย์บอร์ดไทยบางเครื่อง) แปลงเป็น 0-9 ก่อน ไม่ใช่ตัดทิ้ง -- ตรงกับ normalize_natid ฝั่งเซิร์ฟเวอร์
+      var digits = input.value.replace(/[๐-๙]/g, function (c) {
+        return String.fromCharCode(c.charCodeAt(0) - 0x0E50 + 48);
+      }).replace(/\D/g, '').slice(0, 13);
       if (digits !== input.value) input.value = digits;
       count.textContent = digits.length + '/13';
       count.style.color = digits.length === 13 ? 'var(--ok)' : '';

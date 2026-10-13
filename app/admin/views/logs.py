@@ -471,8 +471,8 @@ def _classify_log_query(q: str):
     (name = คำไม่มีจุด อาจเป็นชื่อเครื่องหรือชื่อเว็บ)"""
     if not q:
         return None, None, None
-    digits = re.sub(r"[\s-]", "", q)
-    if re.fullmatch(r"[0-9]{13}", digits):     # 0-9 เท่านั้น (isdigit() ยอมเลขอารบิก/ไทย)
+    digits = re.sub(r"[\s-]", "", crypto.thai_digits_to_ascii(q))
+    if re.fullmatch(r"[0-9]{13}", digits):     # เลขไทยแปลงแล้ว · อื่น ๆ (เช่นเลขอารบิก) ไม่นับเป็นเลขบัตร
         if not crypto.valid_thai_id(digits):
             return None, None, "เลขบัตรประชาชนไม่ถูกต้อง (ตรวจ checksum ไม่ผ่าน)"
         return "natid", crypto.natid_hash(digits), None

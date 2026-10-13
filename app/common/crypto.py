@@ -63,10 +63,18 @@ def valid_thai_id(nid: str) -> bool:
     return (11 - total % 11) % 10 == int(nid[12])
 
 
+_THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+
+def thai_digits_to_ascii(s: str) -> str:
+    """เลขไทย ๐-๙ -> 0-9 (คีย์บอร์ดไทยบางเครื่องพิมพ์เลขไทย) · อักขระอื่นคงเดิม"""
+    return (s or "").translate(_THAI_DIGITS)
+
+
 def normalize_natid(nid: str) -> str:
-    """ลบขีด เว้นวรรค และอักขระอื่นที่ไม่ใช่ตัวเลข 0-9 ออก
-    (ไม่ใช้ \\D -- ใน str มันถือเลขไทย/อารบิก เช่น ๑ ١ เป็นตัวเลข จะได้ natid_hash คนละค่ากับเลขเดียวกันแบบ 0-9)"""
-    return re.sub(r"[^0-9]", "", nid or "")
+    """แปลงเลขไทยเป็น 0-9 แล้วลบขีด เว้นวรรค และอักขระอื่นที่ไม่ใช่ 0-9 ออก
+    (ไม่ใช้ \\D -- ใน str มันถือเลขอารบิก ฯลฯ เป็นตัวเลข จะได้ natid_hash คนละค่ากับเลขเดียวกันแบบ 0-9)"""
+    return re.sub(r"[^0-9]", "", thai_digits_to_ascii(nid))
 
 
 def mask_natid(nid: str) -> str:

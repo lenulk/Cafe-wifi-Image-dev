@@ -813,3 +813,24 @@ def test_natid_field_restricts_input_in_browser(fas):
     html = fas.get(_gw_url()).get_data(as_text=True)
     assert 'pattern="[0-9]{13}"' in html and 'maxlength="13"' in html and 'minlength="13"' in html
     assert "replace(/\D/g, '')" in html and "0/13" in html
+
+
+def test_thai_digit_natid_registers_as_same_person(fas):
+    # คีย์บอร์ดไทยพิมพ์ ๑๒๓ -- ต้องแปลงเป็น 0-9 ก่อน hash ไม่งั้นคนเดียวกันได้ natid_hash คนละค่า
+    thai = "".join("๐๑๒๓๔๕๖๗๘๙"[int(c)] for c in NATID)
+    r = _register(fas, natid=thai)
+    assert r.status_code == 303
+    (req,) = DB["access_request"]
+    assert req["natid_hash"] == crypto.natid_hash(NATID)
+    assert crypto.natid_decrypt(req["natid_enc"]) == NATID
+
+
+def test_arabic_digit_natid_rejected(fas):
+    arabic = "".join("٠١٢٣٤٥٦٧٨٩"[int(c)] for c in NATID)
+    r = _register(fas, natid=arabic)
+    assert r.status_code == 400 and DB["access_request"] == []
+
+
+def test_natid_field_converts_thai_digits_in_browser(fas):
+    html = fas.get(_gw_url()).get_data(as_text=True)
+    assert "\u0E50-\u0E59" in html and "0x0E50" in html

@@ -47,11 +47,11 @@ def test_mask_hides_middle_digits():
     assert mask_natid("bad") == "X-XXXX-XXXXX-XX-X"
 
 
-def test_non_ascii_digits_rejected(rng):
-    # เลขอารบิก/ไทยต้องไม่ผ่าน -- ถ้าผ่านจะได้ natid_hash คนละค่ากับเลขเดียวกันแบบ 0-9 (ลูกค้าคนเดียวกลายเป็น 2 คน)
+def test_thai_digits_converted_other_digits_rejected(rng):
+    # เลขไทยแปลงเป็น 0-9 (คนเดียวกันต้องได้ natid_hash เดียวกัน) · เลขอารบิกไม่นับเป็นตัวเลข
     nid = _make_valid(rng)
-    for digits in ("٠١٢٣٤٥٦٧٨٩", "๐๑๒๓๔๕๖๗๘๙"):
-        other = "".join(digits[int(c)] for c in nid)
-        assert other.isdigit() and not valid_thai_id(other)
-        assert normalize_natid(other) == ""
+    thai = "".join("๐๑๒๓๔๕๖๗๘๙"[int(c)] for c in nid)
+    assert normalize_natid(thai) == nid and valid_thai_id(thai)
+    arabic = "".join("٠١٢٣٤٥٦٧٨٩"[int(c)] for c in nid)
+    assert arabic.isdigit() and not valid_thai_id(arabic) and normalize_natid(arabic) == ""
     assert normalize_natid("1-2345-67890-12-3") == "1234567890123"

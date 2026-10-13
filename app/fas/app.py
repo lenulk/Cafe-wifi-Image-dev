@@ -205,8 +205,9 @@ def login():
     # เลขเต็มที่ไหนอีก: ไม่ลง log/audit ไม่ส่งกลับไปในหน้า error ไม่เก็บแบบอ่านออก
     # ตัวเลข 13 หลักล้วนเท่านั้น (2026-10-03) -- เดิมยอมให้มีขีด/เว้นวรรคแล้วตัดทิ้ง หน้าเว็บบังคับแล้วแต่ต้อง
     # ตรวจซ้ำที่นี่ เพราะส่งฟอร์มตรง ๆ โดยไม่ผ่านหน้าเว็บได้
-    raw = (request.form.get("natid") or "").strip()
-    if not re.fullmatch(r"\d{13}", raw):
+    # เลขไทย ๐-๙ แปลงเป็น 0-9 ก่อน (คนละ natid_hash ถ้าเก็บแบบเลขไทย) · \d ใน str ยอมเลขอารบิกด้วย จึงใช้ [0-9]
+    raw = crypto.thai_digits_to_ascii((request.form.get("natid") or "").strip())
+    if not re.fullmatch(r"[0-9]{13}", raw):
         record_attempt(bucket)
         return render_template("register.html", nonce=nonce,
                                error="กรอกเลขบัตรประชาชนเป็นตัวเลข 13 หลักเท่านั้น (ไม่ต้องใส่ขีดหรือเว้นวรรค)"), 400

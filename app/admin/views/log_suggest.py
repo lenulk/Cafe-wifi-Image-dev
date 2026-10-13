@@ -41,8 +41,8 @@ def suggest_logs():
         return jsonify(items=[])
     items: list[dict] = []
 
-    digits = re.sub(r"[\s-]", "", q)
-    if re.fullmatch(r"[0-9]{2,13}", digits):   # 0-9 เท่านั้น (isdigit() ยอมเลขอารบิก/ไทย)
+    digits = re.sub(r"[\s-]", "", crypto.thai_digits_to_ascii(q))
+    if re.fullmatch(r"[0-9]{2,13}", digits):   # เลขไทยแปลงแล้ว · อื่น ๆ (เช่นเลขอารบิก) ไม่นับ
         err = _customers(digits, items)
         if err:
             return jsonify(items=[], error=err), 429
