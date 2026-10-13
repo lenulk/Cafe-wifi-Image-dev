@@ -97,13 +97,20 @@ class _FakeCursor:
             self.rowcount = 5
         elif s.startswith("delete from dns_log"):
             self.rowcount = 8
+        elif s.startswith("delete from portal_session where state = 'closed'"):
+            self.rowcount = 6
+        elif s.startswith("delete d from device d join voucher"):
+            self.rowcount = 7
+        elif s.startswith("delete from bypass_alert where detected_at < %s"):
+            self.rowcount = 2
         elif s.startswith("delete from voucher_reveal"):
             self.rowcount = 0
         elif s.startswith("delete from access_request where created_at < %s"):
             self.rowcount = 4
         elif s.startswith("delete from rate_attempt where ts <"):
             self.rowcount = 0
-        elif s.startswith(("update portal_session ps join voucher", "update access_request ar join voucher")):
+        elif s.startswith(("update portal_session ps join voucher", "update access_request ar join voucher",
+                        "update access_request ar join customer")):
             self.rowcount = 1
         elif s.startswith("select c.id from customer"):
             self._select_result = self._stale
@@ -147,8 +154,25 @@ def test_run_end_to_end_with_fake_db(monkeypatch):
     assert summary.dns_log_deleted == 8
     assert summary.customers_deleted == 3
     assert anonymized_customers == [1, 2, 3]
+    assert (summary.sessions_deleted, summary.devices_deleted, summary.bypass_alerts_deleted) == (6, 7, 2)
+    assert "portal_session=-6 device=-7 bypass_alert=-2" in str(audit_calls[0])
     assert len(audit_calls) == 1
     assert "access_request=-4" in str(audit_calls[0]), "คำขอใช้งานเก่าต้องถูกลบตามอายุ log"
+
+
+def test_purge_session_data_uses_cutoff_and_respects_fk():
+    calls = []
+
+    def fake(sql, args=()):
+        calls.append((" ".join(sql.split()), args))
+        return 1
+    cutoff = datetime(2026, 1, 1)
+    assert purge_old_data.purge_session_data(fake, cutoff) == (1, 1, 1)
+    assert all(a == (cutoff,) for _, a in calls) and len(calls) == 3
+    ps, dev, byp = (c[0] for c in calls)
+    assert "state = 'closed'" in ps and "NOT EXISTS" in ps and "pending_mac_claim" in ps
+    assert "v.status <> 'active'" in dev and "v.valid_until < %s" in dev
+    assert "bypass_alert" in byp
 
 
 def test_run_refuses_below_legal_minimum(monkeypatch):

@@ -27,6 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_pending ON portal_session (state, pending_until);
 UPDATE portal_session SET state='authenticated'
  WHERE state='closed' AND ended_at IS NULL;
 
+-- หมายเหตุรันซ้ำ (install.sh รันไฟล์นี้ทุกครั้ง): UPDATE สองตัวนี้แทบเป็น no-op หลังรอบแรก -- โค้ดใหม่ปิด session
+-- พร้อม ended_at และตั้ง authenticated_at ตอนได้สิทธิ์เสมอ จึงไม่มีแถวใหม่เข้าเงื่อนไข ยกเว้น session ที่ปิดก่อน
+-- ได้สิทธิ์ด้วยสาเหตุอื่นนอกรายการ auth_timeout/voucher_invalid (ถ้ามีจะได้ authenticated_at=started_at ซึ่งเป็น
+-- ขอบเขตกว้างกว่าจริงเล็กน้อย ไม่ทำให้ตัวตนหาย) · ไม่ทำระบบ migration-version ตั้งใจ
 -- common/log_mapping.py และ retention_hold_until() จับคู่ log กับลูกค้าด้วย authenticated_at --
 -- ถ้าแถวเก่าว่าง log ย้อนหลังทั้งหมดก่อนอัปเกรดจะโยงหาตัวบุคคลไม่ได้ (หลักฐานเดิมใช้ไม่ได้)
 -- ใช้ started_at แทนตามความหมายของโค้ดเดิม -- ยกเว้นสองสาเหตุที่โค้ดใหม่ใช้กับ session ที่ไม่เคย

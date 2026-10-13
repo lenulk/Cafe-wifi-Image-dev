@@ -94,6 +94,30 @@ def apply_migrations(db: str) -> None:
                                f"{r.stderr.decode('utf-8', 'replace').strip()[:300]}")
 
 
+def ensure_partition_maintenance(db: str, retention_days: int) -> bool:
+    """dump เก็บแค่นิยาม PARTITION ของตาราง ไม่เก็บ procedure/event (tools/backup_db) -- ถ้าตารางที่คืนมา
+    เป็น partition อยู่ ต้องลง 003_partitions.sql ซ้ำ (รันซ้ำได้: ข้ามตารางที่ partition แล้ว, DROP+CREATE
+    procedure/event) ไม่งั้นไม่มีใครสร้าง/ทิ้ง partition อีก · เครื่องที่ไม่ได้ partition = ข้ามเหมือนเดิม"""
+    r = mysql(db, "SELECT COUNT(*) FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA=DATABASE() "
+                  "AND TABLE_NAME='conn_log' AND PARTITION_NAME IS NOT NULL")
+    if r.returncode != 0 or int(r.stdout.strip() or 0) == 0:
+        return False
+    f = OPT_DIR / "sql" / "003_partitions.sql"
+    with open(f, "rb") as fh:
+        p = subprocess.run(["mysql", db], stdin=fh, capture_output=True, timeout=600)
+    if p.returncode != 0:
+        raise RuntimeError(f"ลง {f.name} ไม่สำเร็จ: {p.stderr.decode('utf-8', 'replace').strip()[:300]}")
+    days = max(int(retention_days), 90)       # ไฟล์ .sql ฝัง 180 ไว้ -- ผูกกับค่าจริงของร้านเหมือน install.sh
+    r = mysql(db, "ALTER EVENT cafewifi_daily_partition_maintenance ON SCHEDULE EVERY 1 DAY STARTS "
+                  "(CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 3 HOUR) "
+                  f"DO CALL cafewifi_partition_maintenance({days})")
+    if r.returncode != 0:
+        raise RuntimeError(f"ตั้ง event partition ไม่สำเร็จ: {r.stderr.strip()[:300]}")
+    # SET GLOBAL หายตอน restart -- ตัวถาวร (99-cafe-wifi.cnf) install.sh รอบถัดไปตรวจพบ partition แล้วเขียนให้เอง
+    mysql(None, "SET GLOBAL event_scheduler = ON")
+    return True
+
+
 def verify_keys(db: str, dek: str, pepper: str) -> tuple[int, int]:
     """(ถอดได้และ hash ตรง, ทั้งหมดที่ตรวจ) จากตาราง customer"""
     os.environ["NATID_DEK"], os.environ["NATID_PEPPER"] = dek, pepper
@@ -165,6 +189,11 @@ def main() -> int:
     try:
         import_dump(db, dump)
         apply_migrations(db)
+        try:
+            days = int(env.get("LOG_RETENTION_DAYS") or 180)
+        except ValueError:
+            days = 180
+        ensure_partition_maintenance(db, days)
         ok, n = verify_keys(db, dek, pepper)
         if n and ok != n:
             # กุญแจไม่ใช่ของร้านนี้ -- ล้างข้อมูลที่เพิ่งคืนทิ้ง (ถอดไม่ได้อยู่ดี) กลับเป็นฐานว่างแบบหลังบูตแรก

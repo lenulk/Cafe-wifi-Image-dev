@@ -9,6 +9,9 @@ tools/purge_old_data.py — ลบข้อมูลที่พ้นระย�
     voucher/device/portal_session ดูเหตุผลเต็มใน purge_stale_customers()) เฉพาะรายที่
     (1) ไม่มี voucher ที่ยัง active/ยังไม่หมดอายุ และ
     (2) last_seen เก่ากว่า CUSTOMER_RETENTION_DAYS (ไม่แตะใครที่ยังมีรหัสใช้งานอยู่จริง)
+  * portal_session / device / bypass_alert: ข้อมูลโยง log -> ตัวบุคคล (MAC/IP/hostname) -- ใช้ประโยชน์
+    ได้เฉพาะตอนที่ log ที่โยงยังอยู่ จึงลบด้วย cutoff เดียวกับ conn_log/dns_log (PDPA: ไม่เก็บเกินจำเป็น,
+    ม.26 ไม่เสีย เพราะ log ที่เก่าเท่ากันถูกลบไปพร้อมกัน)
   * audit_log และ log_manifest: ไม่ลบอัตโนมัติ — เป็นหลักฐานตรวจสอบ ต้องลบด้วยมือถ้าจำเป็น
 
 ทุกการลบจะถูกสรุปจำนวนแถวแล้วเขียนลง audit_log เอง (ตรวจสอบย้อนหลังได้ว่าลบอะไรไปเมื่อไหร่)
@@ -28,11 +31,15 @@ class PurgeSummary:
     conn_log_deleted: int = 0
     dns_log_deleted: int = 0
     customers_deleted: int = 0
+    sessions_deleted: int = 0
+    devices_deleted: int = 0
+    bypass_alerts_deleted: int = 0
     cutoff_logs: datetime | None = None
     cutoff_customers: datetime | None = None
 
     def total(self) -> int:
-        return self.conn_log_deleted + self.dns_log_deleted + self.customers_deleted
+        return (self.conn_log_deleted + self.dns_log_deleted + self.customers_deleted
+                + self.sessions_deleted + self.devices_deleted + self.bypass_alerts_deleted)
 
 
 def compute_log_cutoff(retention_days: int, now: datetime | None = None) -> datetime:
@@ -56,6 +63,27 @@ def purge_conn_and_dns_logs(execute_fn, cutoff: datetime) -> tuple[int, int]:
     n_conn = execute_fn("DELETE FROM conn_log WHERE ts < %s", (cutoff,))
     n_dns = execute_fn("DELETE FROM dns_log WHERE ts < %s", (cutoff,))
     return n_conn, n_dns
+
+
+def purge_session_data(execute_fn, cutoff: datetime) -> tuple[int, int, int]:
+    """
+    portal_session (mac/ip/hostname/เวลา) · device (mac/last_ip) · bypass_alert (mac/ip) ที่พ้น cutoff
+    คืน (sessions, devices, bypass_alerts) · ต้องเรียกหลัง purge_stale_customers (ที่นับกิจกรรมล่าสุดจาก session)
+
+    session: เฉพาะที่ปิดแล้ว (state='closed') และจบ/เริ่มก่อน cutoff -- ไม่แตะที่ยังออนไลน์/รอยืนยัน
+      · ข้ามแถวที่ pending_mac_claim ยังอ้างถึง (FK fk_pending_session) แทนการลบ claim ของคนอื่น
+    device: ไม่มีคอลัมน์เวลาใช้ล่าสุด จึงอิง voucher -- ลบเฉพาะเครื่องของ voucher ที่หมดอายุก่อน cutoff
+      และไม่ active (ไม่มีตารางไหนอ้าง device.id; ที่อ้างคือ device -> voucher ทางเดียว)
+    """
+    n_ps = execute_fn(
+        "DELETE FROM portal_session WHERE state = 'closed' AND COALESCE(ended_at, started_at) < %s "
+        "AND NOT EXISTS (SELECT 1 FROM pending_mac_claim c WHERE c.portal_session_id = portal_session.id)",
+        (cutoff,))
+    n_dev = execute_fn(
+        "DELETE d FROM device d JOIN voucher v ON v.id = d.voucher_id "
+        "WHERE v.valid_until < %s AND v.status <> 'active'", (cutoff,))
+    n_byp = execute_fn("DELETE FROM bypass_alert WHERE detected_at < %s", (cutoff,))
+    return n_ps, n_dev, n_byp
 
 
 def purge_stale_customers(query_all_fn, query_one_fn, execute_fn, cutoff: datetime,
@@ -129,6 +157,7 @@ def run(retention_days: int | None = None, customer_retention_days: int | None =
             lambda sql, args=(): (cur.execute(sql, args), cur.fetchall())[1],
             lambda sql, args=(): (cur.execute(sql, args), cur.fetchone())[1],
             _exec, cust_cutoff, max(retention_days, customer_retention_days))
+        n_ps, n_dev, n_byp = purge_session_data(_exec, log_cutoff)
         _exec("DELETE FROM voucher_reveal WHERE expires_at < NOW()", ())
         # คำขอใช้งานเก่า (มี natid_masked/ชื่อเครื่อง/User-Agent) -- เก็บเท่าอายุ log พอ
         # ร่องรอยการอนุมัติยังอยู่ใน audit_log
@@ -136,11 +165,13 @@ def run(retention_days: int | None = None, customer_retention_days: int | None =
         _exec("DELETE FROM rate_attempt WHERE ts < NOW() - INTERVAL 1 DAY", ())
 
     summary = PurgeSummary(conn_log_deleted=n_conn, dns_log_deleted=n_dns,
-                           customers_deleted=n_cust, cutoff_logs=log_cutoff,
+                           customers_deleted=n_cust, sessions_deleted=n_ps,
+                           devices_deleted=n_dev, bypass_alerts_deleted=n_byp, cutoff_logs=log_cutoff,
                            cutoff_customers=cust_cutoff)
 
     audit.log("purge_old_data", detail=(
         f"conn_log=-{n_conn} dns_log=-{n_dns} customer_anonymized={n_cust} access_request=-{n_req} "
+        f"portal_session=-{n_ps} device=-{n_dev} bypass_alert=-{n_byp} "
         f"log_cutoff={log_cutoff.isoformat()} customer_cutoff={cust_cutoff.isoformat()}"
     ))
     log.info("purge เสร็จ: conn_log -%d, dns_log -%d, customer anonymized %d", n_conn, n_dns, n_cust)

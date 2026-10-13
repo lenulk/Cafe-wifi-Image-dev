@@ -1045,12 +1045,35 @@ SQL
     warn "ไม่พบ sql/014_dns_qname_rev.sql — ข้าม (การค้นโดเมนจะช้าเมื่อข้อมูลเยอะ แต่ยังทำงานถูกต้อง)"
   fi
 
+  # ดัชนี (ip, authenticated_at) ให้ logger หา MAC จาก IP / โยง log กับ session ได้เร็ว (ไม่มีก็ถูกต้อง แต่ช้าเมื่อข้อมูลเยอะ)
+  local sesip="${SCRIPT_DIR}/sql/016_portal_session_ip_idx.sql"
+  if [[ -f "$sesip" ]]; then
+    run_sh "mysql '${DB_NAME}' < '${sesip}'"
+    ok "เพิ่มดัชนี portal_session (ip, authenticated_at) แล้ว"
+  else
+    warn "ไม่พบ sql/016_portal_session_ip_idx.sql — ข้าม (การหา MAC จาก IP จะช้าเมื่อข้อมูลเยอะ แต่ยังทำงานถูกต้อง)"
+  fi
+
 
   # แก้บั๊ก (พบตอนตรวจทานรอบ 2): sql/003_partitions.sql มีอยู่ในโปรเจกต์และ Task Board
   # ติ๊กว่าเขียนแล้ว แต่ install.sh ไม่เคยเรียกใช้ไฟล์นี้เลยสักบรรทัด -- เป็น optional
   # ตามที่ comment ในไฟล์บอกไว้ (ไม่มีก็ทำงานถูกต้อง แค่ purge ช้ากว่าเมื่อข้อมูลเยอะมาก)
   # จึงทำเป็น opt-in ผ่าน --enable-partitions แทนที่จะบังคับ ALTER TABLE บนทุกเครื่อง
   # (partition ตารางที่มีข้อมูลอยู่แล้วอาจช้า/ล็อกตารางได้ ไม่ควรทำเงียบ ๆ โดยไม่ให้เลือก)
+  # รันซ้ำโดยไม่ใส่ --enable-partitions ต้องไม่ปิด partition เงียบ ๆ (cnf ข้างล่างเขียนทับทั้งไฟล์ ถ้าไม่มี
+  # event_scheduler = ON ตัว event ลบ/สร้าง partition จะหยุดทำงาน) -- จำจาก install.state หรือจากตารางจริง
+  # อ่านแค่ค่า ENABLE_PARTITIONS ด้วย grep ไม่ source ไฟล์ (เป็นไฟล์ที่ root เขียนแต่ไม่ควรรันเป็นโค้ด)
+  if (( ! ENABLE_PARTITIONS )); then
+    if [[ -f "$STATE_FILE" ]] && grep -qE '^ENABLE_PARTITIONS=1[[:space:]]*$' "$STATE_FILE"; then
+      ENABLE_PARTITIONS=1
+      info "install.state บอกว่าเคยเปิด partition ไว้ — คงไว้ (ไม่ต้องใส่ --enable-partitions ซ้ำ)"
+    elif (( ! DRY_RUN )) && command -v mysql >/dev/null 2>&1 \
+         && [[ "$(mysql -N -B "${DB_NAME}" -e "SELECT COUNT(*) FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='conn_log' AND PARTITION_NAME IS NOT NULL" 2>/dev/null)" =~ ^[1-9][0-9]*$ ]]; then
+      ENABLE_PARTITIONS=1
+      info "conn_log เป็น partition อยู่แล้ว — คง partition + event scheduler ไว้ (install.state หาย/ไม่ตรง)"
+    fi
+  fi
+
   if (( ENABLE_PARTITIONS )); then
     local partsql="${SCRIPT_DIR}/sql/003_partitions.sql"
     if [[ -f "$partsql" ]]; then

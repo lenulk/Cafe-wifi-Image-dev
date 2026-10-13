@@ -3,6 +3,7 @@
 ไม่มี MariaDB/root จริง: ฝั่ง wizard ใช้ fixture ของ test_setup_wizard · ฝั่ง root แทน mysql ด้วยตัวจำลอง
 """
 import json
+import subprocess
 import os
 import stat
 
@@ -102,6 +103,7 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setattr(restore, "staff_count", lambda db: calls["staff"])
     monkeypatch.setattr(restore, "import_dump", lambda db, p: calls.__setitem__("imported", p.name))
     monkeypatch.setattr(restore, "apply_migrations", lambda db: None)
+    monkeypatch.setattr(restore, "ensure_partition_maintenance", lambda db, days: False)
     monkeypatch.setattr(restore, "verify_keys", lambda db, d, p: calls["verify"])
     monkeypatch.setattr(restore, "mysql", lambda db, sql=None, stdin=None: calls["sql"].append(sql))
     if not hasattr(os, "chown"):
@@ -154,3 +156,26 @@ def test_root_rejects_malformed_keys(root):
                                                encoding="utf-8")
     assert root.main() == 1
     assert root.calls["imported"] is None
+
+
+def test_partition_maintenance_skipped_when_not_partitioned(monkeypatch):
+    from setup import restore
+    ran = []
+    monkeypatch.setattr(restore, "mysql", lambda db, sql=None, stdin=None: (
+        ran.append(sql), subprocess.CompletedProcess([], 0, stdout="0\n"))[1])
+    assert restore.ensure_partition_maintenance("cafewifi", 180) is False
+    assert len(ran) == 1
+
+
+def test_partition_maintenance_reapplies_003_when_partitioned(tmp_path, monkeypatch):
+    from setup import restore
+    (tmp_path / "sql").mkdir()
+    (tmp_path / "sql" / "003_partitions.sql").write_text("SELECT 1;", encoding="utf-8")
+    monkeypatch.setattr(restore, "OPT_DIR", tmp_path)
+    ran = []
+    monkeypatch.setattr(restore, "mysql", lambda db, sql=None, stdin=None: (
+        ran.append(sql), subprocess.CompletedProcess([], 0, stdout="3\n"))[1])
+    monkeypatch.setattr(restore.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, b"", b""))
+    assert restore.ensure_partition_maintenance("cafewifi", 365) is True
+    assert any("ALTER EVENT" in (q or "") and "(365)" in q for q in ran)
+    assert any("event_scheduler" in (q or "") for q in ran)

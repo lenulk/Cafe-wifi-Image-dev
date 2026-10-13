@@ -22,6 +22,16 @@ services:
       - ./sql/005_bypass_alert.sql:/docker-entrypoint-initdb.d/005_bypass_alert.sql:ro
       - ./sql/006_drop_totp.sql:/docker-entrypoint-initdb.d/006_drop_totp.sql:ro
       - ./sql/007_conn_log_started_at.sql:/docker-entrypoint-initdb.d/007_conn_log_started_at.sql:ro
+      # 008+ ตามลำดับที่ install.sh ลง (013 ก่อน 012 ก่อน 011, 015 ก่อน 014) -- initdb รันตามชื่อ จึงใช้เลขนำหน้า 1NN แทน
+      - ./sql/008_pending_sessions_and_log_columns.sql:/docker-entrypoint-initdb.d/100_008_pending_sessions_and_log_columns.sql:ro
+      - ./sql/009_staff_password_lifecycle.sql:/docker-entrypoint-initdb.d/101_009_staff_password_lifecycle.sql:ro
+      - ./sql/010_access_request.sql:/docker-entrypoint-initdb.d/102_010_access_request.sql:ro
+      - ./sql/013_rate_attempt.sql:/docker-entrypoint-initdb.d/103_013_rate_attempt.sql:ro
+      - ./sql/012_voucher_extend.sql:/docker-entrypoint-initdb.d/104_012_voucher_extend.sql:ro
+      - ./sql/011_device_info.sql:/docker-entrypoint-initdb.d/105_011_device_info.sql:ro
+      - ./sql/015_conn_dst_name.sql:/docker-entrypoint-initdb.d/106_015_conn_dst_name.sql:ro
+      - ./sql/014_dns_qname_rev.sql:/docker-entrypoint-initdb.d/107_014_dns_qname_rev.sql:ro
+      - ./sql/016_portal_session_ip_idx.sql:/docker-entrypoint-initdb.d/108_016_portal_session_ip_idx.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
