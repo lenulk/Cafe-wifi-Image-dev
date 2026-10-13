@@ -9,6 +9,9 @@
 >
 > 🌐 เว็บไซต์ผลิตภัณฑ์: <https://lenulk.github.io/Cafe-wifi-Image/> · 🎬 วิดีโอโปรโมต: [ด้านล่าง](#วิดีโอโปรโมต-motion)
 
+📚 **เอกสารทั้งหมด:** [`docs/README.md`](docs/README.md) — คู่มือผู้ดูแลร้าน, สถาปัตยกรรม, คู่มือนักพัฒนา,
+Operations & แก้ปัญหา, อ้างอิง config / ฐานข้อมูล / CLI
+
 ## ดาวน์โหลด
 
 **[Release v1.1.0](https://github.com/lenulk/Cafe-wifi-Image/releases/tag/v1.1.0)** —

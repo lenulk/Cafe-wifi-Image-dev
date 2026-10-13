@@ -26,3 +26,4 @@ venv/
 image/deploy/
 *.img
 *.img.xz
+docs/.build/
