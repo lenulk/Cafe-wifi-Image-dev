@@ -751,9 +751,11 @@ def _fake_db(monkeypatch, session_macs):
 
     class Cursor:
         def execute(self, sql, params):
-            state["lookups"].append(params)
+            self.is_session = "portal_session" in sql  # query dns_log (dst_name) ไม่นับเป็น lookup
+            if self.is_session:
+                state["lookups"].append(params)
         def fetchall(self):
-            return [dict(mac=m) for m in session_macs]
+            return [dict(mac=m) for m in session_macs] if self.is_session else []
         def executemany(self, sql, rows):
             state["sql"] = sql
             state["inserted"].extend(rows)
@@ -854,3 +856,96 @@ def test_check_event_buffer_warns_when_rmem_default_too_small(tmp_path, caplog):
     f.write_text("16777216\n")
     assert check_event_buffer(str(f)) == 16777216 and caplog.text == ""
     assert check_event_buffer(str(tmp_path / "missing")) is None
+
+
+# ---------------------------------------------------------------- dst_name (sql/015)
+_T0 = datetime(2026, 10, 12, 12, 0, 0)
+
+
+def _t(sec):
+    from datetime import timedelta
+    return _T0 + timedelta(seconds=sec)
+
+
+def test_resolve_dst_names_picks_latest_answer_asked_by_same_client():
+    items = [("10.10.0.5", "1.2.3.4", _t(0))]
+    answers = [(_t(-600), "old.example.com", "1.2.3.4"), (_t(-60), "new.example.com", "1.2.3.4")]
+    queries = [(_t(-601), "10.10.0.5", "old.example.com"), (_t(-61), "10.10.0.5", "NEW.example.com")]
+    assert conn_collector.resolve_dst_names(items, answers, queries) == ["new.example.com"]
+
+
+def test_resolve_dst_names_ignores_answer_asked_only_by_other_client():
+    items = [("10.10.0.5", "1.2.3.4", _t(0))]
+    answers = [(_t(-60), "other.example.com", "1.2.3.4"), (_t(-300), "mine.example.com", "1.2.3.4")]
+    queries = [(_t(-61), "10.10.0.9", "other.example.com"), (_t(-301), "10.10.0.5", "mine.example.com")]
+    assert conn_collector.resolve_dst_names(items, answers, queries) == ["mine.example.com"]
+
+
+def test_resolve_dst_names_none_without_client_confirmation_or_outside_window():
+    items = [("10.10.0.5", "1.2.3.4", _t(0)), ("10.10.0.5", "9.9.9.9", _t(0))]
+    answers = [(_t(-60), "a.example.com", "1.2.3.4"), (_t(-3700), "b.example.com", "9.9.9.9")]
+    queries = [(_t(-3701), "10.10.0.5", "b.example.com")]  # a: ไม่มี query ของเครื่องนี้
+    assert conn_collector.resolve_dst_names(items, answers, queries) == [None, None]
+
+
+def test_resolve_dst_names_allows_small_slack_after_start_but_not_long_after():
+    items = [("10.10.0.5", "1.2.3.4", _t(0))]
+    q = [(_t(1), "10.10.0.5", "a.example.com"), (_t(60), "10.10.0.5", "b.example.com")]
+    assert conn_collector.resolve_dst_names(
+        items, [(_t(2), "a.example.com", "1.2.3.4")], q) == ["a.example.com"]
+    assert conn_collector.resolve_dst_names(
+        items, [(_t(60), "b.example.com", "1.2.3.4")], q) == [None]
+
+
+def test_insert_conn_records_stores_dst_name_with_two_dns_queries_per_batch(monkeypatch):
+    import contextlib
+    import common.db as db
+    executed, inserted = [], []
+
+    class Cursor:
+        def execute(self, sql, args=None):
+            executed.append(sql)
+            self._res = []
+            if "event_kind='answer'" in sql:
+                self._res = [(_t(-60), "a.example.com", "93.184.216.34")]
+            elif "event_kind='query'" in sql:
+                self._res = [(_t(-61), "10.10.0.50", "a.example.com")]
+        def fetchall(self): return self._res
+        def executemany(self, sql, rows):
+            inserted.append((sql, rows))
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class Conn:
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(db, "get_conn", lambda: contextlib.nullcontext(Conn()))
+    start = _T0.timestamp()
+    recs = [conn_collector.replace(_rec(), mac="AA:AA:AA:AA:AA:01", started_at=start)
+            for _ in range(3)]
+    recs = [conn_collector.replace(r, src_ip="10.10.0.50", dst_ip="93.184.216.34") for r in recs]
+    assert conn_collector.insert_conn_records(recs) == 3
+    sql, rows = inserted[0]
+    assert "dst_name" in sql and sql.count("%s") == len(rows[0])
+    assert [r[6] for r in rows] == ["a.example.com"] * 3
+    assert len(executed) == 2, "ต้องค้น dns_log แค่ 2 query ต่อ batch ไม่ใช่ต่อแถว"
+
+
+def test_insert_conn_records_survives_dns_lookup_failure(monkeypatch):
+    import contextlib
+    import common.db as db
+    inserted = []
+
+    class Cursor:
+        def execute(self, sql, args=None): raise RuntimeError("dns_log พัง")
+        def executemany(self, sql, rows): inserted.extend(rows)
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class Conn:
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(db, "get_conn", lambda: contextlib.nullcontext(Conn()))
+    rec = conn_collector.replace(_rec(), mac="AA:AA:AA:AA:AA:01", started_at=_T0.timestamp())
+    assert conn_collector.insert_conn_records([rec]) == 1
+    assert inserted[0][6] is None
