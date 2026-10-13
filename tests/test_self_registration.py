@@ -405,6 +405,31 @@ def test_rate_limit_on_bad_natid(fas):
     assert codes[-1] == 429
 
 
+def test_register_flood_from_one_ip_is_blocked_even_when_each_succeeds(fas, monkeypatch):
+    """สลับ MAC + เลขบัตรปลอมที่ checksum ผ่าน: แต่ละคำขอสำเร็จ แต่ IP เดียวกันเกิน 5 ครั้ง/10 นาทีต้องโดน 429"""
+    codes = []
+    for n in range(6):
+        nid = _gen_valid_id(n)
+        codes.append(_register(fas, natid=nid, mac=f"AA:BB:CC:DD:EE:{n + 1:02X}").status_code)
+    assert codes[:5] == [303] * 5 and codes[5] == 429
+
+
+def _gen_valid_id(n):
+    base = f"110170023{n:03d}"
+    chk = (11 - sum(int(d) * (13 - i) for i, d in enumerate(base)) % 11) % 10
+    return base + str(chk)
+
+
+def test_global_register_volume_logs_error(fas, monkeypatch, caplog):
+    monkeypatch.setattr(fas.module.access, "MAX_PENDING_REQUESTS", 1)
+    import logging
+    with caplog.at_level(logging.ERROR):
+        for _ in range(3):
+            fas.module.record_attempt("register-all")
+        _register(fas, natid="1234567890123")
+    assert any("ถูกถล่มคิว" in r.message for r in caplog.records)
+
+
 def test_queue_cap(fas, monkeypatch):
     monkeypatch.setattr(fas.module.access, "MAX_PENDING_REQUESTS", 1)
     assert _register(fas, mac="AA:BB:CC:DD:EE:01").status_code == 303
@@ -812,7 +837,7 @@ def test_natid_must_be_exactly_13_digits(fas, bad):
 def test_natid_field_restricts_input_in_browser(fas):
     html = fas.get(_gw_url()).get_data(as_text=True)
     assert 'pattern="[0-9]{13}"' in html and 'maxlength="13"' in html and 'minlength="13"' in html
-    assert "replace(/\D/g, '')" in html and "0/13" in html
+    assert r"replace(/\D/g, '')" in html and "0/13" in html
 
 
 def test_thai_digit_natid_registers_as_same_person(fas):

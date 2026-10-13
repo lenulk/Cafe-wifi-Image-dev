@@ -239,7 +239,7 @@ def _add_unidentified_hints(rows) -> None:
     for r in pending:
         t = r.get("started_at") or r["ts"]
         mine = [s for s in sessions if s["mac"] == r["mac"]]
-        if any(s["authenticated_at"] <= t and (s["ended_at"] is None or t <= s["ended_at"]) for s in mine):
+        if any(s["authenticated_at"] <= t and (s["ended_at"] is None or t < s["ended_at"]) for s in mine):
             continue  # มี session ครอบเวลานี้แต่จับคู่ไม่ได้แน่ชัด (ซ้อนกัน/IP ไม่ตรง) -- ไม่ชี้นำว่าเป็นของใคร
         before = next((s for s in mine if s["authenticated_at"] <= t), None)   # ใหม่สุดก่อนแถวนี้
         after = next((s for s in reversed(mine) if s["authenticated_at"] > t), None)  # แรกสุดหลังแถวนี้

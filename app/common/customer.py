@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 PURGED_MARK = "PURGED"  # ค่า natid_masked ที่แปลว่า "ถูกล้างข้อมูลระบุตัวตนไปแล้ว"
 
 
-def anonymize_customer(execute_fn, customer_id: int) -> int:
+def anonymize_customer(execute_fn, customer_id: int, cursor=None) -> int:
     """
     ล้างข้อมูลระบุตัวตนของลูกค้า 1 คน (natid_hash/natid_enc/natid_masked) แต่**คงแถวไว้**
     -- ห้าม DELETE เพราะ fk_voucher_customer เป็น RESTRICT ปริยาย และลูกค้าทุกรายมี voucher
@@ -28,7 +28,26 @@ def anonymize_customer(execute_fn, customer_id: int) -> int:
 
     execute_fn(sql, args) -> จำนวนแถวที่ถูกกระทบ (rowcount) -- คืนค่านี้ตรง ๆ ให้ผู้เรียกเช็คว่า
     id ที่ส่งมามีแถวอยู่จริงไหม (0 = ไม่พบแถว)
+
+    cursor= (ไม่บังคับ): ส่ง cursor ของ transaction ที่ผู้เรียกเปิดไว้ -- ทุก UPDATE อยู่ใน
+    transaction เดียวกัน (พร้อม audit.log_required) พังกลางทางแล้ว rollback ได้ทั้งก้อน ไม่เหลือ
+    ลูกค้าที่ PURGED แล้วแต่ hostname/user_agent ค้าง (เส้นทาง retry ข้ามเพราะ natid_masked=PURGED)
+    ไม่ส่ง = ใช้ execute_fn แบบเดิม (tools/purge_old_data.py -- แต่ละคำสั่ง commit เอง)
     """
+    if cursor is not None:
+        def execute_fn(sql, args=()):  # noqa: F811 -- รันใน transaction ของผู้เรียก (commit/rollback ที่นั่น)
+            cursor.execute(sql, args)
+            return cursor.rowcount
+    # คำขอที่ยังรออนุมัติยังถือ natid_hash/natid_enc ของลูกค้าคนนี้อยู่ (ยังไม่มี voucher_id) --
+    # ต้องล้างก่อนอัปเดต customer เพราะหลังจากนั้นจะ join ด้วย natid_hash ไม่ได้อีก
+    # (คอลัมน์ natid_masked เป็น NOT NULL จึงใส่ PURGED แทน NULL)
+    # คำขอที่ยัง pending ต้องปิดเป็น expired ด้วย -- ไม่งั้นพนักงานกดอนุมัติแล้ว natid_decrypt(NULL) = 500
+    execute_fn(
+        "UPDATE access_request ar JOIN customer c ON c.natid_hash = ar.natid_hash "
+        "SET ar.status = IF(ar.status = 'pending', 'expired', ar.status), "
+        "ar.decided_at = COALESCE(ar.decided_at, NOW()), ar.natid_hash = NULL, ar.natid_enc = NULL, ar.natid_masked = 'PURGED', "
+        "ar.hostname = NULL, ar.user_agent = NULL, ar.decision_note = NULL "
+        "WHERE c.id = %s", (customer_id,))
     n = execute_fn(
         "UPDATE customer SET natid_hash = CONCAT('PURGED-', id), "
         "natid_enc = '', natid_masked = 'PURGED' WHERE id = %s",
@@ -39,9 +58,11 @@ def anonymize_customer(execute_fn, customer_id: int) -> int:
         # (sql/011_device_info.sql) · os_label ไม่ระบุตัวบุคคล เก็บไว้ได้
         execute_fn("UPDATE portal_session ps JOIN voucher v ON v.id = ps.voucher_id "
                    "SET ps.hostname = NULL WHERE v.customer_id = %s", (customer_id,))
+        # natid_masked ของคำขอเก่า + decision_note (พนักงานพิมพ์เอง อาจมีชื่อ) ก็ระบุตัวบุคคลได้
         execute_fn("UPDATE access_request ar JOIN voucher v ON v.id = ar.voucher_id "
-                   "SET ar.hostname = NULL, ar.user_agent = NULL WHERE v.customer_id = %s",
-                   (customer_id,))
+                   "SET ar.hostname = NULL, ar.user_agent = NULL, "
+                   "ar.natid_masked = 'PURGED', ar.decision_note = NULL "
+                   "WHERE v.customer_id = %s", (customer_id,))
     return n
 
 
@@ -77,11 +98,11 @@ def retention_hold_until(query_one_fn, customer_id: int,
         " COALESCE((SELECT MAX(cl.ts) FROM conn_log cl"
         " JOIN portal_session ps ON ps.mac=cl.mac AND ps.ip=cl.src_ip"
         " AND ps.authenticated_at<=COALESCE(cl.started_at, cl.ts)"
-        " AND (ps.ended_at IS NULL OR COALESCE(cl.started_at, cl.ts)<=ps.ended_at)"
+        " AND (ps.ended_at IS NULL OR COALESCE(cl.started_at, cl.ts)<ps.ended_at)"
         " JOIN voucher v ON v.id=ps.voucher_id WHERE v.customer_id=c.id), c.first_seen),"
         " COALESCE((SELECT MAX(dl.ts) FROM dns_log dl"
         " JOIN portal_session ps ON ps.mac=dl.mac AND ps.ip=dl.client_ip"
-        " AND ps.authenticated_at<=dl.ts AND (ps.ended_at IS NULL OR dl.ts<=ps.ended_at)"
+        " AND ps.authenticated_at<=dl.ts AND (ps.ended_at IS NULL OR dl.ts<ps.ended_at)"
         " JOIN voucher v ON v.id=ps.voucher_id WHERE v.customer_id=c.id), c.first_seen)"
         " ) AS last_activity FROM customer c WHERE c.id = %s", (customer_id,))
     if not row or not row.get("last_activity"):

@@ -8,6 +8,14 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        v = int(os.environ.get(name, ""))
+        return v if v > 0 else default
+    except ValueError:
+        return default
+
+
 def _cfg() -> dict:
     return dict(
         host=os.environ.get("DB_HOST", "127.0.0.1"),
@@ -18,12 +26,19 @@ def _cfg() -> dict:
         charset="utf8mb4",
         cursorclass=DictCursor,
         autocommit=False,
+        # ไม่มี timeout = DB ค้าง/เครือข่ายหลุดแล้ว request (หรือ collector) แขวนตลอดไป
+        # read 600 วิ: purge DELETE หลายล้านแถว/export/backup บน Pi ใช้เวลานานจริง -- กันแค่ "แขวนตลอดไป"
+        # (หน้าเว็บถูกตัดที่ gunicorn --timeout 60 อยู่แล้ว) ปรับได้ทาง env หรือ get_conn(read_timeout=...)
+        connect_timeout=_env_int("DB_CONNECT_TIMEOUT", 5),
+        read_timeout=_env_int("DB_READ_TIMEOUT", 600),
+        write_timeout=_env_int("DB_WRITE_TIMEOUT", 60),
     )
 
 
 @contextmanager
-def get_conn():
-    conn = pymysql.connect(**_cfg())
+def get_conn(**overrides):
+    """overrides: ทับค่าจาก _cfg() เช่น read_timeout=300 สำหรับงานที่คิวรี่นานจริง"""
+    conn = pymysql.connect(**{**_cfg(), **overrides})
     try:
         yield conn
         conn.commit()
@@ -34,19 +49,19 @@ def get_conn():
         conn.close()
 
 
-def query_one(sql: str, args: tuple = ()) -> dict | None:
-    with get_conn() as c, c.cursor() as cur:
+def query_one(sql: str, args: tuple = (), **conn_overrides) -> dict | None:
+    with get_conn(**conn_overrides) as c, c.cursor() as cur:
         cur.execute(sql, args)
         return cur.fetchone()
 
 
-def query_all(sql: str, args: tuple = ()) -> list[dict]:
-    with get_conn() as c, c.cursor() as cur:
+def query_all(sql: str, args: tuple = (), **conn_overrides) -> list[dict]:
+    with get_conn(**conn_overrides) as c, c.cursor() as cur:
         cur.execute(sql, args)
         return list(cur.fetchall())
 
 
-def execute(sql: str, args: tuple = ()) -> int:
+def execute(sql: str, args: tuple = (), **conn_overrides) -> int:
     """
     รันคำสั่งที่ไม่คืนแถว (INSERT/UPDATE/DELETE) คืนค่า rowcount (จำนวนแถวที่ถูกกระทบ)
 
@@ -57,6 +72,6 @@ def execute(sql: str, args: tuple = ()) -> int:
     โปรเจกต์นี้ที่พึ่ง lastrowid จริงจัง (ทุกจุดเดิมไม่ได้ใช้ค่าที่คืนมาเลย) จึงเปลี่ยนเป็น
     rowcount ได้อย่างปลอดภัย และตรงกับความหมายที่ผู้เรียกส่วนใหญ่ต้องการมากกว่า
     """
-    with get_conn() as c, c.cursor() as cur:
+    with get_conn(**conn_overrides) as c, c.cursor() as cur:
         cur.execute(sql, args)
         return cur.rowcount

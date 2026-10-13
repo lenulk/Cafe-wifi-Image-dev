@@ -194,6 +194,19 @@ def login():
                                message="กรุณาต่อ Wi-Fi ใหม่อีกครั้ง"), 400
     mac = arp_mac
 
+    # กันถล่มคิว: อุปกรณ์ที่สลับ MAC ไปเรื่อยส่งเลขบัตรปลอมที่ checksum ผ่านได้ครั้งละ 1 คำขอ
+    # (bucket ตาม MAC ไม่เคยเต็มเพราะนับเฉพาะที่ล้มเหลว) -- นับ **ทุก** POST ต่อ IP ไม่ว่าสำเร็จหรือไม่
+    ip_bucket = f"register-ip:{real_ip}"
+    if rate_limited(ip_bucket):
+        return render_template("register.html", nonce=nonce,
+                               error="ลองหลายครั้งเกินไป กรุณารอ 10 นาที หรือแจ้งพนักงาน"), 429
+    record_attempt(ip_bucket)
+    # แจ้งพนักงานแบบเบา ๆ: POST รวมทุกเครื่องใน 10 นาทีเกิน 2 เท่าของเพดานคิว = น่าจะมีคนถล่ม
+    if ratelimit.limited("register-all", access.MAX_PENDING_REQUESTS * 2, WINDOW_SEC, _attempts):
+        app.logger.error("มีการส่งคำขอลงทะเบียนรวมเกิน %d ครั้งใน %d วินาที -- สงสัยถูกถล่มคิว",
+                         access.MAX_PENDING_REQUESTS * 2, WINDOW_SEC)
+    record_attempt("register-all")
+
     bucket = f"register:{mac}"
     if rate_limited(bucket):
         return render_template("register.html", nonce=nonce,

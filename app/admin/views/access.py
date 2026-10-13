@@ -91,7 +91,8 @@ def approve_request(rid: int):
         cur.execute("SELECT id, code, mac, ip, hostname, os_label, natid_hash, natid_enc, natid_masked, "
                     "status, expires_at FROM access_request WHERE id=%s FOR UPDATE", (rid,))
         req = cur.fetchone()
-        if not req or req["status"] != "pending" or req["expires_at"] <= datetime.now():
+        if (not req or req["status"] != "pending" or req["expires_at"] <= datetime.now()
+                or not req["natid_enc"]):  # natid_enc ว่าง = ลูกค้าขอลบข้อมูลไปแล้ว (DSR)
             flash("คำขอนี้หมดอายุหรือถูกจัดการไปแล้ว", "err")
             return redirect(url_for("requests_page"))
         nid = crypto.natid_decrypt(req["natid_enc"])

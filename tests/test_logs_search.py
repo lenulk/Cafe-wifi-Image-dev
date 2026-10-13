@@ -67,7 +67,7 @@ def _lookup_mapping(mac, ip, ts):
     """จำลอง common/log_mapping.py: session เดียวเท่านั้นที่ครอบเวลานี้ -> (voucher, masked, customer_id)"""
     candidates = [s for s in SESSIONS if s["mac"] == mac and s["ip"] == ip
                   and s["authenticated_at"] <= ts
-                  and (s["ended_at"] is None or ts <= s["ended_at"])]
+                  and (s["ended_at"] is None or ts < s["ended_at"])]
     if len(candidates) != 1:
         return None, None, None, None, None
     ps = candidates[0]
@@ -476,7 +476,7 @@ def test_conn_log_maps_owner_by_start_time_not_destroy_time(client):
     finally:
         FakeCursor._search_conn = orig
     assert "s.authenticated_at <= coalesce(cl.started_at, cl.ts)" in captured[0]
-    assert "coalesce(cl.started_at, cl.ts) <= s.ended_at" in captured[0]
+    assert "coalesce(cl.started_at, cl.ts) < s.ended_at" in captured[0]
 
 
 # ---------------------------------------------------------------- ชื่อเครื่อง + ระบบปฏิบัติการ

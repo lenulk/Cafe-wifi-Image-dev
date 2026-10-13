@@ -127,20 +127,24 @@ def erase_customer(cid: int):
     # สิทธิ์ของเจ้าของข้อมูลไม่ได้หายไป แค่เลื่อน และ purge_old_data จะลบให้เองเมื่อพ้นกำหนด
     hold_until = retention_hold_until(core.query_one, cid)
     if hold_until:
-        audit.log(audit.ERASE_REFUSED, staff_id=session["staff_id"], target=f"customer:{cid}",
-                  client_ip=g.client_ip,
-                  detail=f"ยังอยู่ในช่วงเก็บบังคับถึง {hold_until:%Y-%m-%d} — คำขอ: {reason}")
+        # คำขอของเจ้าของข้อมูล = หลักฐานว่าได้รับเรื่องแล้ว -- บันทึกไม่ได้ต้อง 500 ไม่ใช่เงียบ
+        audit.log_required(audit.ERASE_REFUSED, staff_id=session["staff_id"],
+                           target=f"customer:{cid}", client_ip=g.client_ip,
+                           detail=f"ยังอยู่ในช่วงเก็บบังคับถึง {hold_until:%Y-%m-%d} — คำขอ: {reason}")
         flash(f"ยังลบข้อมูลระบุตัวตนไม่ได้ ต้องเก็บไว้ถึง {hold_until:%d/%m/%Y} "
               "ตาม พ.ร.บ.คอมพิวเตอร์ ม.26 (ระบบจะลบให้อัตโนมัติเมื่อพ้นกำหนด) "
               "คำขอของเจ้าของข้อมูลถูกบันทึกไว้แล้ว", "warn")
         return redirect(url_for("customers"))
 
-    n = anonymize_customer(core.execute, cid)
-    if not n:
-        abort(404)
-
-    audit.log(audit.ERASE_CUSTOMER, staff_id=session["staff_id"], target=f"customer:{cid}",
-              client_ip=g.client_ip, detail=reason)
+    # ล้างทุกตาราง + บันทึก audit ใน transaction เดียว: อันไหนพังก็ rollback หมด (ลูกค้ายังไม่
+    # PURGED กดลบซ้ำได้) และไม่มีทางที่ข้อมูลหายไปโดยไม่มีบันทึกว่าใครสั่งลบ
+    with core.get_conn() as conn, conn.cursor() as cur:
+        n = anonymize_customer(None, cid, cursor=cur)
+        if not n:
+            abort(404)
+        audit.log_required(audit.ERASE_CUSTOMER, staff_id=session["staff_id"],
+                           target=f"customer:{cid}", client_ip=g.client_ip, detail=reason,
+                           cursor=cur)
     flash("ลบข้อมูลระบุตัวตนของลูกค้ารายนี้แล้วตามคำขอ", "success")
     return redirect(url_for("customers"))
 

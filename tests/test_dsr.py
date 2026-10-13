@@ -11,6 +11,7 @@ tests/test_logs_verify.py (N2) รวมผลข้างเคียงที�
 from __future__ import annotations
 
 import contextlib
+import copy
 from datetime import datetime, timedelta
 
 import pytest
@@ -30,9 +31,13 @@ def test_anonymize_customer_writes_expected_sql_and_returns_rowcount():
 
     n = anonymize_customer(fake_exec, 42)
     assert n == 1
-    assert [c[0].split()[1] for c in calls[1:]] == ["portal_session", "access_request"],         "ชื่อเครื่องอาจมีชื่อจริง -- ต้องล้างพร้อมเลขบัตร"
-    assert all("hostname = NULL" in c[0] and c[1] == (42,) for c in calls[1:])
-    sql, args = calls[0]
+    # คำขอที่รออยู่ (join ด้วย natid_hash) ต้องล้างก่อน customer ไม่งั้น join ไม่เจอแล้ว
+    assert calls[0][0].startswith("UPDATE access_request ar JOIN customer c")
+    assert "ar.decision_note = NULL" in calls[0][0] and "ar.natid_masked = 'PURGED'" in calls[0][0]
+    assert [c[0].split()[1] for c in calls[2:]] == ["portal_session", "access_request"],         "ชื่อเครื่องอาจมีชื่อจริง -- ต้องล้างพร้อมเลขบัตร"
+    assert all("hostname = NULL" in c[0] and c[1] == (42,) for c in calls[2:])
+    assert "decision_note = NULL" in calls[3][0] and "natid_masked = 'PURGED'" in calls[3][0]
+    sql, args = calls[1]
     assert sql.upper().startswith("UPDATE CUSTOMER SET NATID_HASH")
     assert "NATID_MASKED = 'PURGED'" in sql.upper()
     assert args == (42,), "ต้องส่งแค่ customer_id เป็นพารามิเตอร์ (ตรงกับที่ purge_old_data.py เดิมใช้)"
@@ -41,7 +46,22 @@ def test_anonymize_customer_writes_expected_sql_and_returns_rowcount():
 def test_anonymize_customer_passes_through_zero_rowcount_when_not_found():
     calls = []
     n = anonymize_customer(lambda sql, args=(): calls.append(sql) or 0, 999)
-    assert n == 0 and len(calls) == 1, "ไม่พบลูกค้า = ไม่ต้องไปแตะตารางอื่น"
+    assert n == 0 and len(calls) == 2, "ไม่พบลูกค้า = ไม่ต้องไปแตะ portal_session/voucher (เหลือแค่คำขอที่ join ไม่เจอ)"
+
+
+def test_anonymize_customer_with_cursor_runs_everything_on_that_cursor():
+    class Cur:
+        rowcount = 1
+
+        def __init__(self):
+            self.sqls = []
+
+        def execute(self, sql, args=()):
+            self.sqls.append(sql)
+
+    cur = Cur()
+    assert anonymize_customer(None, 5, cursor=cur) == 1
+    assert len(cur.sqls) == 4
 
 
 # ================================================================== ส่วนที่ 2: route /customers/<id>/erase ผ่าน Flask
@@ -57,6 +77,7 @@ STAFF = [
 CUSTOMERS: list[dict] = []
 AUDIT: list[tuple] = []
 HOSTNAME_CLEARED: list = []
+FAIL_ON = [None]  # ขึ้นต้น SQL ที่ให้ล้มเหลว (ทดสอบ rollback)
 
 
 def _reset():
@@ -74,6 +95,7 @@ def _reset():
     })
     AUDIT.clear()
     HOSTNAME_CLEARED.clear()
+    FAIL_ON[0] = None
 
 
 LAST_ACTIVITY = [datetime.now() - timedelta(days=400)]  # N33: ค่าเริ่มต้น = พ้นระยะเก็บแล้ว
@@ -114,13 +136,19 @@ class FakeCursor:
                 self.rowcount = 1
             else:
                 self.rowcount = 0
+        elif s.startswith("update access_request ar join customer c"):
+            self.rowcount = 0  # คำขอที่รออยู่ของลูกค้านี้ (เทสต์นี้ไม่มี)
         elif s.startswith(("update portal_session ps join voucher", "update access_request ar join voucher")):
+            if FAIL_ON[0] and s.startswith(FAIL_ON[0]):
+                raise RuntimeError("db down")
             HOSTNAME_CLEARED.append(args[0])  # ชื่อเครื่องอาจมีชื่อจริง -- ล้างพร้อมเลขบัตร
         elif s.startswith("select greatest("):
             # N33: กิจกรรมล่าสุดของลูกค้า -- ค่าเริ่มต้นตั้งให้เก่ากว่าระยะเก็บ (ลบได้) เทสต์ที่
             # ต้องการกรณี "ยังลบไม่ได้" จะเซ็ต LAST_ACTIVITY ให้เป็นวันที่ใกล้ ๆ เอง
             self._rows = [{"last_activity": LAST_ACTIVITY[0]}]
         elif s.startswith("insert into audit_log"):
+            if FAIL_ON[0] == "insert into audit_log":
+                raise RuntimeError("audit down")
             AUDIT.append(args)
             self.rowcount = 1
         elif s.startswith("select count(*) as n from access_request"):
@@ -142,8 +170,28 @@ class FakeCursor:
 
 
 class FakeConn:
+    """snapshot ตอนเปิด -- rollback() ย้อนได้จริง (ทดสอบว่าล้มกลางทางแล้วไม่เหลือครึ่ง ๆ กลาง ๆ)"""
+
+    def __init__(self):
+        self._snap = (copy.deepcopy(CUSTOMERS), list(AUDIT), list(HOSTNAME_CLEARED))
+
     def cursor(self):
         return FakeCursor()
+
+    def rollback(self):
+        CUSTOMERS[:] = self._snap[0]
+        AUDIT[:] = self._snap[1]
+        HOSTNAME_CLEARED[:] = self._snap[2]
+
+
+@contextlib.contextmanager
+def _conn_ctx():
+    conn = FakeConn()
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
 
 
 @pytest.fixture
@@ -151,7 +199,7 @@ def client(monkeypatch):
     _reset()
 
     import common.db as db
-    monkeypatch.setattr(db, "get_conn", lambda: contextlib.nullcontext(FakeConn()))
+    monkeypatch.setattr(db, "get_conn", _conn_ctx)
 
     def _run(sql, args=()):
         cur = FakeCursor()
@@ -306,3 +354,32 @@ def test_erase_is_refused_while_customer_data_must_be_kept(client):
     assert len(AUDIT) == 1
     assert AUDIT[0][1] == "erase_refused"
     assert "ยังอยู่ในช่วงเก็บบังคับถึง" in AUDIT[0][4]
+
+
+# ============ ล้าง + audit เป็น transaction เดียว
+def test_erase_rolls_back_everything_when_a_later_update_fails(client):
+    """UPDATE ที่ 3 พัง -> ลูกค้าต้องไม่ถูก PURGED (ไม่งั้นกดลบซ้ำไม่ได้ และ hostname ค้าง)"""
+    FAIL_ON[0] = "update access_request ar join voucher"
+    _login_as(client, "admin")
+    with pytest.raises(RuntimeError, match="db down"):
+        client.post("/customers/1/erase", data={"reason": "ลูกค้าขอใช้สิทธิ์ลบข้อมูลตาม PDPA"})
+    assert CUSTOMERS[0]["natid_masked"] != PURGED_MARK
+    assert CUSTOMERS[0]["natid_hash"] == "hash-of-real-id"
+    assert HOSTNAME_CLEARED == [] and AUDIT == []
+
+
+def test_erase_rolls_back_when_audit_insert_fails(client):
+    FAIL_ON[0] = "insert into audit_log"
+    _login_as(client, "admin")
+    with pytest.raises(RuntimeError, match="audit down"):
+        client.post("/customers/1/erase", data={"reason": "ลูกค้าขอใช้สิทธิ์ลบข้อมูลตาม PDPA"})
+    assert CUSTOMERS[0]["natid_masked"] != PURGED_MARK, "ไม่มีบันทึกว่าใครสั่งลบ = ห้ามลบ"
+    assert HOSTNAME_CLEARED == []
+
+
+def test_erase_refused_audit_failure_is_not_swallowed(client):
+    LAST_ACTIVITY[0] = datetime.now() - timedelta(days=3)
+    FAIL_ON[0] = "insert into audit_log"
+    _login_as(client, "admin")
+    with pytest.raises(RuntimeError, match="audit down"):
+        client.post("/customers/1/erase", data={"reason": "ลูกค้าขอใช้สิทธิ์ลบข้อมูลตาม PDPA"})
