@@ -744,6 +744,40 @@ def test_tracker_evicts_oldest_when_full():
     assert tracker.feed("DESTROY", conn_collector.replace(_rec(2), ct_id="2")).mac == "AA:AA:AA:AA:AA:01"
 
 
+def _icmp(event, src, echo_id, ct_id, ts):
+    tail = " delta-time=5" if event == "DESTROY" else ""
+    return (f"[{ts}] [{event}] ipv4     2 icmp     1 30 src={src} dst=8.8.8.8 type=8 code=0 id={echo_id} "
+            f"src=8.8.8.8 dst={src} type=0 code=0 id={echo_id}{tail} id={ct_id}")
+
+
+def test_icmp_ct_id_is_conntrack_id_not_echo_id():
+    """ICMP มี id= ของ ping ใน tuple -- ct_id ต้องเป็น id ท้ายบรรทัด (จาก -o id)"""
+    ev, rec = conn_collector.parse_conntrack_event(_icmp("NEW", "10.10.0.50", 1, 777, 1789000000.0))
+    assert ev == "NEW" and rec.ct_id == "777" and rec.proto == "icmp"
+
+
+def test_two_windows_pings_with_same_echo_id_keep_their_own_mac():
+    """Windows ใช้ echo id 1 ทุกเครื่อง -- เดิม NEW ของ B ทับ A แล้ว log ของ A ได้ MAC ของ B"""
+    arp = _SwitchableArp("AA:AA:AA:AA:AA:01")
+    tracker = conn_collector.ConnTracker(arp)
+    tracker.feed(*conn_collector.parse_conntrack_event(_icmp("NEW", "10.10.0.50", 1, 101, 1789000000.0)))
+    arp.mac = "BB:BB:BB:BB:BB:02"
+    tracker.feed(*conn_collector.parse_conntrack_event(_icmp("NEW", "10.10.0.51", 1, 102, 1789000001.0)))
+    a = tracker.feed(*conn_collector.parse_conntrack_event(_icmp("DESTROY", "10.10.0.50", 1, 101, 1789000030.0)))
+    b = tracker.feed(*conn_collector.parse_conntrack_event(_icmp("DESTROY", "10.10.0.51", 1, 102, 1789000031.0)))
+    assert (a.src_ip, a.mac) == ("10.10.0.50", "AA:AA:AA:AA:AA:01")
+    assert (b.src_ip, b.mac) == ("10.10.0.51", "BB:BB:BB:BB:BB:02")
+
+
+def test_reused_ct_id_with_different_flow_does_not_inherit_mac():
+    """DESTROY ของตัวเก่าหาย (ENOBUFS) แล้ว conntrack id วนกลับมาใช้กับ connection อื่น -- ห้ามแปะ MAC เก่า"""
+    tracker = conn_collector.ConnTracker(_SwitchableArp("AA:AA:AA:AA:AA:01"))
+    tracker.feed(*conn_collector.parse_conntrack_event(NEW_WITH_ID))
+    other = DESTROY_WITH_ID.replace("src=10.10.0.50", "src=10.10.0.77", 1)
+    rec = tracker.feed(*conn_collector.parse_conntrack_event(other))
+    assert rec.mac is None and tracker.mismatched == 1
+
+
 def _fake_db(monkeypatch, session_macs):
     import contextlib
     import common.db as db

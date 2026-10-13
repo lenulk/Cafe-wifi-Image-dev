@@ -29,4 +29,5 @@
 - [Log search upgrade 12 ต.ค.](log-search-upgrade-2026-10-12.md) — autocomplete, เลขเต็มเฉพาะ admin, site/port/CIDR, /logs/summary, /audit, sql 014/015; 10 Windows test fails = เดิม; ต้องทดสอบบน Pi + 015 ก่อน restart logger
 - [Thesis skill edition 9 ต.ค.](thesis-skill-edition-2026-10-09.md) — สกิล thai-thesis-form ที่ .claude/skills/; เล่มฉบับตามสกิล 104 หน้า; กับดัก szCs ปก, spacer 2", สารบัญตายตัว→tocnum; เครื่องนี้มี Word แล้ว
 - [Admin sees everything](admin-sees-everything-unmasked.md) — admin dashboard unmasked by design (staff only masked); don't flag as leak, but wrong log→customer attribution is still a bug
+- [Ultrareview billing](ultrareview-billing.md) — 3 free runs used 2026-10-14; needs usage credits after (cloud session $100 credit doesn't pay for it); 8k-line diff cap + temp-branch trick
 - [Model routing preference](model-routing-preference.md) — Sonnet/Haiku subagents do simple/bulk work; Opus orchestrates, reviews, hard parts

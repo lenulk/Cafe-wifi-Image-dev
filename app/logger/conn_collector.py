@@ -149,6 +149,7 @@ def parse_conntrack_event(line: str, now: float | None = None) -> tuple[str, Con
 
     kv_first: dict[str, str] = {}
     byte_values: list[int] = []
+    ct_id = None
     for k, v in _KV_RE.findall(body):
         if k == "bytes":
             try:
@@ -156,6 +157,11 @@ def parse_conntrack_event(line: str, now: float | None = None) -> tuple[str, Con
             except ValueError:
                 pass
             continue
+        if k == "id":
+            # ICMP มี id= ใน tuple ด้วย (echo id ของ ping -- Windows ใช้ 1 ทุกเครื่อง) ส่วน conntrack id
+            # จาก `-o id` อยู่ท้ายบรรทัดเสมอ -> ใช้ตัวสุดท้าย (เดิมใช้ตัวแรก = ping สองเครื่องทับกัน
+            # แล้ว DESTROY ของเครื่อง A ได้ MAC ของเครื่อง B)
+            ct_id = v
         kv_first.setdefault(k, v)  # การเกิดครั้งแรก = ทิศทาง original (client -> server)
 
     src_ip = kv_first.get("src")
@@ -177,7 +183,7 @@ def parse_conntrack_event(line: str, now: float | None = None) -> tuple[str, Con
         ts=ts, proto=proto, src_ip=src_ip, src_port=_to_port(kv_first.get("sport")),
         dst_ip=dst_ip, dst_port=_to_port(kv_first.get("dport")),
         bytes_out=bytes_out, bytes_in=bytes_in,
-        ct_id=kv_first.get("id"), started_at=started_at,
+        ct_id=ct_id, started_at=started_at,
     )
 
 
@@ -218,8 +224,9 @@ class ConnTracker:
     def __init__(self, mac_cache: MacCache, max_open: int = MAX_OPEN_CONNS):
         self.mac_cache = mac_cache
         self.max_open = max_open
-        self._open: dict[str, tuple[str | None, float]] = {}
+        self._open: dict[str, tuple[str | None, float, tuple]] = {}
         self.evicted = 0
+        self.mismatched = 0
 
     def __len__(self) -> int:
         return len(self._open)
@@ -233,15 +240,25 @@ class ConnTracker:
                 # dict เรียงตามลำดับที่ใส่ -- ทิ้งรายการเก่าสุด DESTROY ของมันจะไปพึ่ง fallback
                 self._open.pop(next(iter(self._open)))
                 self.evicted += 1
-            self._open[rec.ct_id] = (self.mac_cache.get(rec.src_ip), rec.ts)
+            self._open[rec.ct_id] = (self.mac_cache.get(rec.src_ip), rec.ts, _flow_key(rec))
             return None
         opened = self._open.pop(rec.ct_id, None) if rec.ct_id is not None else None
+        if opened is not None and opened[2] != _flow_key(rec):
+            # conntrack id ถูกใช้ซ้ำ (DESTROY ของตัวเก่าหายตอน ENOBUFS แล้ว id วนกลับมา) -- NEW ที่จำไว้
+            # เป็นของ connection อื่น ห้ามแปะ MAC ของมัน ถือเหมือนไม่เห็น NEW
+            self.mismatched += 1
+            opened = None
         if opened is None:
             # ไม่เห็น NEW (collector เพิ่งเริ่ม / event หายตอน ENOBUFS) -- ห้ามเดาจาก ARP ปัจจุบัน
             # ปล่อย mac ว่างให้ insert_conn_records หาจากประวัติ portal_session ตามเวลาเริ่มแทน
             return rec
-        mac, started_at = opened
+        mac, started_at, _key = opened
         return replace(rec, mac=mac, started_at=started_at)
+
+
+def _flow_key(rec: ConnRecord) -> tuple:
+    """5-tuple ทิศ original -- NEW กับ DESTROY ของ connection เดียวกันต้องตรงกันเสมอ"""
+    return (rec.proto, rec.src_ip, rec.src_port, rec.dst_ip, rec.dst_port)
 
 
 # R2-02: fallback เมื่อไม่มี MAC จากตอน NEW -- หาจาก portal_session ที่ IP นี้ authenticated อยู่
