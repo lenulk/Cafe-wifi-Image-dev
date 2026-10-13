@@ -4,6 +4,7 @@
     python audio.py          # ฉบับเต็ม 86 วิ -> audio.wav
     python audio.py short    # ฉบับสั้น 18 วิ -> audio-short.wav
     python audio.py compare  # เปรียบเทียบ 28 วิ -> audio-compare.wav
+    python audio.py explain  # อธิบายระบบ 59 วิ -> audio-explain.wav
 """
 import sys
 import wave
@@ -12,8 +13,8 @@ from pathlib import Path
 import numpy as np
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "full"
-SHORT = MODE in ("short", "compare")  # คลิปแนวตั้ง: เพลงเริ่มทันที, เฟดท้ายสั้น
-SR, DUR = 44100, {"short": 18.0, "compare": 28.0}.get(MODE, 86.0)
+SHORT = MODE in ("short", "compare", "explain")  # คลิปแนวตั้ง: เพลงเริ่มทันที, เฟดท้ายสั้น
+SR, DUR = 44100, {"short": 18.0, "compare": 28.0, "explain": 59.0}.get(MODE, 86.0)
 N = int(SR * DUR)
 rng = np.random.default_rng(7)
 mix = np.zeros(N)
@@ -88,7 +89,7 @@ for b in range(nbars):
 
 # กลอง: ฉาก 4 (22 วิ) ถึงก่อนจบ
 beat = 0.75
-DRUMS = {"short": (3.6, 17.2), "compare": (3.0, 26.5)}.get(MODE, (22, 84))
+DRUMS = {"short": (3.6, 17.2), "compare": (3.0, 26.5), "explain": (4.0, 53.0)}.get(MODE, (22, 84))
 for k in range(int(DRUMS[0] / beat), int(DRUMS[1] / beat)):
     at = k * beat
     tk = tt(0.35)
@@ -192,7 +193,19 @@ for k in range(18):
     cues.append((17.7 + k * 0.13, click, .07))
 for k in range(8):
     cues.append((58.4 + k * 0.25, tick, .12))
-if MODE == "compare":
+if MODE == "explain":   # เวลาต้องตรงกับ LAY ใน explain.html / explain-v.html
+    cues = [(0.25, pop, .3), (0.75, tick, .2), (2.6, whoosh, .15)]
+    for b in (4, 9, 18, 27, 39, 47):                                    # ซูมเข้าแต่ละชั้น
+        cues += [(b - 0.55, whoosh, .3), (b + 0.4, pop, .2)]
+    cues += [(4 + a, tick, .25) for a in (.6, 1.0, 1.5, 2.1)]               # ① ป้ายในร้าน
+    cues += [(9 + a, tick, .25) for a in (1.4, 1.9, 2.4, 3.4, 3.9)] + [(9 + 4.8, click, .3)]   # ②
+    cues += [(18 + .4 + i * 1.1, pop, .2) for i in range(5)] + [(24.0, tick, .25)]           # ③ บล็อก
+    cues += [(27 + a, tick, .3) for a in (.6, 2.6, 4.6, 8.4)] + [(27 + 6.6, tick, .3), (27 + 6.8, click, .45), (27 + 6.85, chime, .15), (36.6, pop, .2)]  # ④
+    cues += [(39 + .7 + i * .25, tick, .15) for i in range(5)] + [(39 + 3.2 + i * .2, click, .12) for i in range(5)]
+    cues += [(44.4, buzz, .2), (45.0, pop, .25)]                                                # ⑤ โซ่ขาด
+    cues += [(47 + 1.2 + i * .45, tick, .25) for i in range(3)] + [(50.0, pop, .2)]              # ⑥
+    cues += [(53 + i * .42, whoosh, .08) for i in range(6)] + [(55.9, shimmer, .2), (56.2, pop, .3)]
+elif MODE == "compare":
     cues = [(0.1, pop, .35), (0.6, tick, .25), (0.8, tick, .25), (1.3, thud, .4), (2.7, whoosh, .25)]
     for k in range(5):
         a = 3.0 + k * 4.2
@@ -216,7 +229,7 @@ for at, fn, g in cues:
 
 mix /= max(1e-9, np.max(np.abs(mix))) / 0.89
 pcm = (np.clip(mix, -1, 1) * 32767).astype(np.int16)
-out = Path(__file__).resolve().parent / {"short": "audio-short.wav", "compare": "audio-compare.wav"}.get(MODE, "audio.wav")
+out = Path(__file__).resolve().parent / {"short": "audio-short.wav", "compare": "audio-compare.wav", "explain": "audio-explain.wav"}.get(MODE, "audio.wav")
 with wave.open(str(out), "wb") as w:
     w.setnchannels(1)
     w.setsampwidth(2)

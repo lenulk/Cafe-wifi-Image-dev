@@ -3,3 +3,5 @@
 *.wav
 stills/
 *.log
+*.mp3
+vo/rec/

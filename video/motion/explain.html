@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cafe-WiFi OS Explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=block" rel="stylesheet">
+<style>
+/* คลิปอธิบายระบบ 16:9 (59 วิ) -- ซูมจากร้านกาแฟลงไปทีละชั้น 6 ชั้น จนถึงเลขบัตรหนึ่งใบ */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f7f1e8;--surface:#fffaf3;--surface2:#efe4d4;--ink:#2b1d14;--ink2:#6b5545;--line:#d9c6ad;
+  --cu:#a8591a;--amber:#e3a35f;--esp:#2e1e13;--espInk:#f5ebde;--ok:#3f7a3d;--okSoft:#e1eedb;--warn:#c0442a;--warnSoft:#f6e0d6;
+  --sans:"IBM Plex Sans Thai","Leelawadee UI",system-ui,sans-serif;
+  --serif:"Noto Serif Thai","IBM Plex Sans Thai",serif;
+  --disp:"Fraunces",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+html,body{height:100%;background:#0e0a07;overflow:hidden}
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:hidden;background:var(--bg);transform-origin:0 0;font-family:var(--sans);color:var(--ink)}
+#grid{position:absolute;inset:0;background-image:linear-gradient(rgba(168,89,26,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(168,89,26,.07) 1px,transparent 1px);background-size:48px 48px}
+.L{position:absolute;inset:0;display:none;will-change:transform,opacity}
+.a{position:absolute;will-change:transform,opacity;transform-origin:50% 50%}
+.c{left:0;width:1920px;text-align:center;white-space:nowrap}
+.serif{font-family:var(--serif);font-weight:700}
+.mono{font-family:var(--mono)}
+.tag{position:absolute;padding:10px 22px;border-radius:999px;background:var(--esp);color:var(--espInk);font-size:28px;font-weight:600;white-space:nowrap;box-shadow:0 8px 20px rgba(46,30,19,.18)}
+.tag.cu{background:var(--cu)}
+.card{background:var(--surface);border:2px solid var(--line);border-radius:24px;box-shadow:0 2px 4px rgba(60,35,15,.06),0 18px 44px rgba(60,35,15,.10)}
+.blk{position:absolute;width:390px;height:190px;padding:26px 28px}
+.blk .t{font-size:34px;font-weight:700;line-height:1.25}
+.blk .s{font-family:var(--mono);font-size:22px;color:var(--ink2);margin-top:10px;line-height:1.45}
+.blk .n{position:absolute;right:22px;top:20px;width:46px;height:46px;border-radius:50%;background:var(--surface2);color:var(--ink2);display:grid;place-items:center;font:600 24px var(--mono)}
+.blk.on{border-color:var(--cu);box-shadow:0 0 0 4px rgba(168,89,26,.15),0 18px 44px rgba(60,35,15,.14)}
+.blk.on .n{background:var(--cu);color:#fff}
+.step{position:absolute;top:300px;width:280px;height:400px;padding:24px;text-align:center}
+.step .k{width:58px;height:58px;border-radius:50%;margin:0 auto;background:var(--surface2);color:var(--ink2);display:grid;place-items:center;font:700 28px var(--mono)}
+.step.on .k{background:var(--cu);color:#fff}
+.step.done .k{background:var(--ok);color:#fff}
+.step .t{font-size:30px;font-weight:700;margin-top:16px;line-height:1.3}
+.step .s{font-size:22px;color:var(--ink2);margin-top:8px;line-height:1.4}
+.fld{position:absolute;top:0;height:150px;display:flex;flex-direction:column;justify-content:center;padding:0 26px;border-right:2px dashed var(--line)}
+.fld .v{font-family:var(--mono);font-size:34px;font-weight:600;white-space:nowrap}
+.fld .l{position:absolute;top:-58px;left:22px;font-size:24px;font-weight:600;color:var(--cu);white-space:nowrap}
+.file{position:absolute;top:640px;width:230px;height:170px;padding:18px 20px}
+.file .d{font-size:28px;font-weight:700}
+.file .h{font-family:var(--mono);font-size:21px;color:var(--ink2);margin-top:10px;line-height:1.5}
+.br{position:absolute;width:520px;padding:24px 30px}
+.br .t{font-size:30px;font-weight:700}
+.br .v{font-family:var(--mono);font-size:30px;font-weight:600;margin:10px 0;color:var(--cu)}
+.br .u{font-size:24px;color:var(--ink2)}
+#ruler{position:absolute;left:0;top:0;width:250px;height:1080px;z-index:10}
+.rk{position:absolute;left:64px;display:flex;align-items:center;gap:16px;font-size:24px;font-weight:600;color:var(--ink2);white-space:nowrap}
+.rk i{width:20px;height:20px;border-radius:50%;border:3px solid var(--line);background:var(--bg);display:block;flex:none}
+#crumb{position:absolute;left:280px;top:34px;display:flex;align-items:center;gap:12px;font-size:24px;font-weight:600;color:var(--ink2);z-index:10;white-space:nowrap}
+#crumb b{padding:6px 16px;border-radius:999px;background:var(--surface2)}
+#crumb b:last-child{background:var(--cu);color:#fff}
+#cap{position:absolute;left:0;width:1920px;top:950px;text-align:center;z-index:10}
+#cap span{display:inline-block;padding:16px 40px;border-radius:999px;background:var(--esp);color:var(--espInk);font-size:38px;font-weight:600;white-space:nowrap;box-shadow:0 14px 30px rgba(46,30,19,.2)}
+svg{overflow:visible}
+#ctl{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;gap:14px;padding:0 16px;background:#1b1410;color:#f5ebde;font:14px var(--sans)}
+#ctl button{background:#a8591a;color:#fff;border:0;border-radius:8px;padding:8px 16px;font:600 14px var(--sans);cursor:pointer}
+#ctl input{flex:1;accent-color:#e3a35f}
+#ctl span{font-family:var(--mono);min-width:80px}
+.render #ctl{display:none}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#2e1e13"/><path d="M8 14h13v5a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6z" fill="#e3a35f"/><path d="M21 15.5h1.5a2.5 2.5 0 0 1 0 5H21" stroke="#e3a35f" stroke-width="2" fill="none"/><path d="M10 10a8 8 0 0 1 9 0M12 7.5a5 5 0 0 1 5 0" stroke="#e3a35f" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="person" viewBox="0 0 60 120"><circle cx="30" cy="20" r="16" fill="currentColor"/><path d="M4 120V62a26 26 0 0 1 52 0v58z" fill="currentColor"/></symbol>
+  <symbol id="router" viewBox="0 0 400 280"><g stroke="#2e1e13" stroke-width="13" stroke-linecap="round"><path d="M95 115L70 12"/><path d="M305 115L330 12"/></g><rect x="20" y="110" width="360" height="130" rx="26" fill="#2e1e13"/><rect x="45" y="182" width="44" height="32" rx="4" fill="#d7dbe0"/><circle cx="170" cy="165" r="9" fill="#7bd389"/><circle cx="208" cy="165" r="9" fill="#7bd389"/><circle cx="246" cy="165" r="9" fill="#7bd389"/><circle cx="284" cy="165" r="9" fill="#3d6b44"/><circle cx="322" cy="165" r="9" fill="#7bd389"/></symbol>
+  <symbol id="pi" viewBox="0 0 370 240"><rect x="0" y="0" width="336" height="240" rx="18" fill="#3c8f5a" stroke="#2d6e44" stroke-width="4"/><rect x="40" y="12" width="216" height="18" fill="#e8c66b"/><rect x="110" y="80" width="92" height="92" rx="8" fill="#c9ccd1"/><rect x="216" y="92" width="52" height="66" rx="4" fill="#222"/><rect x="296" y="18" width="70" height="56" rx="5" fill="#cfd4da"/><rect x="296" y="86" width="70" height="56" rx="5" fill="#cfd4da"/><rect x="296" y="156" width="70" height="66" rx="5" fill="#d7dbe0"/><rect x="310" y="172" width="42" height="34" rx="3" fill="#555"/></symbol>
+  <symbol id="phone" viewBox="0 0 24 40"><rect x="1" y="1" width="22" height="38" rx="4" fill="#2e1e13"/><rect x="3" y="5" width="18" height="28" rx="1.5" fill="#e3a35f"/></symbol>
+  <symbol id="cloud" viewBox="0 0 200 120"><path d="M50 110a40 40 0 0 1-4-80 52 52 0 0 1 98-6 38 38 0 0 1 8 86z" fill="#fffaf3" stroke="#2e1e13" stroke-width="6"/></symbol>
+  <symbol id="ck" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#3f7a3d"/><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18"/></symbol>
+  <symbol id="key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3"/></symbol>
+</svg>
+
+<div id="stage">
+  <div id="grid"></div>
+
+  <!-- เปิด -->
+  <div class="L" id="L0">
+    <div class="a c serif" id="o1" style="top:380px;font-size:96px">Cafe-WiFi OS ทำงานยังไง?</div>
+    <div class="a c" id="o2" style="top:540px;font-size:42px;font-weight:500;color:var(--ink2)">6 ชั้น · จากร้านกาแฟ ถึงข้อมูลแถวเดียว</div>
+  </div>
+
+  <!-- ① ร้าน -->
+  <div class="L" id="L1">
+    <svg class="a" id="shop" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <path d="M300 860H1820" stroke="#2e1e13" stroke-width="6"/>
+      <path d="M300 860V200H1820V860" fill="none" stroke="#d9c6ad" stroke-width="4"/>
+      <text x="1060" y="170" text-anchor="middle" font-family="Fraunces,serif" font-weight="700" font-size="54" fill="#a8591a">Baan Cafe</text>
+      <rect x="370" y="280" width="380" height="280" rx="10" fill="#e9f0f2" stroke="#2e1e13" stroke-width="5"/><path d="M560 280V560M370 420H750" stroke="#2e1e13" stroke-width="4"/>
+      <rect x="520" y="720" width="260" height="20" rx="6" fill="#6b4a35"/><path d="M560 740V860M740 740V860" stroke="#6b4a35" stroke-width="10"/>
+      <rect x="610" y="694" width="34" height="26" rx="4" fill="#fffaf3" stroke="#2e1e13" stroke-width="3"/>
+      <use href="#person" x="440" y="700" width="70" height="160" color="#8a6a52"/>
+      <use href="#person" x="830" y="680" width="80" height="180" color="#a8591a"/>
+      <use href="#phone" x="808" y="742" width="26" height="44"/>
+      <use href="#phone" x="500" y="762" width="22" height="38"/>
+      <rect x="1180" y="640" width="560" height="220" rx="10" fill="#c9a27c" stroke="#2e1e13" stroke-width="5"/>
+      <rect x="1560" y="520" width="120" height="120" rx="10" fill="#6b4a35"/><rect x="1590" y="560" width="60" height="40" rx="6" fill="#2e1e13"/>
+      <use href="#person" x="1390" y="470" width="80" height="180" color="#3f7a3d"/>
+      <use href="#phone" x="1470" y="560" width="26" height="44"/>
+      <path d="M940 472H1140" stroke="#6b4a35" stroke-width="10" stroke-linecap="round"/>
+      <use href="#router" x="950" y="392" width="110" height="77"/>
+      <use href="#pi" x="1074" y="438" width="52" height="34"/>
+      <g id="wifi" fill="none" stroke="#a8591a" stroke-width="5" stroke-linecap="round"></g>
+      <circle id="piring" cx="1100" cy="455" r="40" fill="none" stroke="#a8591a" stroke-width="5"/>
+    </svg>
+    <div class="a tag" id="t11" style="left:560px;top:600px">ลูกค้า</div>
+    <div class="a tag" id="t12" style="left:1340px;top:400px">พนักงาน</div>
+    <div class="a tag" id="t13" style="left:880px;top:300px">เราเตอร์ร้าน</div>
+    <div class="a tag cu" id="t14" style="left:1060px;top:520px">Raspberry Pi</div>
+  </div>
+
+  <!-- ② เครือข่าย -->
+  <div class="L" id="L2">
+    <svg class="a" id="net" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <use href="#cloud" x="330" y="190" width="240" height="144"/>
+      <text x="450" y="290" text-anchor="middle" font-family="IBM Plex Sans Thai" font-weight="700" font-size="30" fill="#2b1d14">อินเทอร์เน็ต</text>
+      <path id="up" d="M520 330L700 470" stroke="#2e1e13" stroke-width="8" stroke-linecap="round"/>
+      <use href="#router" x="620" y="440" width="300" height="210"/>
+      <path id="cable" d="M900 610H1250" stroke="#2e1e13" stroke-width="30" stroke-linecap="round"/>
+      <path d="M900 600H1250" stroke="#cdb7a0" stroke-width="4"/>
+      <path d="M900 620H1250" stroke="#e3a35f" stroke-width="4"/>
+      <use href="#pi" x="1250" y="500" width="300" height="195"/>
+      <g fill="none" stroke="#a8591a" stroke-width="5" stroke-dasharray="10 12" id="air"><path d="M560 840Q640 720 700 600"/><path d="M720 880Q740 760 740 620"/></g>
+      <use href="#phone" x="530" y="830" width="36" height="60"/>
+      <use href="#phone" x="700" y="870" width="36" height="60"/>
+      <path id="trip" d="M548 835Q640 720 700 600L770 560L770 620H1250L1250 600H900L700 470L520 330" fill="none" stroke="none"/>
+      <circle id="dot2" r="14" fill="#a8591a"/>
+    </svg>
+    <div class="a card" id="rchk" style="left:600px;top:690px;padding:18px 26px;font-size:28px;font-weight:600;line-height:1.7">
+      <div id="rc1" style="display:flex;align-items:center;gap:12px"><svg style="width:34px;height:34px"><use href="#ck"/></svg>ปิด DHCP ที่เราเตอร์</div>
+      <div id="rc2" style="display:flex;align-items:center;gap:12px"><svg style="width:34px;height:34px"><use href="#ck"/></svg>ปิด IPv6 ที่เราเตอร์</div>
+    </div>
+    <div class="a card" id="face1" style="left:1580px;top:470px;padding:16px 22px;width:300px"><div style="font-size:24px;font-weight:700">หน้า 1 · ฝั่งเราเตอร์</div><div style="font-size:21px;color:var(--ink2)">IP คงที่ในวงของร้าน</div></div>
+    <div class="a card" id="face2" style="left:1580px;top:620px;padding:16px 22px;width:300px;border-color:var(--cu)"><div style="font-size:24px;font-weight:700;color:var(--cu)">หน้า 2 · ฝั่งลูกค้า</div><div class="mono" style="font-size:21px;color:var(--ink2)">10.10.0.1 (macvlan)</div></div>
+    <div class="a tag" id="t21" style="left:930px;top:650px">สาย LAN เส้นเดียว</div>
+  </div>
+
+  <!-- ③ ใน Pi -->
+  <div class="L" id="L3">
+    <svg class="a" id="board" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <rect x="330" y="150" width="1480" height="760" rx="40" fill="rgba(60,143,90,.06)" stroke="#3c8f5a" stroke-width="6" stroke-dasharray="18 12"/>
+      <text x="370" y="200" font-family="IBM Plex Sans Thai" font-weight="700" font-size="30" fill="#3c8f5a">Raspberry Pi 4B</text>
+      <g id="wires" fill="none" stroke="#a8591a" stroke-width="5" stroke-linecap="round">
+        <path d="M790 345H900"/><path d="M1290 345H1400"/><path d="M1095 440V555"/><path d="M1400 650H1290"/>
+      </g>
+    </svg>
+    <div class="card blk" id="k1" style="left:400px;top:250px"><div class="n">1</div><div class="t">แจก IP + DNS</div><div class="s">dnsmasq</div></div>
+    <div class="card blk" id="k2" style="left:900px;top:250px"><div class="n">2</div><div class="t">ประตู portal<br>+ ไฟร์วอลล์</div><div class="s">openNDS · nftables</div></div>
+    <div class="card blk" id="k3" style="left:1400px;top:250px"><div class="n">3</div><div class="t">หน้าเว็บ</div><div class="s">ลูกค้า :8080<br>แอดมิน :8443 (HTTPS)</div></div>
+    <div class="card blk" id="k4" style="left:900px;top:555px"><div class="n">4</div><div class="t">ฐานข้อมูล</div><div class="s">MariaDB</div></div>
+    <div class="card blk" id="k5" style="left:1400px;top:555px"><div class="n">5</div><div class="t">ตัวเก็บ log</div><div class="s">conntrack + DNS</div></div>
+    <div class="a card" id="k6" style="left:400px;top:600px;width:390px;padding:22px 26px;font-size:24px;line-height:1.6">
+      <div style="font-weight:700;font-size:28px;color:var(--cu)">⏱ งานตามรอบ</div>ตรวจสิทธิ์ทุก 5 วิ<br>สำรองข้อมูลลง USB<br>ลบข้อมูลเกินกำหนดอัตโนมัติ
+    </div>
+  </div>
+
+  <!-- ④ ลูกค้า 1 คน -->
+  <div class="L" id="L4">
+    <div class="card step" id="p1" style="left:300px"><div class="k">1</div><div class="t">ต่อ Wi-Fi ร้าน</div><div class="s">Pi แจก IP ให้<br><span class="mono">10.10.0.123</span></div>
+      <svg style="width:90px;height:150px;margin-top:20px"><use href="#phone"/></svg></div>
+    <div class="card step" id="p2" style="left:610px"><div class="k">2</div><div class="t">หน้าลงทะเบียน<br>เด้งขึ้นเอง</div>
+      <div style="margin:16px auto 0;width:150px;height:200px;border-radius:14px;overflow:hidden;border:3px solid #2e1e13"><img src="../../image/public/img/portal-register.jpg" style="width:150px"></div></div>
+    <div class="card step" id="p3" style="left:920px"><div class="k">3</div><div class="t">กรอกเลขบัตร<br>+ กดยินยอม</div><div class="s">ได้รหัสคำขอ</div>
+      <div class="mono" style="font-size:64px;font-weight:600;color:var(--cu);margin-top:16px">4821</div></div>
+    <div class="card step" id="p4" style="left:1230px"><div class="k">4</div><div class="t">พนักงาน<br>กดอนุมัติ</div><div class="s">จากมือถือ</div>
+      <div id="p4b" style="margin:26px auto 0;width:200px;height:70px;border-radius:14px;background:#3f9a45;color:#fff;font:700 28px/70px var(--sans)">อนุมัติ</div></div>
+    <div class="card step" id="p5" style="left:1540px"><div class="k">5</div><div class="t">ออกอินเทอร์เน็ตได้</div><div class="s">ทุกการเชื่อมต่อถูกบันทึก</div>
+      <svg style="width:120px;height:120px;margin-top:22px;color:var(--ok)"><use href="#globe"/></svg></div>
+    <svg class="a" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <path d="M440 770H1680" stroke="#d9c6ad" stroke-width="8" stroke-linecap="round"/>
+      <path id="prog" d="M440 770H1680" stroke="#a8591a" stroke-width="8" stroke-linecap="round"/>
+      <circle id="dot4" cx="440" cy="770" r="18" fill="#a8591a"/>
+    </svg>
+    <div class="a c" id="p6" style="top:820px"><span style="display:inline-block;padding:12px 30px;border-radius:999px;background:var(--warnSoft);color:var(--warn);font-size:30px;font-weight:600">ปิดสิทธิ์เมื่อไหร่ → เน็ตถูกตัดใน ~7–8 วินาที</span></div>
+  </div>
+
+  <!-- ⑤ log -->
+  <div class="L" id="L5">
+    <div class="a card" id="row" style="left:330px;top:240px;width:1500px;height:150px">
+      <div class="fld" style="left:0;width:230px"><div class="l">เวลา</div><div class="v">14:02:11</div></div>
+      <div class="fld" style="left:230px;width:470px"><div class="l">ต้นทาง → ผู้ใช้</div><div class="v">10.10.0.123 → <span style="color:var(--cu)">#4821</span></div></div>
+      <div class="fld" style="left:700px;width:300px"><div class="l">ปลายทาง (DNS)</div><div class="v">line.me</div></div>
+      <div class="fld" style="left:1000px;width:270px"><div class="l">โปรโตคอล/พอร์ต</div><div class="v">TCP 443</div></div>
+      <div class="fld" style="left:1270px;width:230px;border:0"><div class="l">ขนาด</div><div class="v">18 KB</div></div>
+    </div>
+    <div class="a c" id="rown" style="top:420px;font-size:30px;font-weight:600;color:var(--ink2)">เก็บแค่ <b style="color:var(--ink)">ใคร · คุยกับใคร · เมื่อไหร่</b> — ไม่เก็บเนื้อหาที่รับส่ง</div>
+    <div class="a" id="chainT" style="left:330px;top:570px;font-size:30px;font-weight:700">ไฟล์ log รายวัน ผูกกันด้วย SHA-256 เป็นโซ่</div>
+    <svg class="a" id="links" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080"></svg>
+    <div id="files"></div>
+    <div class="a" id="alert" style="left:640px;top:840px;padding:12px 30px;border-radius:999px;background:var(--warn);color:#fff;font-size:30px;font-weight:700;white-space:nowrap">แก้ไฟล์เก่า → hash ไม่ตรง → ตรวจพบทันที</div>
+  </div>
+
+  <!-- ⑥ เลขบัตร -->
+  <div class="L" id="L6">
+    <div class="a card" id="idc" style="left:300px;top:380px;width:520px;padding:30px 34px">
+      <div style="font-size:24px;color:var(--ink2)">เลขบัตรประชาชน (ตัวอย่างที่ไม่มีอยู่จริง)</div>
+      <div class="mono" style="font-size:40px;font-weight:600;margin-top:10px;white-space:nowrap">1-2345-67890-12-3</div>
+    </div>
+    <svg class="a" id="arrows" style="left:0;top:0;width:1920px;height:1080px" viewBox="0 0 1920 1080">
+      <path d="M830 470C950 470 960 250 1100 250" fill="none" stroke="#a8591a" stroke-width="6"/>
+      <path d="M830 470H1100" fill="none" stroke="#a8591a" stroke-width="6"/>
+      <path d="M830 470C950 470 960 690 1100 690" fill="none" stroke="#a8591a" stroke-width="6"/>
+    </svg>
+    <div class="a card br" id="br1" style="left:1110px;top:160px"><div class="t">HMAC-SHA256 + pepper</div><div class="v">7f3a…c9e1</div><div class="u">ใช้ค้นหา / กันลงทะเบียนซ้ำ</div></div>
+    <div class="a card br" id="br2" style="left:1110px;top:380px"><div class="t">เข้ารหัส AES-256-GCM</div><div class="v">▒▒▒▒▒▒▒▒▒▒▒▒</div><div class="u">ถอดกลับได้เฉพาะตอนมีหมายศาล</div></div>
+    <div class="a card br" id="br3" style="left:1110px;top:600px"><div class="t">ปิดบัง</div><div class="v">1-2345-XXXXX-XX-3</div><div class="u">แสดงบนจอพนักงาน</div></div>
+    <div class="a" id="keyn" style="left:300px;top:640px;width:520px;display:flex;gap:14px;align-items:flex-start;font-size:26px;line-height:1.45;color:var(--ink2)">
+      <svg style="width:44px;height:44px;color:var(--cu);flex:none"><use href="#key"/></svg><div>กุญแจสร้างใหม่บนเครื่องร้าน<br>ตอนบูตครั้งแรก — ไม่อยู่ในไฟล์ image</div></div>
+  </div>
+
+  <!-- ปิด -->
+  <div class="L" id="L7">
+    <svg class="a" id="e1" style="left:870px;top:300px;width:180px;height:180px"><use href="#logo"/></svg>
+    <div class="a c" id="e2" style="top:500px;font:700 110px/1.1 var(--disp)">Cafe-WiFi OS</div>
+    <div class="a c" id="e3" style="top:660px;font-size:40px;font-weight:500;color:var(--ink2)">จากร้านกาแฟ ถึงข้อมูลแถวเดียว</div>
+    <div class="a c mono" id="e4" style="top:760px;font-size:34px;color:var(--cu)">lenulk.github.io/Cafe-wifi-Image</div>
+  </div>
+
+  <div id="ruler"></div>
+  <div id="crumb"></div>
+  <div id="cap"><span id="capt"></span></div>
+  <div class="a" id="black" style="left:0;top:0;width:1920px;height:1080px;background:#000;opacity:0;z-index:20"></div>
+</div>
+
+<div id="ctl"><button id="pp">⏸</button><input id="sc" type="range" min="0" max="59" step="0.01" value="0"><span id="tm">0.00</span></div>
+
+<script>
+const DUR = 59;
+const $ = id => document.getElementById(id);
+const cl = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const P = (t, a, b) => cl((t - a) / (b - a));
+const lerp = (a, b, k) => a + (b - a) * k;
+const eo = x => 1 - Math.pow(1 - x, 3);
+const eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eb = x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+function S(el, o = {}) {
+  if (typeof el === 'string') el = $(el);
+  const { x = 0, y = 0, s = 1, r = 0, o: op = 1 } = o;
+  el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`; el.style.opacity = op;
+}
+const rise = (el, t, a, d = .45, dist = 30) => { const k = eo(P(t, a, a + d)); S(el, { y: (1 - k) * dist, o: k }); };
+const pop = (el, t, a, d = .4) => { const k = P(t, a, a + d); S(el, { s: k <= 0 ? .001 : eb(k), o: cl(k * 3) }); };
+function draw(p, k) { const L = p._L || (p._L = p.getTotalLength()); p.style.strokeDasharray = L + ' ' + L; p.style.strokeDashoffset = L * (1 - k); }
+
+/* ชั้น: [id, เริ่ม, จบ, จุดโฟกัสสำหรับซูมไปชั้นถัดไป, ชื่อบน ruler, คำบรรยาย] */
+const LAY = [
+  ['L0', 0, 4, [960, 540], null, ''],
+  ['L1', 4, 9, [1100, 455], 'ร้าน', 'Pi 1 ตัว วางข้างเราเตอร์ของร้าน'],
+  ['L2', 9, 18, [1400, 600], 'เครือข่าย', 'สายเส้นเดียว — ลูกค้าทุกคนต้องผ่าน Pi'],
+  ['L3', 18, 27, [1095, 345], 'ใน Pi', '5 ส่วนทำงานร่วมกันในเครื่องเดียว'],
+  ['L4', 27, 39, [1680, 770], 'ลูกค้า 1 คน', 'ลงทะเบียน → อนุมัติ → ออกเน็ต'],
+  ['L5', 39, 47, [700, 315], 'log', 'ทุกการเชื่อมต่อถูกบันทึก แก้ย้อนหลังไม่ได้'],
+  ['L6', 47, 53, [960, 540], 'เลขบัตร', 'เลขบัตรถูกเข้ารหัส ถอดได้เฉพาะตอนมีหมายศาล'],
+  ['L7', 53, 59, [960, 540], null, ''],
+];
+const ZT = .55, ZF = 7;   // ครึ่งช่วงซูม (วิ), อัตราขยายต่อชั้น
+
+/* ruler */
+const RY = i => 230 + i * 120;
+$('ruler').innerHTML = `<div style="position:absolute;left:73px;top:${RY(0)}px;width:4px;height:${RY(5) - RY(0)}px;background:var(--line)"></div>
+  <div id="rfill" style="position:absolute;left:73px;top:${RY(0)}px;width:4px;height:0;background:var(--cu)"></div>` +
+  LAY.slice(1, 7).map((l, i) => `<div class="rk" id="rk${i}" style="top:${RY(i) - 14}px"><i></i><span>${i + 1} ${l[4]}</span></div>`).join('') +
+  `<div id="rdot" style="position:absolute;left:61px;width:28px;height:28px;border-radius:50%;background:var(--cu);box-shadow:0 0 0 8px rgba(168,89,26,.18)"></div>`;
+
+/* สร้างเนื้อหาซ้ำ ๆ */
+{ let h = ''; for (let i = 0; i < 3; i++) h += `<path class="wv" d="M${1005 - 30 - i * 26} ${380 - i * 22}a${40 + i * 30} ${40 + i * 30} 0 0 1 ${60 + i * 52} 0"/>`; $('wifi').innerHTML = h; }
+const days = ['1 ต.ค.', '2 ต.ค.', '3 ต.ค.', '4 ต.ค.', '5 ต.ค.'], hashes = ['9f3a…c21', '1b7e…04d', 'c40f…9ab', '77d2…e13', 'a19c…5f0'];
+$('files').innerHTML = days.map((d, i) => `<div class="a card file" id="f${i}" style="left:${330 + i * 310}px"><div class="d">log ${d}</div><div class="h">SHA-256<br><span id="fh${i}">${hashes[i]}</span></div></div>`).join('');
+$('links').innerHTML = [0, 1, 2, 3].map(i => `<path id="lk${i}" d="M${560 + i * 310} 725H${640 + i * 310}" stroke="#a8591a" stroke-width="8" stroke-linecap="round" stroke-dasharray="14 10"/>`).join('');
+
+/* ฉากของแต่ละชั้น (lt = เวลาภายในชั้น) */
+// ตำแหน่งวงกลม (0–4 = การ์ด 1–5): เลื่อนจากการ์ด i ไป i+1 ใน 0.7 วิสุดท้ายก่อนการ์ดถัดไปติดสถานะ
+function stepPos(lt, at) {
+  let pos = 0;
+  for (let i = 1; i < at.length; i++) pos += eio(P(lt, at[i] - .7, at[i]));
+  return pos;
+}
+const FN = {
+  L0: lt => { rise('o1', lt, .2, .6); rise('o2', lt, .7, .6); },
+  L1: lt => {
+    S('shop', {});
+    document.querySelectorAll('#wifi .wv').forEach((p, i) => { p.style.opacity = .25 + .75 * Math.max(0, Math.sin(lt * 4 - i * .9)); });
+    const rk = (lt % 1.4) / 1.4; $('piring').setAttribute('r', 30 + rk * 40); $('piring').style.opacity = lt > 2.2 ? 1 - rk : 0;
+    pop('t11', lt, .6); pop('t12', lt, 1.0); pop('t13', lt, 1.5); pop('t14', lt, 2.1);
+  },
+  L2: lt => {
+    S('net', {});
+    rise('rchk', lt, 1.0); ['rc1', 'rc2'].forEach((id, i) => $(id).style.opacity = P(lt, 1.4 + i * .5, 1.7 + i * .5));
+    pop('t21', lt, 2.4); rise('face1', lt, 3.4, .5, 20); rise('face2', lt, 3.9, .5, 20);
+    const tp = $('trip'), L = tp._L || (tp._L = tp.getTotalLength()), u = eio(P(lt, 4.8, 8.2));
+    const pt = tp.getPointAtLength(u * L); $('dot2').setAttribute('cx', pt.x); $('dot2').setAttribute('cy', pt.y);
+    $('dot2').style.opacity = lt > 4.6 && lt < 8.5 ? 1 : 0;
+    $('air').style.opacity = .35 + .65 * (lt > 4.6);
+  },
+  L3: lt => {
+    S('board', {});
+    document.querySelectorAll('#wires path').forEach((p, i) => draw(p, eo(P(lt, 1.2 + i * 1.1, 1.8 + i * 1.1))));
+    for (let i = 1; i <= 5; i++) {
+      const e = $('k' + i), a = .4 + (i - 1) * 1.1;
+      rise(e, lt, a - .3, .4, 24); e.className = 'card blk' + (lt >= a && lt < a + 1.1 ? ' on' : '');
+    }
+    rise('k6', lt, 6.0);
+  },
+  L4: lt => {
+    const at = [.6, 2.6, 4.6, 6.6, 8.4];
+    for (let i = 1; i <= 5; i++) {
+      const e = $('p' + i), a = at[i - 1];
+      rise(e, lt, .1 + i * .1, .4, 30);
+      e.className = 'card step' + (lt >= a ? (i < 5 && lt >= at[i] ? ' done' : ' on') : '');
+      e.style.borderColor = lt >= a ? (i < 5 && lt >= at[i] ? '#3f7a3d' : '#a8591a') : '';
+    }
+    const k = stepPos(lt, at) / 4, x = lerp(440, 1680, k);
+    draw($('prog'), k); $('dot4').setAttribute('cx', x);
+    $('p4b').style.transform = `scale(${lt > 6.8 && lt < 7.05 ? .9 : 1})`;
+    rise('p6', lt, 9.6);
+  },
+  L5: lt => {
+    rise('row', lt, .2);
+    $('row').querySelectorAll('.l').forEach((l, i) => l.style.opacity = P(lt, .7 + i * .25, 1.0 + i * .25));
+    rise('rown', lt, 2.0); rise('chainT', lt, 2.8);
+    days.forEach((d, i) => rise('f' + i, lt, 3.2 + i * .2, .4, 24));
+    [0, 1, 2, 3].forEach(i => { const p = $('lk' + i); p.style.opacity = P(lt, 3.6 + i * .2, 3.9 + i * .2); });
+    const bad = lt >= 5.4, sh = lt > 5.4 ? Math.sin((lt - 5.4) * 50) * 10 * Math.exp(-(lt - 5.4) * 5) : 0;
+    $('f1').style.transform += ` translateX(${sh}px)`;
+    $('f1').style.borderColor = bad ? '#c0442a' : ''; $('fh1').textContent = bad ? 'e04b…77a' : hashes[1]; $('fh1').style.color = bad ? '#c0442a' : '';
+    ['lk0', 'lk1'].forEach(id => $(id).setAttribute('stroke', bad ? '#c0442a' : '#a8591a'));
+    pop('alert', lt, 6.0);
+  },
+  L6: lt => {
+    rise('idc', lt, .2);
+    $('arrows').querySelectorAll('path').forEach((p, i) => draw(p, eo(P(lt, .9 + i * .45, 1.4 + i * .45))));
+    [1, 2, 3].forEach(i => rise('br' + i, lt, 1.2 + (i - 1) * .45));
+    rise('keyn', lt, 3.0);
+  },
+  L7: lt => { pop('e1', lt, 2.9, .5); rise('e2', lt, 3.2); rise('e3', lt, 3.5); rise('e4', lt, 3.8); },
+};
+
+function seek(t) {
+  t = cl(t, 0, DUR - 1e-4);
+  LAY.forEach(([id, a, b, f], i) => { $(id).style.display = 'none'; });
+  // ซูมเข้าระหว่างชั้น i → i+1 รอบ ๆ เวลา b
+  let cur = LAY.findIndex(l => t >= l[1] && t < l[2]);
+  const show = (i, tr, op, lt) => { const e = $(LAY[i][0]); e.style.display = 'block'; e.style.transform = tr; e.style.filter = 'none'; e.style.opacity = op; FN[LAY[i][0]](lt); };
+  const L = LAY[cur];
+  const prev = LAY[cur - 1];
+  if (cur >= 1 && cur <= 6 && t < L[1] + ZT) {
+    // ช่วงครึ่งหลังของการซูม: ชั้นก่อนหน้าขยายต่อ, ชั้นนี้โผล่จากจุดโฟกัส
+    zoomPair(cur - 1, cur, t);
+  } else if (cur < 6 && cur >= 0 && t > L[2] - ZT && cur + 1 <= 6) {
+    zoomPair(cur, cur + 1, t);
+  } else if (cur === 7) {
+    zoomOutRecap(t);
+  } else {
+    show(cur, 'none', 1, t - L[1]);
+  }
+  // ruler + breadcrumb + คำบรรยาย
+  const lvl = cl((t - 4) / 1, 0, 1) * 0 + levelAt(t);
+  const yy = lerp(RY(0), RY(5), lvl / 5);
+  $('rdot').style.top = (yy - 14) + 'px'; $('rfill').style.height = (yy - RY(0)) + 'px';
+  const rv = P(t, 2.5, 3.5) * (1 - P(t, LAY[7][1] + 2.3, LAY[7][1] + 2.9));
+  $('ruler').style.opacity = rv; $('crumb').style.opacity = P(t, 4.3, 4.8) * (1 - P(t, LAY[7][1], LAY[7][1] + .4));
+  for (let i = 0; i < 6; i++) { const r = $('rk' + i); r.style.color = i <= Math.round(lvl) && t >= 4 ? '#2b1d14' : ''; r.querySelector('i').style.borderColor = i <= Math.round(lvl) && t >= 4 ? '#a8591a' : ''; }
+  const ci = Math.min(6, Math.max(1, cur));
+  $('crumb').innerHTML = LAY.slice(1, ci + 1).map(l => `<b>${l[4]}</b>`).join('<span>›</span>');
+  const cp = LAY[cur] && LAY[cur][5];
+  $('capt').textContent = cp || '';
+  $('cap').style.opacity = cp ? P(t, LAY[cur][1] + .5, LAY[cur][1] + 1.0) * (1 - P(t, LAY[cur][2] - .45, LAY[cur][2] - .2)) : 0;
+  $('cap').style.transform = `translateY(${(1 - eo(P(t, LAY[cur][1] + .5, LAY[cur][1] + 1.0))) * 20}px)`;
+  $('black').style.opacity = P(t, DUR - .6, DUR - .05);
+}
+function levelAt(t) {
+  if (t < 4) return 0;
+  for (let i = 1; i <= 6; i++) { const b = LAY[i][2]; if (t < b - ZT) return i - 1; if (t < b + ZT && i < 6) return i - 1 + eio(P(t, b - ZT, b + ZT)); }
+  const E = LAY[7][1];
+  if (t < E + .5) return 5;
+  return lerp(5, 0, eio(P(t, E + .3, E + 2.6)));
+}
+function zoomPair(i, j, t) {
+  const b = LAY[i][2], [fx, fy] = LAY[i][3], k = eio(P(t, b - ZT, b + ZT));
+  const A = $(LAY[i][0]), B = $(LAY[j][0]);
+  A.style.display = 'block'; A.style.transformOrigin = `${fx}px ${fy}px`;
+  A.style.transform = `scale(${Math.pow(ZF, k)})`; A.style.opacity = 1 - P(t, b - .1, b + .3); A.style.filter = `blur(${k * 6}px)`;
+  FN[LAY[i][0]](t - LAY[i][1]);
+  B.style.display = 'block'; B.style.transformOrigin = '960px 540px';
+  B.style.transform = `translate(${(fx - 960) * (1 - k)}px,${(fy - 540) * (1 - k)}px) scale(${Math.pow(ZF, k - 1)})`;
+  B.style.opacity = P(t, b - .3, b + .1); B.style.filter = `blur(${(1 - k) * 6}px)`;
+  FN[LAY[j][0]](t - LAY[j][1]);
+  if (t >= b + ZT || t <= b - ZT) { A.style.filter = 'none'; B.style.filter = 'none'; }
+}
+function zoomOutRecap(t) {
+  // ถอยออกเร็ว ๆ ผ่านชั้น 6 → 1 แล้วขึ้นโลโก้
+  const lt = t - LAY[7][1], seg = .42;
+  const idx = 6 - Math.floor(lt / seg);
+  if (idx >= 1 && lt < seg * 6) {
+    const i = idx, e = $(LAY[i][0]), k = (lt % seg) / seg;
+    e.style.display = 'block'; e.style.transformOrigin = '960px 540px'; e.style.filter = 'none';
+    e.style.transform = `scale(${lerp(1, 1 / 2.2, eio(k))})`; e.style.opacity = 1 - P(k, .75, 1) * .8;
+    FN[LAY[i][0]](99);
+  }
+  const E = $('L7'); E.style.display = 'block'; E.style.transform = 'none'; E.style.opacity = P(lt, 2.6, 2.9); E.style.filter = 'none';
+  FN.L7(lt);
+}
+window.seek = seek;
+
+const RENDER = new URLSearchParams(location.search).has('render');
+if (RENDER) document.documentElement.classList.add('render');
+function fit() {
+  const st = $('stage'); if (RENDER) { st.style.transform = 'none'; return; }
+  const k = Math.min(innerWidth / 1920, (innerHeight - 56) / 1080);
+  st.style.transform = `translate(${(innerWidth - 1920 * k) / 2}px,${(innerHeight - 56 - 1080 * k) / 2}px) scale(${k})`;
+}
+addEventListener('resize', fit); fit();
+const FONTS = ['400 40px "IBM Plex Sans Thai"', '500 40px "IBM Plex Sans Thai"', '600 40px "IBM Plex Sans Thai"', '700 40px "IBM Plex Sans Thai"',
+  '600 40px "Noto Serif Thai"', '700 40px "Noto Serif Thai"', '600 40px Fraunces', '700 40px Fraunces',
+  '400 40px "IBM Plex Mono"', '500 40px "IBM Plex Mono"', '600 40px "IBM Plex Mono"'];
+Promise.all([...FONTS.map(f => document.fonts.load(f, 'กขคงก้ำ Cafe-WiFi 0123456789 ~–≥…→›▒')),
+  ...[...document.images].map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; }))])
+  .then(() => { for (let t = 0; t < DUR; t += .25) seek(t); return document.fonts.ready; })
+  .then(() => new Promise(r => setTimeout(r, 300)))
+  .then(() => {
+    seek(0); window.READY = true;
+    if (RENDER) return;
+    let playing = true, t0 = performance.now(), cur = 0;
+    const sc = $('sc'), tm = $('tm'), pp = $('pp');
+    (function loop(now) {
+      if (playing && now) { cur = ((now - t0) / 1000) % DUR; seek(cur); sc.value = cur; tm.textContent = cur.toFixed(2); }
+      requestAnimationFrame(loop);
+    })();
+    pp.onclick = () => { playing = !playing; pp.textContent = playing ? '⏸' : '▶'; t0 = performance.now() - cur * 1000; };
+    sc.oninput = () => { cur = +sc.value; seek(cur); tm.textContent = cur.toFixed(2); t0 = performance.now() - cur * 1000; };
+  });
+</script>
+</body>
+</html>

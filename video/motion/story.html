@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cafe-WiFi OS Story</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=block" rel="stylesheet">
+<script src="vo/story-vo.js"></script>
+<style>
+/* วิดีโอเล่าเรื่อง 9:16 แนวภาพยนตร์ -- องก์ 1–4 อยู่ในแถบจอกว้าง (y 656–1264) แล้วแถบเปิดเต็มจอตอนเปิดตัว (73 วิ) */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#f5ebde;--ink2:#cdb7a0;--amber:#e3a35f;--copper:#a8591a;--esp:#2e1e13;--ok:#7bd389;--warn:#ff7a5c;
+  --sans:"IBM Plex Sans Thai","Leelawadee UI",system-ui,sans-serif;
+  --serif:"Noto Serif Thai","IBM Plex Sans Thai",serif;
+  --disp:"Fraunces",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+html,body{height:100%;background:#000;overflow:hidden}
+#stage{position:absolute;left:0;top:0;width:1080px;height:1920px;overflow:hidden;background:#070504;transform-origin:0 0;font-family:var(--sans);color:var(--ink)}
+.full{position:absolute;inset:0}
+.a{position:absolute;will-change:transform,opacity;transform-origin:50% 50%}
+.act{position:absolute;inset:0;display:none}
+.c{left:0;width:1080px;text-align:center;white-space:nowrap}
+.serif{font-family:var(--serif);font-weight:700}
+.disp{font-family:var(--disp);font-weight:700}
+.glow{text-shadow:0 0 30px rgba(227,163,95,.45),0 0 80px rgba(227,163,95,.25)}
+.bar{position:absolute;left:0;width:1080px;background:#000;z-index:20}
+#chap{position:absolute;left:0;width:1080px;text-align:center;top:560px;font-size:30px;font-weight:600;color:var(--amber);z-index:21;white-space:nowrap}
+#sub{position:absolute;left:60px;width:960px;top:1320px;text-align:center;font-size:40px;line-height:1.45;font-weight:500;color:var(--ink);z-index:21}
+#grain{position:absolute;inset:0;z-index:30;mix-blend-mode:overlay;opacity:.22;pointer-events:none}
+#vig{position:absolute;inset:0;z-index:29;background:radial-gradient(ellipse 75% 60% at 50% 50%,rgba(0,0,0,0) 55%,rgba(0,0,0,.65) 100%);pointer-events:none}
+#flash{position:absolute;inset:0;z-index:31;background:#fff6e8;opacity:0;pointer-events:none}
+#black{position:absolute;inset:0;z-index:32;background:#000;opacity:0}
+.term{background:rgba(20,13,9,.92);border:2px solid rgba(227,163,95,.35);border-radius:22px;overflow:hidden;box-shadow:0 0 60px rgba(227,163,95,.15)}
+.term .ln{font-family:var(--mono);font-size:24px;line-height:38px;color:#e9dccb;white-space:nowrap}
+.term .ok{color:#7bd389}
+.chip{display:inline-block;font-family:var(--mono);font-size:30px;font-weight:600;padding:10px 22px;border-radius:999px;border:2px solid var(--amber);color:var(--amber);background:rgba(46,30,19,.8);white-space:nowrap}
+.shot{position:absolute;border-radius:22px;overflow:hidden;box-shadow:0 40px 90px rgba(0,0,0,.6),0 0 0 2px rgba(227,163,95,.35)}
+.shot img{display:block;width:100%}
+.ring{width:240px;height:240px;border-radius:50%;margin:0 auto;display:grid;place-items:center;border:4px solid var(--amber);box-shadow:0 0 60px rgba(227,163,95,.45),inset 0 0 40px rgba(227,163,95,.2);color:var(--amber)}
+.ring svg{width:120px;height:120px}
+svg{overflow:visible}
+#ctl{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;gap:14px;padding:0 16px;background:#1b1410;color:#f5ebde;font:14px var(--sans);z-index:99}
+#ctl button{background:#a8591a;color:#fff;border:0;border-radius:8px;padding:8px 16px;font:600 14px var(--sans);cursor:pointer}
+#ctl input{flex:1;accent-color:#e3a35f}
+#ctl span{font-family:var(--mono);min-width:80px}
+.render #ctl{display:none}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#3d2a1c"/><path d="M8 14h13v5a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6z" fill="#e3a35f"/><path d="M21 15.5h1.5a2.5 2.5 0 0 1 0 5H21" stroke="#e3a35f" stroke-width="2" fill="none"/><path d="M10 10a8 8 0 0 1 9 0M12 7.5a5 5 0 0 1 5 0" stroke="#e3a35f" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18"/><path d="M9 20v-6h6v6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10.5 11V9.5a1.5 1.5 0 0 1 3 0V11"/></symbol>
+  <symbol id="i-id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><circle cx="8.5" cy="11" r="2.3"/><path d="M5 16a3.8 3.8 0 0 1 7 0M14.5 10h4.5M14.5 13.5h3"/></symbol>
+</svg>
+
+<div id="stage">
+  <div class="full" id="world">
+    <div class="full" id="warm" style="opacity:0;background:radial-gradient(900px 1200px at 50% 45%,#5a3920 0,#2e1e13 45%,#0d0806 100%)"></div>
+    <canvas id="net" width="1080" height="1920" class="full"></canvas>
+
+    <!-- ===== องก์ 1: ทุกวัน (0–14) ===== -->
+    <div class="act" id="A1">
+      <div class="a c serif glow" id="a1t1" style="top:800px;font-size:150px">Wi-Fi ฟรี</div>
+      <div class="a c" id="a1t2" style="top:1010px;font-size:56px;font-weight:600;color:var(--amber)">ในร้านกาแฟ</div>
+    </div>
+
+    <!-- ===== องก์ 2: คำถาม (14–36) ===== -->
+    <div class="act" id="A2">
+      <svg class="a" id="phone" style="left:420px;top:730px;width:240px;height:460px" viewBox="0 0 240 460">
+        <rect x="6" y="6" width="228" height="448" rx="36" fill="#120c08" stroke="#e3a35f" stroke-width="6"/>
+        <rect x="90" y="22" width="60" height="10" rx="5" fill="#e3a35f" opacity=".6"/>
+        <g fill="none" stroke="#e3a35f" stroke-width="12" stroke-linecap="round">
+          <path d="M84 200a50 50 0 0 1 72 0"/><path d="M62 172a82 82 0 0 1 116 0"/><path d="M40 144a114 114 0 0 1 160 0"/>
+        </g>
+        <circle cx="120" cy="232" r="11" fill="#e3a35f"/>
+      </svg>
+      <div class="a c" id="a2bigq" style="top:560px;font:700 640px/1 var(--disp);color:rgba(227,163,95,.12)">?</div>
+      <div class="a c serif" id="a2q" style="top:880px;font-size:100px">ใครต้องตอบคำถาม?</div>
+      <div id="a2wall" class="a" style="left:-40px;top:600px;width:1160px;height:720px;overflow:hidden;opacity:0"></div>
+      <div class="a c" id="a2k" style="top:700px;font-size:40px;font-weight:600;color:var(--ink2)">พ.ร.บ.คอมพิวเตอร์ฯ</div>
+      <div class="a c serif glow" id="a2law" style="top:740px;font-size:170px;color:var(--amber);line-height:1.25">มาตรา 26</div>
+      <div class="a c" id="a2d" style="top:975px;display:flex;justify-content:center;align-items:baseline;gap:22px">
+        <span style="font-size:48px;font-weight:600;color:var(--ink2)">≥</span>
+        <span id="a2n" class="disp" style="font-size:130px;line-height:1;color:var(--ink);min-width:150px;display:inline-block">90</span>
+        <span class="serif" style="font-size:64px">วัน</span>
+      </div>
+      <div class="a c" id="a2id" style="top:1150px;display:flex;justify-content:center;align-items:center;gap:20px">
+        <svg style="width:64px;height:64px;color:var(--amber)"><use href="#i-id"/></svg><span class="serif" style="font-size:56px">ระบุตัวผู้ใช้ได้</span>
+      </div>
+      <svg class="a" id="a2man" style="left:490px;top:1080px;width:100px;height:150px" viewBox="0 0 100 150"><circle cx="50" cy="32" r="24" fill="#e3a35f"/><path d="M8 150a42 42 0 0 1 84 0z" fill="#e3a35f"/></svg>
+      <svg class="a" id="a2router" style="left:300px;top:790px;width:480px;height:336px" viewBox="0 0 400 280">
+        <g stroke="#e3a35f" stroke-width="10" stroke-linecap="round" fill="none"><path d="M95 115L70 12"/><path d="M305 115L330 12"/><rect x="20" y="110" width="360" height="130" rx="26"/></g>
+        <g id="a2leds"></g>
+      </svg>
+    </div>
+
+    <!-- ===== องก์ 3: โจทย์ (36–50) ===== -->
+    <div class="act" id="A3">
+      <svg class="a" id="a3grid" style="left:0;top:656px;width:1080px;height:608px" viewBox="0 0 1080 608"></svg>
+      <div class="a c serif glow" id="a3t" style="top:680px;font-size:76px">โจทย์ของเรา</div>
+      <svg class="a" id="a3pi" style="left:240px;top:815px;width:600px;height:389px" viewBox="0 0 370 240">
+        <rect id="a3board" x="2" y="2" width="334" height="236" rx="18" fill="#3c8f5a" fill-opacity="0" stroke="#e3a35f" stroke-width="3"/>
+        <g id="a3gpio" fill="none" stroke="#e3a35f" stroke-width="1.5"></g>
+        <g class="part" data-dx="-140" data-dy="-160"><rect x="110" y="80" width="92" height="92" rx="8" fill="#c9ccd1" fill-opacity="0" stroke="#e3a35f" stroke-width="3"/><rect x="122" y="92" width="68" height="68" rx="4" fill="none" stroke="#e3a35f" stroke-width="1.5"/></g>
+        <g class="part" data-dx="40" data-dy="-190"><rect x="216" y="92" width="52" height="66" rx="4" fill="#222" fill-opacity="0" stroke="#e3a35f" stroke-width="3"/></g>
+        <g class="part" data-dx="170" data-dy="-60"><rect x="296" y="18" width="70" height="56" rx="5" fill="#cfd4da" fill-opacity="0" stroke="#e3a35f" stroke-width="3"/><rect x="296" y="86" width="70" height="56" rx="5" fill="#cfd4da" fill-opacity="0" stroke="#e3a35f" stroke-width="3"/></g>
+        <g class="part" data-dx="190" data-dy="90"><rect x="296" y="156" width="70" height="66" rx="5" fill="#d7dbe0" fill-opacity="0" stroke="#e3a35f" stroke-width="3"/><rect x="310" y="172" width="42" height="34" rx="3" fill="none" stroke="#e3a35f" stroke-width="1.5"/></g>
+        <g id="a3dim" fill="none" stroke="#e3a35f" stroke-width="1.2" opacity="0">
+          <path d="M2 -16H336M2 -22v12M336 -22v12"/><path d="M-16 2V238M-22 2h12M-22 238h12"/>
+          <text x="169" y="-24" text-anchor="middle" font-family="IBM Plex Mono" font-size="13" fill="#e3a35f" stroke="none">85.6 มม.</text>
+          <text x="-26" y="124" text-anchor="end" font-family="IBM Plex Mono" font-size="13" fill="#e3a35f" stroke="none">56.5</text>
+        </g>
+      </svg>
+    </div>
+
+    <!-- ===== องก์ 4: พิสูจน์ (50–72) ===== -->
+    <div class="act" id="A4">
+      <div class="a c serif glow" id="w0" style="top:860px;font-size:140px">สร้าง</div>
+      <div class="a c serif glow" id="w1" style="top:860px;font-size:140px;color:var(--amber)">ทดสอบ</div>
+      <div class="a c serif" id="w2" style="top:860px;font-size:150px;color:var(--warn)">พัง</div>
+      <div class="a c serif glow" id="w3" style="top:860px;font-size:140px;color:var(--ok)">แก้ไข</div>
+      <div class="a" id="m0" style="left:0;top:0;width:1080px;height:1920px">
+        <div class="c serif" style="position:absolute;top:690px;font-size:54px">ทดสอบบนฮาร์ดแวร์จริง</div>
+        <div class="term" style="position:absolute;left:70px;top:790px;width:940px;height:440px;padding:20px 28px"><div id="m0l"></div></div>
+      </div>
+      <div class="a" id="m1" style="left:0;top:0;width:1080px;height:1920px">
+        <div class="c disp glow" style="position:absolute;top:760px;font-size:230px;line-height:1;color:var(--amber)"><span id="m1n">100</span>%</div>
+        <div class="c" style="position:absolute;top:1030px;font-size:46px;font-weight:600">log ครบถ้วน · 500 การเชื่อมต่อ</div>
+      </div>
+      <div class="a" id="m2" style="left:0;top:0;width:1080px;height:1920px">
+        <div id="m2bars" style="position:absolute;left:90px;top:700px;width:900px;height:520px;display:flex;align-items:flex-end;gap:14px;opacity:.25"></div>
+        <div class="c disp glow" style="position:absolute;top:790px;font-size:170px;line-height:1;color:var(--amber)">319–324</div>
+        <div class="c" style="position:absolute;top:1010px;font-size:48px;font-weight:600">Mbit/s ผ่านเกตเวย์</div>
+      </div>
+      <div class="a" id="m3" style="left:0;top:0;width:1080px;height:1920px">
+        <div class="c disp glow" style="position:absolute;top:740px;font-size:200px;line-height:1;color:var(--amber)">22 <span class="serif" style="font-size:110px">ชม.</span></div>
+        <div class="c" style="position:absolute;top:990px;font-size:44px;font-weight:600;line-height:1.5">เปิดต่อเนื่อง · CPU 63.8–67.2 °C<br><span style="color:var(--ok)">ไม่ลดความเร็วเพราะร้อนเลย</span></div>
+      </div>
+      <div class="a" id="m4" style="left:0;top:0;width:1080px;height:1920px">
+        <div class="c disp glow" style="position:absolute;top:760px;font-size:230px;line-height:1;color:var(--amber)">49/49</div>
+        <div class="c" style="position:absolute;top:1030px;font-size:48px;font-weight:600">ทดสอบทั้งระบบผ่าน</div>
+      </div>
+      <div class="a" id="m5" style="left:0;top:0;width:1080px;height:1920px">
+        <div class="c" style="position:absolute;top:720px;font-size:44px;font-weight:600;color:var(--ink2)">ความเสี่ยงอันดับ 1</div>
+        <div class="c disp" style="position:absolute;top:790px;font-size:230px;line-height:1;color:var(--ink)">R11</div>
+        <div class="a" id="m5s" style="left:330px;top:1040px;width:420px;height:110px;border:7px solid var(--ok);border-radius:18px;color:var(--ok);font:700 64px/96px var(--serif);text-align:center">แก้ได้ ✓</div>
+      </div>
+      <div id="m6"></div>
+    </div>
+
+    <!-- ===== องก์ 5: เปิดตัว (72–84) ===== -->
+    <div class="act" id="A5">
+      <svg class="a" id="a5logo" style="left:410px;top:830px;width:260px;height:260px"><use href="#logo"/></svg>
+      <div class="a c disp" id="a5word" style="top:780px;font-size:132px;line-height:1.1;color:var(--ink)"></div>
+      <div class="a c" id="a5tag" style="top:950px;font-size:46px;font-weight:500;color:var(--ink2)">Wi-Fi ร้านกาแฟ ที่เก็บ log ถูกกฎหมาย</div>
+      <div class="full" style="perspective:1400px">
+        <div class="shot a" id="s1" style="left:60px;top:1080px;width:300px"><img src="../../image/public/img/portal-register.jpg"></div>
+        <div class="shot a" id="s2" style="left:720px;top:1060px;width:300px;height:540px"><img src="../../image/public/img/wizard-4-router-ok.jpg" style="width:348px"></div>
+        <div class="shot a" id="s3" style="left:210px;top:1330px;width:660px"><img src="../../image/public/img/admin-dashboard.jpg"></div>
+      </div>
+    </div>
+
+    <!-- ===== องก์ 6: ความสำคัญ (84–100) ===== -->
+    <div class="act" id="A6">
+      <div class="a c" id="b1" style="top:640px"><div class="ring"><svg><use href="#i-person"/></svg></div>
+        <div class="serif glow" style="font-size:130px;margin-top:60px;color:var(--amber)">ลูกค้า</div>
+        <div style="font-size:52px;font-weight:500;margin-top:16px">ใช้ Wi-Fi ฟรีได้อย่างมั่นใจ</div></div>
+      <div class="a c" id="b2" style="top:640px"><div class="ring"><svg><use href="#i-store"/></svg></div>
+        <div class="serif glow" style="font-size:130px;margin-top:60px;color:var(--amber)">ร้าน</div>
+        <div style="font-size:52px;font-weight:500;margin-top:16px">ทำถูกกฎหมายได้<br>โดยไม่ต้องเป็นผู้เชี่ยวชาญ</div></div>
+      <div class="a c" id="b3" style="top:640px"><div class="ring"><svg><use href="#i-shield"/></svg></div>
+        <div class="serif glow" style="font-size:130px;margin-top:60px;color:var(--amber)">ข้อมูล</div>
+        <div style="font-size:48px;font-weight:500;margin-top:16px;line-height:1.5">เลขบัตรถูกเข้ารหัส · เก็บอยู่ในร้าน<br><span style="color:var(--amber)">เปิดซอร์ส ให้ทุกคนตรวจสอบได้</span></div></div>
+    </div>
+
+    <!-- ===== องก์ 7: ปิดท้าย (100–113) ===== -->
+    <div class="act" id="A7">
+      <div class="a c serif" id="c1" style="top:740px;font-size:96px">Wi-Fi ฟรี</div>
+      <div class="a c serif" id="c2" style="top:880px;font-size:96px">ไม่ควรมีราคา</div>
+      <div class="a c serif glow" id="c3" style="top:1020px;font-size:96px;color:var(--amber)">ที่ต้องจ่ายทีหลัง</div>
+      <svg class="a" id="c4" style="left:450px;top:560px;width:180px;height:180px"><use href="#logo"/></svg>
+      <div class="a c disp" id="c5" style="top:770px;font-size:116px;line-height:1.1">Cafe-WiFi OS</div>
+      <div class="a c" id="c7" style="top:960px;font-size:36px;color:var(--ink2)">ฟรี · โอเพนซอร์ส (MIT)</div>
+      <div class="a c" id="c8" style="top:1030px;font-family:var(--mono);font-size:38px;color:var(--amber)">lenulk.github.io/Cafe-wifi-Image</div>
+    </div>
+  </div>
+
+  <div class="bar" id="barT" style="top:0"></div>
+  <div class="bar" id="barB" style="bottom:0"></div>
+  <div id="chap"></div>
+  <div id="sub"></div>
+  <div id="vig"></div>
+  <canvas id="grain" width="360" height="640" style="width:1080px;height:1920px"></canvas>
+  <div id="flash"></div>
+  <div id="black"></div>
+</div>
+
+<div id="ctl"><button id="pp">⏸</button><input id="sc" type="range" min="0" max="113" step="0.01" value="0"><span id="tm">0.00</span></div>
+
+<script>
+const DUR = 113, BAND_T = 656, BAND_B = 1264, CX = 540, CY = 960;
+const $ = id => document.getElementById(id);
+const cl = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const P = (t, a, b) => cl((t - a) / (b - a));
+const lerp = (a, b, k) => a + (b - a) * k;
+const eo = x => 1 - Math.pow(1 - x, 3);
+const ei = x => x * x * x;
+const eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eb = x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const hash = n => { const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
+function S(el, o = {}) {
+  if (typeof el === 'string') el = $(el);
+  const { x = 0, y = 0, s = 1, r = 0, o: op = 1, b = 0, extra = '' } = o;
+  el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg) ${extra}`;
+  el.style.opacity = op;
+  el.style.filter = b > .05 ? `blur(${b}px)` : 'none';
+}
+const rise = (el, t, a, d = .6, dist = 50) => { const k = eo(P(t, a, a + d)); S(el, { y: (1 - k) * dist, o: k, b: (1 - k) * 8 }); };
+const pop = (el, t, a, d = .5) => { const k = P(t, a, a + d); S(el, { s: k <= 0 ? .001 : eb(k), o: cl(k * 3) }); };
+const fadeOut = (el, t, a, d = .4) => { const e = typeof el === 'string' ? $(el) : el; e.style.opacity = +e.style.opacity * (1 - P(t, a, a + d)); };
+const VOAT = id => (window.VO || []).find(v => v.id === id) || { start: 0, dur: 0 };
+function draw(p, k) {
+  const L = p._L || (p._L = p.getTotalLength());
+  p.style.strokeDasharray = L + ' ' + L; p.style.strokeDashoffset = L * (1 - k); p.style.opacity = k <= .001 ? 0 : 1;
+}
+function glitch(el, t, amt) {
+  const e = typeof el === 'string' ? $(el) : el;
+  if (amt <= 0) { e.style.clipPath = 'none'; return; }
+  const f = Math.floor(t * 24), r = hash(f), on = r < .55 * amt + .15;
+  const dx = on ? (hash(f + 1) - .5) * 40 * amt : 0;
+  e.style.filter = `drop-shadow(${6 * amt}px 0 0 rgba(255,40,80,.75)) drop-shadow(${-6 * amt}px 0 0 rgba(0,220,255,.75))`;
+  e.style.transform += ` translateX(${dx}px)`;
+  if (on && hash(f + 2) < .5 * amt) { const a = hash(f + 3) * 70, b = a + 8 + hash(f + 4) * 25; e.style.clipPath = `polygon(0 ${a}%,100% ${a}%,100% ${b}%,0 ${b}%)`; }
+  else e.style.clipPath = 'none';
+}
+
+/* ---------- canvas: เครือข่ายจุด / สายข้อมูล / อนุภาคระเบิด ---------- */
+const cv = $('net'), g = cv.getContext('2d');
+const NODES = [];
+for (let i = 0; i < 160; i++) {
+  const ang = hash(i) * Math.PI * 2, rad = Math.sqrt(hash(i + 500)) * 760;
+  const x = CX + Math.cos(ang) * rad * .78, y = CY + Math.sin(ang) * rad * 1.05;
+  NODES.push({ x, y, d: rad / 760, ph: hash(i + 900) * 6.28, w: .4 + hash(i + 1300) * .8, r: 2 + hash(i + 1700) * 3.5 });
+}
+function drawNet(t, { alpha = 1, reveal = 1, zoom = 1, speed = 1, warm = false } = {}) {
+  if (alpha <= 0.002) return;
+  const pts = NODES.map(n => {
+    const vis = cl((reveal * 1.15 - n.d) / .15);
+    const x = n.x + Math.sin(t * n.w * speed + n.ph) * 16, y = n.y + Math.cos(t * n.w * .8 * speed + n.ph) * 16;
+    return { x: CX + (x - CX) * zoom, y: CY + (y - CY) * zoom, vis, r: n.r };
+  });
+  g.lineWidth = 1.4;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]; if (p.vis <= 0) continue;
+    for (let j = i + 1; j < pts.length; j++) {
+      const q = pts[j]; if (q.vis <= 0) continue;
+      const dx = p.x - q.x, dy = p.y - q.y, d2 = dx * dx + dy * dy, lim = 165 * zoom;
+      if (d2 > lim * lim) continue;
+      const a = (1 - Math.sqrt(d2) / lim) * Math.min(p.vis, q.vis) * alpha * .55;
+      g.strokeStyle = warm ? `rgba(227,163,95,${a})` : `rgba(227,163,95,${a})`;
+      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke();
+    }
+  }
+  for (const p of pts) {
+    if (p.vis <= 0) continue;
+    const tw = .7 + .3 * Math.sin(t * 3 + p.x);
+    g.fillStyle = `rgba(255,214,160,${p.vis * alpha * tw})`;
+    g.beginPath(); g.arc(p.x, p.y, p.r * Math.max(1, zoom * .8), 0, 6.283); g.fill();
+  }
+}
+function drawStreaks(t, alpha) {
+  if (alpha <= 0) return;
+  for (let i = 0; i < 26; i++) {
+    const ang = (hash(i + 40) - .5) * 2.4 + (i % 2 ? 0 : Math.PI), sp = .6 + hash(i + 80) * .9;
+    const u = ((t * sp + hash(i + 120)) % 1);
+    const r0 = 120 + u * 900, r1 = r0 + 140;
+    g.strokeStyle = `rgba(227,163,95,${alpha * (1 - u) * .9})`; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(CX + Math.cos(ang) * r0, CY + Math.sin(ang) * r0 * .7); g.lineTo(CX + Math.cos(ang) * r1, CY + Math.sin(ang) * r1 * .7); g.stroke();
+  }
+}
+function drawBurst(t) {
+  if (t < 0 || t > 2.6) return;
+  for (let i = 0; i < 200; i++) {
+    const ang = hash(i + 3000) * 6.283, sp = 300 + hash(i + 3300) * 1300, k = eo(t / 2.6);
+    const x = CX + Math.cos(ang) * sp * k, y = CY + Math.sin(ang) * sp * k;
+    g.fillStyle = `rgba(255,220,170,${(1 - t / 2.6) * .9})`;
+    g.beginPath(); g.arc(x, y, 2 + hash(i + 3600) * 4, 0, 6.283); g.fill();
+  }
+}
+function drawDot(t, a) {
+  if (a <= 0) return;
+  const beat = x => Math.exp(-Math.pow((x % 1.2) - .1, 2) * 300) + .7 * Math.exp(-Math.pow((x % 1.2) - .38, 2) * 300);
+  const s = 1 + beat(t) * .9;
+  const grd = g.createRadialGradient(CX, CY, 0, CX, CY, 60 * s);
+  grd.addColorStop(0, `rgba(255,226,180,${a})`); grd.addColorStop(.25, `rgba(227,163,95,${a * .8})`); grd.addColorStop(1, 'rgba(227,163,95,0)');
+  g.fillStyle = grd; g.beginPath(); g.arc(CX, CY, 60 * s, 0, 6.283); g.fill();
+}
+
+/* ---------- เนื้อหาที่สร้างด้วยสคริปต์ ---------- */
+const wallTxt = 'ผู้ให้บริการต้องเก็บรักษาข้อมูลจราจรทางคอมพิวเตอร์ไว้ไม่น้อยกว่าเก้าสิบวันนับแต่วันที่ข้อมูลนั้นเข้าสู่ระบบคอมพิวเตอร์ และต้องเก็บข้อมูลของผู้ใช้บริการเท่าที่จำเป็นเพื่อให้สามารถระบุตัวผู้ใช้บริการได้ ';
+$('a2wall').innerHTML = Array.from({ length: 16 }, (_, i) => `<div style="font:600 30px/45px var(--serif);color:rgba(245,235,222,.16);white-space:nowrap;transform:translateX(${-(i * 137) % 600}px)">${wallTxt.repeat(3)}</div>`).join('');
+$('a2leds').innerHTML = [0, 1, 2, 3, 4].map(i => `<circle id="led${i}" cx="${170 + i * 38}" cy="170" r="10" fill="#7bd389"/>`).join('');
+{ let h = ''; for (let x = 0; x <= 1080; x += 54) h += `<path class="gl" d="M${x} 0V608" stroke="#e3a35f" stroke-opacity=".14"/>`; for (let y = 0; y <= 608; y += 54) h += `<path class="gl" d="M0 ${y}H1080" stroke="#e3a35f" stroke-opacity=".14"/>`; $('a3grid').innerHTML = h; }
+{ let h = ''; for (let i = 0; i < 20; i++) h += `<rect x="${40 + i * 11}" y="12" width="7" height="7"/><rect x="${40 + i * 11}" y="23" width="7" height="7"/>`; $('a3gpio').innerHTML = h; }
+const m0lines = ['[  OK  ] Started cafe-portal.service', '[  OK  ] Started opennds.service', 'PASS  ลูกค้าต่อ Wi-Fi → หน้า portal เด้ง', 'PASS  ลงทะเบียน → รหัสคำขอ',
+  'PASS  พนักงานอนุมัติ → ออกเน็ตได้', 'PASS  ต่อเวลา', 'PASS  ปิดสิทธิ์ → ตัดเน็ต 8.3 s', 'PASS  conn_log + dns_log ผูกกับผู้ใช้', 'PASS  hash chain ตรวจผ่าน',
+  'PASS  ส่งออกหลักฐาน', 'PASS  สำรองลง USB', 'PASS  ไฟดับ → บูตกลับมาเอง', '== 49/49 passed =='];
+$('m0l').innerHTML = m0lines.map(l => `<div class="ln${l.startsWith('PASS') || l.startsWith('==') ? ' ok' : ''}">${l}</div>`).join('');
+$('m2bars').innerHTML = Array.from({ length: 16 }, (_, i) => `<div class="mb" style="flex:1;background:#e3a35f;border-radius:6px 6px 0 0;height:10%"></div>`).join('');
+const chips = ['100% log', '319–324 Mbit/s', '22 ชม.', '49/49', 'R11 ✓'];
+$('m6').innerHTML = chips.map((c, i) => `<div class="a chip" id="ch${i}" style="left:0;top:0">${c}</div>`).join('');
+$('a5word').innerHTML = [...'Cafe-WiFi OS'].map(c => `<span style="display:inline-block;white-space:pre">${c}</span>`).join('');
+
+const CHAPS = [[0, 14, 'บทที่ 1 — ทุกวัน'], [14, 36, 'บทที่ 2 — คำถาม'], [36, 50, 'บทที่ 3 — โจทย์'], [50, 72, 'บทที่ 4 — พิสูจน์']];
+const HITS = [[23.2, 20, .55], [50.0, 10, .8], [53.8, 6, .25], [56.3, 6, .25], [58.8, 6, .25], [61.3, 6, .25], [63.8, 6, .25], [66.3, 6, .25], [67.2, 10, 0], [73.0, 24, 1]];
+
+/* ---------- องก์ ---------- */
+const acts = [];
+function act(id, a, b, fn) { acts.push({ el: $(id), a, b, fn }); }
+
+act('A1', 0, 14, t => {
+  rise('a1t1', t, 8.0, .9, 60); rise('a1t2', t, 8.6, .7);
+  ['a1t1', 'a1t2'].forEach(id => fadeOut(id, t, 10.8, .5));
+});
+
+act('A2', 11.8, 36, t => {
+  // โทรศัพท์: ซูมจากจุดในเครือข่ายเข้ามา (11.8–14.2) แล้ว glitch ก่อนคำถาม
+  const pz = eo(P(t, 11.9, 14.4));
+  S('phone', { s: Math.max(.001, lerp(.05, 1, pz)), o: P(t, 11.9, 12.3) * (1 - P(t, 19.0, 19.4)) });
+  glitch('phone', t, P(t, 16.8, 17.4) * (1 - P(t, 19.0, 19.2)));
+  S('a2bigq', { s: lerp(1.3, 1, eo(P(t, 19.2, 20.2))), o: P(t, 19.2, 19.8) * (1 - P(t, 22.8, 23.2)) });
+  rise('a2q', t, 19.3, .4, 30); fadeOut('a2q', t, 22.8, .3);
+  glitch('a2q', t, t > 19.3 && t < 23.1 ? .5 + .5 * (t > 22.3) : 0);
+  // มาตรา 26 กระแทก
+  const hk = P(t, 23.2, 23.45);
+  S('a2law', { s: hk <= 0 ? .001 : lerp(2.6, 1, ei(hk)), o: hk > 0 ? 1 : 0 });
+  rise('a2k', t, 23.7, .5, 20);
+  rise('a2d', t, 25.6, .5); $('a2n').textContent = Math.round(90 * eo(P(t, 25.7, 27.2)));
+  rise('a2id', t, 28.0, .5);
+  const up = eio(P(t, 30.4, 31.2));
+  ['a2law', 'a2k', 'a2d', 'a2id'].forEach(id => { const e = $(id); e.style.transform += ` translateY(${-260 * up}px) scale(${1 - .35 * up})`; e.style.opacity = +e.style.opacity * (1 - P(t, 30.6, 31.3)); });
+  // กำแพงตัวบท + คนตัวเล็ก
+  S('a2wall', { y: -(t - 30) * 18, o: P(t, 30.6, 31.6) * .9 * (1 - P(t, 33.2, 33.8)) });
+  S('a2man', { o: P(t, 31.0, 31.6) * (1 - P(t, 33.2, 33.6)), y: (1 - eo(P(t, 31, 31.6))) * 30 });
+  // เราเตอร์ไฟดับ
+  S('a2router', { o: P(t, 33.4, 33.9) * (1 - P(t, 35.4, 36)), s: lerp(.92, 1, eo(P(t, 33.4, 34))) });
+  for (let i = 0; i < 5; i++) $('led' + i).setAttribute('fill', t < 34.2 + i * .22 ? (Math.sin(t * 9 + i) > -.4 ? '#7bd389' : '#2f5a35') : '#3a2a20');
+});
+
+act('A3', 36, 50.2, t => {
+  document.querySelectorAll('#a3grid .gl').forEach((p, i) => draw(p, eo(P(t, 36.2 + (i % 21) * .03, 37.4 + (i % 21) * .03))));
+  rise('a3t', t, 37.0, .7);
+  S('a3t', { y: 0, o: +$('a3t').style.opacity * (1 - P(t, 40.0, 40.6)) });
+  draw($('a3board'), eio(P(t, 38.2, 40.6)));
+  [...$('a3gpio').children].forEach((r, i) => r.style.opacity = P(t, 39.6 + i * .025, 39.8 + i * .025));
+  document.querySelectorAll('#a3pi .part').forEach((gp, i) => {
+    const k = eio(P(t, 41.2 + i * .35, 42.6 + i * .35));
+    gp.setAttribute('transform', `translate(${(1 - k) * gp.dataset.dx} ${(1 - k) * gp.dataset.dy})`);
+    gp.style.opacity = P(t, 40.6 + i * .3, 41.2 + i * .3);
+  });
+  const fill = P(t, 44.6, 46.0);
+  document.querySelectorAll('#a3pi [fill-opacity]').forEach(e => e.setAttribute('fill-opacity', fill));
+  $('a3gpio').setAttribute('fill', fill > 0 ? `rgba(232,198,107,${fill})` : 'none');
+  $('a3dim').style.opacity = P(t, 45.4, 46.2) * (1 - P(t, 48.4, 48.8));
+  const rs = P(t, 47.0, 50.0);
+  S('a3pi', { s: 1 + ei(rs) * .25, o: 1, b: 0 });
+  $('a3pi').style.filter = `drop-shadow(0 0 ${10 + rs * 50}px rgba(227,163,95,${.3 + rs * .6}))`;
+  $('A3').style.opacity = 1 - P(t, 49.85, 50.05);
+});
+
+act('A4', 50, 72.2, t => {
+  [50.8, 51.5, 52.2, 52.9].forEach((a, i) => {
+    const on = t >= a && t < a + .66;
+    S('w' + i, { s: on ? lerp(1.18, 1, eo(P(t, a, a + .25))) : 1, o: on ? 1 : 0 });
+    if (i === 2) glitch('w2', t, on ? 1 : 0);
+  });
+  const cards = [53.8, 56.3, 58.8, 61.3, 63.8, 66.3];
+  cards.forEach((a, i) => {
+    const end = i < 5 ? cards[i + 1] : 68.4;
+    const on = t >= a && t < end;
+    S('m' + i, { s: on ? lerp(1.12, 1, eo(P(t, a, a + .35))) : 1, o: on ? 1 - P(t, end - .12, end) : 0 });
+  });
+  const n = Math.floor(cl((t - 53.9) / .17, 0, m0lines.length));
+  [...$('m0l').children].forEach((l, i) => l.style.display = i < n && i >= n - 10 ? 'block' : 'none');
+  $('m1n').textContent = Math.round(100 * eo(P(t, 56.4, 57.6)));
+  [...$('m2bars').children].forEach((b, i) => b.style.height = (25 + 70 * Math.abs(Math.sin(t * 7 + i * .7)) * eo(P(t, 58.8, 59.4))) + '%');
+  const sk = P(t, 67.0, 67.25);
+  S('m5s', { s: sk <= 0 ? 2.2 : lerp(2.2, 1, ei(sk)), r: -6, o: sk > 0 ? 1 : 0 });
+  // ตัวเลขทั้งหมดลอยวนแล้วรวมเป็นจุดเดียว
+  chips.forEach((c, i) => {
+    const e = $('ch' + i), k = eio(P(t, 70.0, 71.7));
+    const ang = i / chips.length * 6.283 + t * .9, R = lerp(330, 0, k);
+    const w = e.offsetWidth || 200;
+    S(e, { x: CX + Math.cos(ang) * R - w / 2, y: CY + Math.sin(ang) * R * .9 - 30, s: lerp(1, .05, k), o: P(t, 68.5, 69.0) * (1 - P(t, 71.5, 71.8)) });
+  });
+});
+
+act('A5', 72, 84.2, t => {
+  const lk = P(t, 73.05, 73.6);
+  const mv = eio(P(t, 74.3, 75.3));
+  S('a5logo', { s: lk <= 0 ? .001 : eb(lk) * lerp(1, .78, mv), y: -330 * mv, o: lk > 0 ? 1 : 0 });
+  [...$('a5word').children].forEach((c, i) => { const k = eo(P(t, 74.7 + i * .045, 75.2 + i * .045)); S(c, { y: (1 - k) * 80, o: k, b: (1 - k) * 10 }); });
+  S('a5word', { y: 0, o: 1 });
+  rise('a5tag', t, 75.6);
+  [['s1', 77.9, 22, -4], ['s2', 78.3, -22, 4], ['s3', 78.8, 0, 0]].forEach(([id, a, ry, rz], i) => {
+    const k = eo(P(t, a, a + 1.0));
+    const fl = Math.sin(t * 1.3 + i * 2) * 10;
+    S(id, { y: (1 - k) * 500 + fl, o: k, extra: `rotateY(${ry * (0.4 + .6 * k)}deg) rotateZ(${rz}deg)` });
+  });
+  $('A5').style.opacity = 1 - P(t, 83.6, 84.2);
+});
+
+act('A6', 84, 100.4, t => {
+  const v11 = VOAT('v11'), v12 = VOAT('v12'), v13 = VOAT('v13');
+  [[1, v11.start - .3, v12.start - .45], [2, v12.start - .3, v13.start - .45], [3, v13.start - .3, 99.9]].forEach(([i, a, b]) => {
+    const e = $('b' + i), k = eo(P(t, a, a + .7));
+    const ring = e.querySelector('.ring');
+    S(e, { y: (1 - k) * 60, o: k * (1 - P(t, b - .1, b + .3)), b: (1 - k) * 8 });
+    const rp = P(t, a, a + .6); ring.style.transform = `scale(${rp <= 0 ? .001 : eb(rp)})`;
+  });
+});
+
+act('A7', 100, 113, t => {
+  const v = VOAT('v14').start;
+  rise('c1', t, v + .05, .8); rise('c2', t, v + 1.45, .8); rise('c3', t, v + 2.5, .8);
+  ['c1', 'c2', 'c3'].forEach(id => fadeOut(id, t, 105.6, .7));
+  pop('c4', t, 106.5, .7); rise('c5', t, 106.9, .8);
+  rise('c7', t, 108.0); rise('c8', t, 108.3);
+});
+
+function seek(t) {
+  t = cl(t, 0, DUR - 1e-4);
+  // แถบจอกว้าง: เปิดจากเส้นกลางจอ (0.2–1.6) → band → เปิดเต็มจอที่ 73
+  const open = eio(P(t, 73.0, 74.4)), intro = eio(P(t, .2, 1.8));
+  const barH = lerp(CY, BAND_T, intro) * (1 - open);
+  $('barT').style.height = barH + 'px'; $('barB').style.height = barH + 'px';
+  // บทที่ (ในแถบบน)
+  const ch = CHAPS.find(c => t >= c[0] && t < c[1]);
+  if (ch) { $('chap').textContent = ch[2]; const lt = t - ch[0]; $('chap').style.opacity = P(lt, .6, 1.4) * lerp(1, .4, P(lt, 4, 5)) * (1 - P(t, ch[1] - .4, ch[1])); }
+  else $('chap').style.opacity = 0;
+  // ซับ
+  const vo = (window.VO || []).find(v => v.sub && t >= v.start - .1 && t < v.start + v.dur + .15);
+  $('sub').textContent = vo ? vo.sub : '';
+  $('sub').style.opacity = vo ? P(t, vo.start - .1, vo.start + .1) * (1 - P(t, vo.start + v_end(vo) - .05, vo.start + v_end(vo) + .15)) : 0;
+  // canvas
+  g.clearRect(0, 0, 1080, 1920);
+  drawDot(t, t < 3 ? P(t, .4, 1.0) * (1 - P(t, 2.6, 3.4)) : 0);
+  drawDot(t, t >= 72 && t < 73.1 ? P(t, 72.1, 72.5) : 0);
+  const zoomA1 = 1 + ei(P(t, 11.0, 14.0)) * 5;
+  drawNet(t, { alpha: P(t, 2.4, 3.0) * (1 - P(t, 12.6, 13.8)), reveal: eo(P(t, 2.6, 8.0)), zoom: zoomA1 });
+  drawStreaks(t, P(t, 14.3, 15.0) * (1 - P(t, 18.6, 19.2)));
+  drawNet(t * 1.8, { alpha: .35 * P(t, 53.8, 54.6) * (1 - P(t, 69.5, 71)), reveal: 1, speed: 2.2 });
+  drawBurst(t - 73.0);
+  drawNet(t, { alpha: .3 * P(t, 74, 76) * (1 - P(t, 99.5, 100.5)), reveal: 1, speed: .6, warm: true });
+  $('warm').style.opacity = P(t, 73.0, 73.8) * (1 - P(t, 99.6, 100.4)) + .35 * P(t, 101, 103);
+  // องก์
+  for (const a of acts) {
+    const on = t >= a.a && t < a.b; a.el.style.display = on ? 'block' : 'none';
+    if (on) { a.el.style.opacity = 1; a.fn(t); }
+  }
+  // สั่น + แฟลช
+  let sx = 0, sy = 0, fl = 0;
+  for (const [h, amp, f] of HITS) {
+    if (t < h) continue; const d = t - h;
+    sx += Math.sin(d * 61) * amp * Math.exp(-d * 7); sy += Math.cos(d * 53) * amp * .6 * Math.exp(-d * 7);
+    fl = Math.max(fl, f * Math.exp(-d * 9));
+  }
+  $('world').style.transform = `translate(${sx}px,${sy}px)`;
+  $('flash').style.opacity = fl;
+  $('black').style.opacity = P(t, DUR - .7, DUR - .05);
+  grain(t);
+}
+function v_end(v) { return v.dur; }
+const gc = $('grain').getContext('2d'), GR = [];
+for (let k = 0; k < 6; k++) {
+  const im = gc.createImageData(360, 640);
+  for (let i = 0; i < im.data.length; i += 4) { const v = hash(i * .37 + k * 9973) * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
+  GR.push(im);
+}
+function grain(t) { gc.putImageData(GR[Math.floor(t * 24) % GR.length], 0, 0); }
+window.seek = seek;
+
+const RENDER = new URLSearchParams(location.search).has('render');
+if (RENDER) document.documentElement.classList.add('render');
+function fit() {
+  const st = $('stage'); if (RENDER) { st.style.transform = 'none'; return; }
+  const k = Math.min(innerWidth / 1080, (innerHeight - 56) / 1920);
+  st.style.transform = `translate(${(innerWidth - 1080 * k) / 2}px,${(innerHeight - 56 - 1920 * k) / 2}px) scale(${k})`;
+}
+addEventListener('resize', fit); fit();
+const FONTS = ['400 40px "IBM Plex Sans Thai"', '500 40px "IBM Plex Sans Thai"', '600 40px "IBM Plex Sans Thai"', '700 40px "IBM Plex Sans Thai"',
+  '600 40px "Noto Serif Thai"', '700 40px "Noto Serif Thai"', '600 40px Fraunces', '700 40px Fraunces',
+  '400 40px "IBM Plex Mono"', '500 40px "IBM Plex Mono"', '600 40px "IBM Plex Mono"'];
+Promise.all([...FONTS.map(f => document.fonts.load(f, 'กขคงก้ำ Cafe-WiFi 0123456789 ~–≥…°✓')),
+  ...[...document.images].map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; }))])
+  .then(() => { for (let t = 0; t < DUR; t += .5) seek(t); return document.fonts.ready; })
+  .then(() => new Promise(r => setTimeout(r, 300)))
+  .then(() => {
+    seek(0); window.READY = true;
+    if (RENDER) return;
+    const audio = new Audio('audio-story.wav');
+    let playing = true, t0 = performance.now(), cur = 0;
+    const sc = $('sc'), tm = $('tm'), pp = $('pp');
+    (function loop(now) {
+      if (playing && now) { cur = ((now - t0) / 1000) % DUR; seek(cur); sc.value = cur; tm.textContent = cur.toFixed(2); }
+      requestAnimationFrame(loop);
+    })();
+    pp.onclick = () => { playing = !playing; pp.textContent = playing ? '⏸' : '▶'; t0 = performance.now() - cur * 1000; if (playing) { audio.currentTime = cur; audio.play().catch(() => {}); } else audio.pause(); };
+    sc.oninput = () => { cur = +sc.value; seek(cur); tm.textContent = cur.toFixed(2); t0 = performance.now() - cur * 1000; audio.currentTime = cur; };
+  });
+</script>
+</body>
+</html>
