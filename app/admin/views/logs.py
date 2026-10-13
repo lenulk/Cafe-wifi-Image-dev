@@ -472,7 +472,7 @@ def _classify_log_query(q: str):
     if not q:
         return None, None, None
     digits = re.sub(r"[\s-]", "", q)
-    if digits.isdigit() and len(digits) == 13:
+    if re.fullmatch(r"[0-9]{13}", digits):     # 0-9 เท่านั้น (isdigit() ยอมเลขอารบิก/ไทย)
         if not crypto.valid_thai_id(digits):
             return None, None, "เลขบัตรประชาชนไม่ถูกต้อง (ตรวจ checksum ไม่ผ่าน)"
         return "natid", crypto.natid_hash(digits), None

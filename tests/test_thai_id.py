@@ -45,3 +45,13 @@ def test_separators_are_tolerated(rng):
 def test_mask_hides_middle_digits():
     assert mask_natid("1234567890123") == "1-2345-XXXXX-XX-3"
     assert mask_natid("bad") == "X-XXXX-XXXXX-XX-X"
+
+
+def test_non_ascii_digits_rejected(rng):
+    # เลขอารบิก/ไทยต้องไม่ผ่าน -- ถ้าผ่านจะได้ natid_hash คนละค่ากับเลขเดียวกันแบบ 0-9 (ลูกค้าคนเดียวกลายเป็น 2 คน)
+    nid = _make_valid(rng)
+    for digits in ("٠١٢٣٤٥٦٧٨٩", "๐๑๒๓๔๕๖๗๘๙"):
+        other = "".join(digits[int(c)] for c in nid)
+        assert other.isdigit() and not valid_thai_id(other)
+        assert normalize_natid(other) == ""
+    assert normalize_natid("1-2345-67890-12-3") == "1234567890123"

@@ -64,8 +64,9 @@ def valid_thai_id(nid: str) -> bool:
 
 
 def normalize_natid(nid: str) -> str:
-    """ลบขีด เว้นวรรค และอักขระอื่นที่ไม่ใช่ตัวเลขออก"""
-    return re.sub(r"\D", "", nid or "")
+    """ลบขีด เว้นวรรค และอักขระอื่นที่ไม่ใช่ตัวเลข 0-9 ออก
+    (ไม่ใช้ \\D -- ใน str มันถือเลขไทย/อารบิก เช่น ๑ ١ เป็นตัวเลข จะได้ natid_hash คนละค่ากับเลขเดียวกันแบบ 0-9)"""
+    return re.sub(r"[^0-9]", "", nid or "")
 
 
 def mask_natid(nid: str) -> str:

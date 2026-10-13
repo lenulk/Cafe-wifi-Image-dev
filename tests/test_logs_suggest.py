@@ -411,3 +411,12 @@ def test_logs_pages_no_store(env):
     assert r.status_code == 200 and r.headers["Cache-Control"] == "no-store"
     r = client.get("/logs", query_string=base._q())
     assert r.status_code == 200 and r.headers["Cache-Control"] == "no-store"
+
+
+def test_arabic_digit_natid_not_treated_as_natid(env):
+    # เลขบัตรที่พิมพ์เป็นเลขอารบิกไม่ใช่เลขบัตร -- ไม่ถอดรหัสเทียบ ไม่ลง audit suggest_natid
+    client, _, _ = env
+    base._login_as(client, "admin")
+    r = client.get("/logs/suggest", query_string={"q": "١٢٣٤٥"})
+    assert r.status_code == 200
+    assert not any("suggest_natid" in str(a) for a in base.AUDIT)

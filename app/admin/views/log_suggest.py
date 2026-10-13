@@ -42,7 +42,7 @@ def suggest_logs():
     items: list[dict] = []
 
     digits = re.sub(r"[\s-]", "", q)
-    if digits.isdigit() and 2 <= len(digits) <= 13:
+    if re.fullmatch(r"[0-9]{2,13}", digits):   # 0-9 เท่านั้น (isdigit() ยอมเลขอารบิก/ไทย)
         err = _customers(digits, items)
         if err:
             return jsonify(items=[], error=err), 429
