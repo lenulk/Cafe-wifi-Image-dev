@@ -49,12 +49,15 @@ SESSIONS = [
 CONN_LOGS: list[dict] = []
 DNS_LOGS: list[dict] = []
 AUDIT: list[tuple] = []
+SQL_SEEN: list[str] = []   # SQL ที่ FakeCursor ได้รับ (normalize แล้ว) -- ใช้ตรวจว่า staff ไม่เคยแตะ natid_enc
 
 
 def _reset():
     CONN_LOGS.clear()
     DNS_LOGS.clear()
     AUDIT.clear()
+    SQL_SEEN.clear()
+    CUSTOMERS[0].pop("natid_enc", None)   # ค่าเริ่มต้น: ไม่มีกุญแจถอด -> หน้า admin ถอยไปแสดง masked; เทสต์เลขเต็มใช้ _enable_full_natid()
     del SESSIONS[1:]
     if len(VOUCHERS) > 1:
         del VOUCHERS[1:]
@@ -76,6 +79,18 @@ def _lookup_mapping(mac, ip, ts):
     return (None, None, None) + dev
 
 
+def _unlike(pattern: str) -> str:
+    """คืนข้อความธรรมดาจากรูปแบบ LIKE ที่ escape แล้ว -- ถ้ายังมี % _ ที่ไม่ได้ escape = ยังเป็น wildcard จริง ให้ล้มทันที"""
+    core = pattern[1:-1] if pattern.startswith("%") and pattern.endswith("%") else pattern
+    out, i = "", 0
+    while i < len(core):
+        if core[i] == "\\" and i + 1 < len(core):
+            out += core[i + 1]; i += 2; continue
+        assert core[i] not in "%_", f"wildcard ไม่ได้ escape: {pattern!r}"
+        out += core[i]; i += 1
+    return out
+
+
 def _norm(sql: str) -> str:
     return " ".join(sql.split()).lower()
 
@@ -88,6 +103,7 @@ class FakeCursor:
 
     def execute(self, sql, args=()):
         s = _norm(sql)
+        SQL_SEEN.append(s)
         if s.startswith("select count(*) as n from staff"):
             self._rows = [{"n": len(STAFF)}]
         elif s.startswith("select role, is_active"):
@@ -104,8 +120,12 @@ class FakeCursor:
                 c = next((c for c in CUSTOMERS if v and c["id"] == v["customer_id"]), None)
                 out.append(dict(mac=x["mac"], authenticated_at=x["authenticated_at"], ended_at=x["ended_at"],
                                 hostname=x.get("hostname"), os_label=x.get("os_label"),
-                                natid_masked=c and c["natid_masked"]))
+                                natid_masked=c and c["natid_masked"], customer_id=c and c["id"]))
             self._rows = sorted(out, key=lambda r: r["authenticated_at"], reverse=True)
+        elif s.startswith("select natid_enc, id from customer where id in"):
+            ids = set(args[:-1])
+            self._rows = [dict(natid_enc=c["natid_enc"], id=c["id"]) for c in CUSTOMERS
+                          if c["id"] in ids and "natid_enc" in c and c["natid_masked"] != args[-1]]
         elif s.startswith("select id from customer where natid_hash"):
             self._rows = [c for c in CUSTOMERS if c["natid_hash"] == args[0]]
         elif "from conn_log cl" in s:
@@ -142,13 +162,13 @@ class FakeCursor:
         # ชื่อเว็บ/ชื่อเครื่อง -- ต่อกันด้วย OR ในวงเล็บเดียว ตามลำดับ hostname, qname/dst_ip
         alts = []
         if "ps.hostname like %s" in s:
-            host = args[idx].strip("%").lower(); idx += 1
+            host = _unlike(args[idx]).lower(); idx += 1
             alts.append(lambda r, m: host in (m[3] or "").lower())
         if "dl.qname like %s" in s:
-            dom = args[idx].strip("%"); idx += 1
+            dom = _unlike(args[idx]); idx += 1
             alts.append(lambda r, m: dom in r["qname"])
         if "cl.dst_ip in (select d2.answer from dns_log d2" in s:
-            dom, w0, w1 = args[idx].strip("%"), args[idx + 1], args[idx + 2]; idx += 3
+            dom, w0, w1 = _unlike(args[idx]), args[idx + 1], args[idx + 2]; idx += 3
             ips = {d.get("answer") for d in DNS_LOGS if dom in d["qname"]
                    and d.get("event_kind") == "answer" and w0 <= d["ts"] <= w1}
             alts.append(lambda r, m: r["dst_ip"] in ips)
@@ -168,7 +188,7 @@ class FakeCursor:
             if pred(r, m):
                 out.append(dict(r, event_kind=r.get("event_kind", "query"),
                                 started_at=r.get("started_at"),
-                                voucher_username=m[0], natid_masked=m[1],
+                                voucher_username=m[0], natid_masked=m[1], customer_id=m[2],
                                 device_hostname=m[3], device_os=m[4]))
         return out[offset:offset + limit]
 
@@ -400,7 +420,7 @@ def test_customer_cell_shows_device_name_instead_of_voucher_code(client):
     _login_as(client, "admin")
     _conn(0)
     html = client.get("/logs", query_string=AUG1).get_data(as_text=True)
-    assert "1-2345-XXXXX-XX-3<br>" in html and "q=CAFE-8F3K2" not in html
+    assert ">1-2345-XXXXX-XX-3</a>" in html and "q=CAFE-8F3K2" not in html
     SESSIONS[0].update(hostname=None, os_label=None)
     try:
         html = client.get("/logs", query_string=AUG1).get_data(as_text=True)

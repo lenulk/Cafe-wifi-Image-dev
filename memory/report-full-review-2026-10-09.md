@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: f2ed9da0-38d0-46a7-8dde-5832bd15b718
-  modified: 2026-10-09T03:33:09.174Z
+  modified: 2026-10-09T05:11:49.425Z
 ---
 
 2026-10-09 ตรวจทั้งเล่ม (ฉบับขยาย, 97 หน้า) ด้วย Sonnet 2 (ข้อเท็จจริง) + Haiku 3 (คำผิด/อ้างอิงข้าม) แล้ว Opus ตรวจซ้ำกับโค้ดทุกข้อ
@@ -19,6 +19,7 @@ metadata:
 "Chairman of Project Advisor" (ตรงเล่มตัวอย่าง), เมนู "ค้นหา log" (ชื่อเมนูจริงใน base.html), ลีนิกซ์/ลีนุกซ์ คนละคน
 unit test 538/538 บน Docker ยืนยันซ้ำ 2026-10-09 (Debian 13.7, Py 3.13.16, x86_64, commit af43981, 43.8 วิ) ผลดิบเก็บที่ `รายงานเล่ม/ข้อมูลทดสอบ/2026-10-09_unit-tests_docker-debian13-py313.txt` (ยังไม่ commit) — คัดลอกเฉพาะ app tests tools sql install.sh เข้า container (image/ 5.3 GB ไม่ต้องใช้)
 docs/hardware-test-log.md §4 ยังเขียน 22 ชม./63.8–67.2°C (ต่างจากเล่มที่ใช้ CSV 25.5 ชม.) — เดสก์ท็อปไม่แตะ docs ตาม [[two-machine-workflow]]
+2026-10-09 12:11 เพิ่มภาพที่ 3-2 Packet Flow (รายงานเล่ม/ภาพ/packet-flow.png ตัดหัวเรื่องในภาพออก) ใต้ภาพ 3-1 ใน 3.2 — ภาพบทที่ 3 เดิม 3-2..3-6 เลื่อนเป็น 3-3..3-7 แล้ว (ยังมี physical-topology.png ที่ยังไม่ได้ใส่)
 
 **Why:** รอบหน้าไม่ต้องตรวจซ้ำเรื่องเดิม และไม่หลงแก้แจ้งเตือนผิด
 **How to apply:** ตารางเส้นเวลา 1-1 ต้อง keep-together (มีลูกศรยึดในเซลล์ ห้ามแบ่ง) · ตรวจซ้ำด้วย tblcheck/toc2/listpages ใน %TEMP%\ex ดู [[report-language-pass-2026-10-06]]
