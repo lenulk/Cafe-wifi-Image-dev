@@ -336,3 +336,24 @@ def test_non_ascii_token_is_rejected_not_500(client):
     r = _post(client, token="ก" * 10)
     assert r.status_code == 400
     assert STAFF == []
+
+
+# ---------------------------------------------------------------- A5: ตรวจข้อมูลหน้า /setup
+def test_setup_rejects_non_ascii_username(client):
+    r = _post(client, username="ａｄｍｉｎ１")  # ตัวเต็มความกว้าง: isalnum() เป็นจริงแต่ไม่ใช่ ASCII
+    assert r.status_code == 400
+    assert STAFF == []
+
+
+def test_setup_truncates_display_name_to_128(client):
+    assert _post(client, display_name="ก" * 300).status_code == 302
+    assert len(STAFF[0]["display_name"]) == 128
+
+
+def test_setup_503_page_does_not_reveal_token_path(client):
+    client.token_file.unlink()
+    r = client.get("/setup")
+    assert r.status_code == 503
+    body = r.get_data(as_text=True)
+    assert "setup.token" not in body and "/etc/cafe-wifi" not in body
+    assert "install.sh" in body

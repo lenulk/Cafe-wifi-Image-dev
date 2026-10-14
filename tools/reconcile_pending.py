@@ -72,7 +72,9 @@ def purge_orphan_claims() -> int:
 def expire_requests() -> int:
     """คำขอใช้งานที่ไม่มีใครอนุมัติทันเวลา -> expired และล้างเลขบัตร (hash/ciphertext) ทิ้งทันที"""
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE access_request SET status='expired', natid_hash=NULL, natid_enc=NULL "
+        # B5 (PDPA): ล้างตัวตนทั้งชุดเหมือนตอนปฏิเสธ (masked ใส่ PURGED เพราะ NOT NULL) · mac/ip คงไว้
+        cur.execute("UPDATE access_request SET status='expired', natid_hash=NULL, natid_enc=NULL, "
+                    "natid_masked='PURGED', hostname=NULL, user_agent=NULL "
                     "WHERE status='pending' AND expires_at <= NOW()")
         return cur.rowcount
 
@@ -120,7 +122,8 @@ def sync_extended() -> int:
     """
     from tools.enforce_voucher_expiry import run_ndsctl
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT v.id, v.status, v.valid_until FROM voucher v WHERE v.auth_sync_needed = 1")
+        cur.execute("SELECT v.id, v.status, v.valid_until, c.is_blocked FROM voucher v "
+                    "JOIN customer c ON c.id = v.customer_id WHERE v.auth_sync_needed = 1")
         vouchers = cur.fetchall()
         sessions = {}
         for v in vouchers:
@@ -131,7 +134,9 @@ def sync_extended() -> int:
     # ปุ่ม "ปิดสิทธิ์" ตั้งธงนี้ด้วย (2026-10-04) -- เดิมต้องรอ cafe-enforce รอบถัดไปสูงสุด 5 นาที
     # พนักงานเห็นลูกค้ายังใช้เน็ตได้หลังกดปิดแล้ว · ใช้ตัวตัดตัวเดียวกับ cafe-enforce (deauth + ปิด session +
     # log terminate_cause ครบ) แทนการ deauth เองที่นี่ ผลจึงเหมือนรอบปกติทุกอย่าง แค่เร็วขึ้น
-    dead = [v for v in vouchers if not (v["status"] == "active" and v["valid_until"] > datetime.now())]
+    # ลูกค้าที่ถูกระงับ (B6) นับเป็น "ตาย" ด้วย: ไม่ใช่ deauth+auth ต่อให้ใหม่ แต่ให้ cafe-enforce ตัดทิ้ง
+    dead = [v for v in vouchers if v.get("is_blocked")
+            or not (v["status"] == "active" and v["valid_until"] > datetime.now())]
     dead_ok = True
     if dead and any(sessions[v["id"]] for v in dead):
         from tools import enforce_voucher_expiry
@@ -144,7 +149,7 @@ def sync_extended() -> int:
         ok = True
         if v in dead and not dead_ok:
             continue
-        if v["status"] == "active" and v["valid_until"] > datetime.now():
+        if v not in dead:
             minutes = max(1, math.ceil((v["valid_until"] - datetime.now()).total_seconds() / 60))
             for mac in sessions[v["id"]]:
                 try:

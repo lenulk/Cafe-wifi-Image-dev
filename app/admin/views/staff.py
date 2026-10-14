@@ -142,6 +142,10 @@ def staff_reset_password(sid: int):
     temp_pw = crypto.gen_temp_staff_password()
     with core.get_conn() as conn, conn.cursor() as cur:
         row = _load_staff(cur, sid)
+        if not row["is_active"]:
+            # บัญชีที่ปิดอยู่ไม่ควรมีรหัสชั่วคราวใหม่ (เปิดบัญชีอีกครั้งก่อนแล้วค่อยรีเซ็ต)
+            flash(f"บัญชี '{row['username']}' ถูกปิดอยู่ — เปิดบัญชีก่อนจึงรีเซ็ตรหัสได้", "err")
+            return redirect(url_for("staff_list"))
         # password_changed_at = NOW() -> session ของบัญชีนี้ทุกเครื่องหลุดทันที (gate())
         cur.execute("UPDATE staff SET password_hash = %s, must_change_password = 1, "
                     "password_changed_at = NOW() WHERE id = %s",

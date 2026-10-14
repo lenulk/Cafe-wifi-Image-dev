@@ -17,6 +17,8 @@ REVOKE_VOUCHER = "revoke_voucher"
 EXPORT_LOG = "export_log"
 LOGIN_OK = "login_ok"
 LOGIN_FAIL = "login_fail"
+LOGIN_USER_LOCKED = "login_user_locked"  # A3 -- โควตาเดารหัสของชื่อผู้ใช้นี้เพิ่งเต็ม (อาจมีคนรัวชื่อพนักงานจากวงลูกค้า)
+TEMP_PASSWORD_LOGIN = "temp_password_login"  # A6 -- เข้าสู่ระบบครั้งแรกด้วยรหัสชั่วคราวที่ admin ออกให้
 LOGOUT = "logout"  # N38 -- ต้องรู้เวลาจบ session ของแอดมิน ไม่ใช่แค่เวลาเริ่ม
 SETUP_ADMIN = "setup_admin"
 DISK_ALERT = "disk_alert"  # N1 (CODING_BRIEF.md) -- ดิสก์เต็ม = log หยุดเขียน = ผิด ม.26

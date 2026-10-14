@@ -18,6 +18,7 @@ tools/export_evidence.py — ส่งออกข้อมูลจราจร
 """
 from __future__ import annotations
 
+import codecs
 import csv
 import hashlib
 import io
@@ -63,6 +64,23 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def csv_bytes_with_bom(text: str) -> bytes:
+    """
+    B1: ไฟล์ CSV ในซิปมี BOM นำหน้า (ให้ Excel อ่านภาษาไทยถูก) -- แปลงเป็น bytes ครั้งเดียวที่นี่
+    แล้วคิด SHA-256 จาก bytes ชุดเดียวกับที่เขียนลงไฟล์จริง เจ้าหน้าที่ sha256sum ไฟล์ .csv จึงตรงกับ manifest
+    """
+    return codecs.BOM_UTF8 + text.encode("utf-8")
+
+
+# B8: qname/hostname มาจากอุปกรณ์ลูกค้า อาจขึ้นต้นด้วย = + - @ -- ไม่แก้เนื้อหาหลักฐาน แค่เตือนผู้เปิดไฟล์
+CSV_FORMULA_NOTE = ("เปิดไฟล์ .csv แบบข้อความ ไม่ใช่ดับเบิลคลิกใน Excel (หรือใช้ Data > From Text/CSV) "
+                    "เพราะบางค่าอาจขึ้นต้นด้วย = + - @ และต้องไม่ถูกประมวลผลเป็นสูตร")
+
+
 def normalize_mac(mac: str | None) -> str | None:
     """
     R2-10: DB เก็บ MAC เป็นตัวพิมพ์ใหญ่คั่นด้วย ':' เสมอ -- เดิมใส่ `aa:bb:…` แล้วได้ 0 แถวแบบ
@@ -101,8 +119,19 @@ def build_manifest(files: list[ExportedFile], criteria: dict) -> dict:
         "criteria": criteria,
         "files": [{"filename": f.path.name, "sha256": f.sha256, "row_count": f.row_count}
                  for f in files],
-        "note": "ตรวจสอบไฟล์ไม่ถูกแก้ไข: sha256sum <ชื่อไฟล์> แล้วเทียบกับค่าในนี้",
+        "note": "ตรวจสอบไฟล์ไม่ถูกแก้ไข: sha256sum <ชื่อไฟล์> แล้วเทียบกับค่าในนี้ · " + CSV_FORMULA_NOTE,
     }
+
+
+def parse_naive_datetime(value: str) -> datetime:
+    """
+    B9: ฐานข้อมูลเก็บเวลาท้องถิ่นแบบ naive -- ISO ที่มี timezone (…Z / +07:00) เอาไปเทียบกับ datetime
+    ตัวอื่นแล้ว TypeError (เว็บ 500) จึงปฏิเสธเป็น ValueError ให้ผู้เรียกแสดงข้อความปกติ
+    """
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is not None:
+        raise ValueError("ไม่รับวันที่ที่มี timezone — ใช้เวลาท้องถิ่นของร้าน เช่น 2026-08-01T09:30")
+    return dt
 
 
 def parse_range_end(value: str) -> datetime:
@@ -115,7 +144,7 @@ def parse_range_end(value: str) -> datetime:
     ปฏิเสธด้วย "วันที่สิ้นสุดต้องอยู่หลังวันที่เริ่มต้น" ทั้งที่เป็นคำขอที่พบบ่อยที่สุดจากเจ้าหน้าที่
     ถ้าระบุเวลามาด้วยจะใช้ตามที่ระบุ ไม่ไปยุ่ง
     """
-    dt = datetime.fromisoformat(value)
+    dt = parse_naive_datetime(value)
     if len(value.strip()) == 10:  # "YYYY-MM-DD" ไม่มีส่วนเวลา
         dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
     return dt
@@ -247,8 +276,11 @@ def _cli() -> int:  # pragma: no cover
     p = build_parser()
     args = p.parse_args()
 
-    start = datetime.fromisoformat(args.start)
-    end = parse_range_end(args.end)
+    try:
+        start = parse_naive_datetime(args.start)
+        end = parse_range_end(args.end)
+    except ValueError as e:
+        p.error(str(e))
 
     customer = None
     if args.natid:

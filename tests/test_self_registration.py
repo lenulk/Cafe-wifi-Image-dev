@@ -124,12 +124,16 @@ class FakeCursor:
             ar[rid - 1].update(status="approved", decided_at=_now(), decided_by=staff, voucher_id=vid,
                                portal_session_id=sid, natid_hash=None, natid_enc=None)
         elif s.startswith("update access_request set status='rejected'"):
-            staff, note, rid = args
+            staff, note, masked, rid = args
+            assert "hostname=null" in s and "user_agent=null" in s, "B5: ต้องล้างชื่อเครื่อง/UA ด้วย"
             ar[rid - 1].update(status="rejected", decided_at=_now(), decided_by=staff,
-                               decision_note=note, natid_hash=None, natid_enc=None)
+                               decision_note=note, natid_hash=None, natid_enc=None,
+                               natid_masked=masked, hostname=None, user_agent=None)
         # ---- customer
         elif s.startswith("select is_blocked from customer where natid_hash"):
             self._rows = [c for c in cust if c["natid_hash"] == args[0]]
+        elif s.startswith("select is_blocked from customer where id"):
+            self._rows = [c for c in cust if c["id"] == args[0]]
         elif s.startswith("select id, is_blocked"):
             self._rows = [c for c in cust if c["natid_hash"] == args[0]]
         elif s.startswith("update customer set last_seen"):
@@ -150,9 +154,9 @@ class FakeCursor:
                             issued_by=staff, valid_from=vf, valid_until=vu, max_devices=dev,
                             quota_mb=quota, used_mb=0, status="active"))
             self.lastrowid = len(vou)
-        elif s.startswith("select id, username, max_devices, status, valid_until from voucher"):
+        elif s.startswith("select id, username, max_devices, status, valid_until, customer_id from voucher"):
             self._rows = [v for v in vou if v["id"] == args[0]]
-        elif s.startswith("select id, status, valid_until from voucher where id=%s for update"):
+        elif s.startswith("select id, status, valid_until, customer_id from voucher where id=%s for update"):
             self._rows = [v for v in vou if v["id"] == args[0]]
         elif s.startswith("update voucher set valid_until=%s, auth_sync_needed=1"):
             v = next(v for v in vou if v["id"] == args[1])
@@ -929,3 +933,45 @@ def test_status_query_matches_recent_or_unexpired_approved(fas, monkeypatch):
     fas.get("/request")
     q = next(s for s in seen if s.startswith("SELECT ar.code, ar.status"))
     assert "ar.created_at > NOW() - INTERVAL 1 DAY OR (ar.status = 'approved' AND v.valid_until > NOW())" in q
+
+
+# ================================================================ B5: คำขอที่ไม่ได้อนุมัติต้องไม่เหลือตัวตน
+def test_reject_clears_masked_natid_hostname_and_user_agent_but_keeps_mac_ip(fas, admin):
+    _register(fas)
+    req = DB["access_request"][0]
+    assert req["hostname"] or req["user_agent"], "ก่อนปฏิเสธต้องมีข้อมูลเครื่องให้ล้าง"
+    admin.post("/requests/1/reject", data=dict(reason="ไม่มีบัตร"))
+    assert req["natid_masked"] == "PURGED" and req["hostname"] is None and req["user_agent"] is None
+    assert req["mac"] == "AA:BB:CC:DD:EE:01" and req["ip"], "mac/ip เป็นข้อมูลจราจร ม.26 ต้องคงไว้"
+    # หน้า /requests ยังแสดงแถวที่ล้างแล้วได้ ไม่พัง
+    assert admin.get("/requests").status_code == 200
+
+
+# ================================================================ B11: เพดานโควตา
+@pytest.mark.parametrize("quota", ["1000001", "99999999999999999999", "0"])
+def test_quota_above_cap_or_zero_is_rejected_with_flash_not_500(fas, admin, quota):
+    _register(fas)
+    r = _approve(admin, quota_mb=quota)
+    assert r.status_code == 302
+    assert DB["voucher"] == [] and DB["access_request"][0]["status"] == "pending"
+    assert "โควตา" in admin.get("/requests").get_data(as_text=True)
+
+
+def test_quota_at_cap_is_accepted(fas, admin):
+    _register(fas)
+    assert _approve(admin, quota_mb="1000000").status_code == 302
+    assert DB["voucher"][0]["quota_mb"] == 1000000
+
+
+# ================================================================ B6(d): ลูกค้าที่ถูกระงับต่อเวลา/เพิ่มเครื่องไม่ได้
+def test_blocked_customer_voucher_cannot_be_extended_or_get_more_devices(fas, admin):
+    _register(fas)
+    _approve(admin, hours="1", devices="1")
+    v = DB["voucher"][0]
+    DB["customer"][0]["is_blocked"] = 1
+    before = v["valid_until"]
+    admin.post(f"/vouchers/{v['id']}/extend", data=dict(minutes="60"))
+    assert v["valid_until"] == before and not v.get("auth_sync_needed")
+    admin.post(f"/vouchers/{v['id']}/devices", data=dict(devices="3"))
+    assert v["max_devices"] == 1
+    assert not any(a[1] in ("voucher_extend", "voucher_devices") for a in DB["audit"])

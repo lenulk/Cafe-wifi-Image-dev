@@ -107,8 +107,9 @@
           </form>
 
           <form class="act" method="post" action="{{ url_for('toggle_block_customer', cid=r.id) }}"
-                onsubmit="return confirm('{{ 'ยกเลิกการระงับลูกค้ารายนี้ใช่ไหม?' if r.is_blocked else 'ระงับลูกค้ารายนี้ใช่ไหม? เครื่องที่ออนไลน์อยู่จะถูกตัดภายใน 5 นาที และขอใช้งานใหม่ไม่ได้' }}')">
+                onsubmit="return confirm('{{ 'ยกเลิกการระงับลูกค้ารายนี้ใช่ไหม?' if r.is_blocked else 'ระงับลูกค้ารายนี้ใช่ไหม? เครื่องที่ออนไลน์อยู่จะถูกตัดภายในไม่กี่วินาที และขอใช้งานใหม่ไม่ได้' }}')">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="blocked" value="{{ 0 if r.is_blocked else 1 }}">
             {% if r.is_blocked %}
             <h3>ยกเลิกการระงับ</h3>
             <p>ลูกค้ากลับมาขอใช้งานผ่านหน้า Wi-Fi ได้ตามปกติ</p>

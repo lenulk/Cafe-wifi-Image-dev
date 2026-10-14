@@ -89,8 +89,8 @@ def test_export_by_natid_returns_zip_with_verifiable_hashes(client):
     assert manifest["criteria"]["natid_masked"] == "1-2345-XXXXX-XX-3"
     assert manifest["criteria"]["reason"].startswith("หนังสือ")
     for f in manifest["files"]:
-        body = z.read(f["filename"]).decode("utf-8").lstrip("﻿")
-        assert hashlib.sha256(body.encode("utf-8")).hexdigest() == f["sha256"], "ตรวจ hash ได้จริง"
+        raw = z.read(f["filename"])  # B1: bytes ดิบตามที่เจ้าหน้าที่ sha256sum -- ห้าม decode/lstrip BOM
+        assert hashlib.sha256(raw).hexdigest() == f["sha256"], "ตรวจ hash ได้จริง"
     conn_csv = z.read(next(n for n in names if n.startswith("conn_log"))).decode("utf-8")
     assert "93.184.216.34" in conn_csv and "Somchais-iPhone" in conn_csv
     # ทั้งวันที่ 1 ส.ค. (ถึง 23:59:59)
@@ -128,3 +128,45 @@ def test_export_by_mac(client):
     r = _post(client, who="mac", mac="aa-bb-cc-dd-ee-01")
     assert r.status_code == 200 and "aabbccddee01" in r.headers["Content-Disposition"].lower()
     assert client.seen["conn"][2] == "AA:BB:CC:DD:EE:01"
+
+
+def test_manifest_hash_matches_raw_bytes_of_every_listed_file_including_bom(client):
+    """B1: ไฟล์ .csv มี BOM นำหน้า -- hash ใน manifest ต้องคิดจาก bytes เดียวกับที่อยู่ในซิป"""
+    base._login_as(client, "admin")
+    z = zipfile.ZipFile(io.BytesIO(_post(client).get_data()))
+    manifest = json.loads(z.read("manifest.json"))
+    assert len(manifest["files"]) == 2
+    for f in manifest["files"]:
+        raw = z.read(f["filename"])
+        assert raw.startswith(b"\xef\xbb\xbf"), "ยังคง BOM ให้ Excel อ่านภาษาไทย"
+        assert hashlib.sha256(raw).hexdigest() == f["sha256"]
+    for name in z.namelist():
+        if name.endswith(".csv"):
+            assert name in {f["filename"] for f in manifest["files"]}
+
+
+def test_readme_warns_about_csv_formula_cells(client):
+    """B8: เนื้อหาหลักฐานไม่ถูกแก้ แต่ README ต้องเตือนว่าอย่าดับเบิลคลิกเปิดใน Excel"""
+    base._login_as(client, "admin")
+    z = zipfile.ZipFile(io.BytesIO(_post(client).get_data()))
+    readme = z.read("README.txt").decode("utf-8")
+    assert "From Text/CSV" in readme and "= + - @" in readme
+
+
+def test_formula_like_values_are_exported_verbatim(client):
+    base._login_as(client, "admin")
+    DNS.append(dict(DNS[0], qname="=HYPERLINK(\"http://x\")", device_hostname="@evil"))
+    try:
+        z = zipfile.ZipFile(io.BytesIO(_post(client).get_data()))
+    finally:
+        DNS.pop()
+    dns_csv = z.read(next(n for n in z.namelist() if n.startswith("dns_log"))).decode("utf-8-sig")
+    assert "=HYPERLINK" in dns_csv and "@evil" in dns_csv, "ห้ามแก้เนื้อหาหลักฐาน"
+
+
+@pytest.mark.parametrize("field,value", [("start", "2026-08-01T00:00:00+07:00"), ("end", "2026-08-02T00:00:00Z")])
+def test_timezone_aware_range_is_rejected_with_400_not_500(client, field, value):
+    base._login_as(client, "admin")
+    r = _post(client, **{field: value})
+    assert r.status_code == 400
+    assert "timezone" in r.get_data(as_text=True)

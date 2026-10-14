@@ -22,6 +22,8 @@ from functools import wraps
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from itsdangerous import BadSignature, URLSafeTimedSerializer
+
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
 
@@ -75,6 +77,21 @@ WINDOW_SEC = 600
 # จึงไม่พอ ต้องจำกัดต่อ "ชื่อผู้ใช้" ด้วย (สูงกว่าต่อ IP หน่อย กันลูกค้าแกล้งล็อกบัญชีพนักงานง่ายเกินไป)
 MAX_USER_ATTEMPTS = 10
 
+# A1: session ต่ออายุทุก request (PERMANENT_SESSION_LIFETIME เลื่อนตาม) -- หน้าที่ reload/poll เองค้างไว้
+# จึงไม่เคยหมดอายุ · เพดานสัมบูรณ์นับจากเวลา login ไม่ว่าจะใช้งานต่อเนื่องแค่ไหน
+ADMIN_SESSION_MAX_HOURS = 12
+# A6: รหัสชั่วคราวที่ admin ออกให้ใช้ login ได้ไม่เกินเท่านี้ (นับจาก password_changed_at ที่ตั้งตอนสร้าง/รีเซ็ต)
+TEMP_PASSWORD_MAX_HOURS = 24
+# A3: cookie "อุปกรณ์ที่เคยล็อกอินสำเร็จ" -- เครื่องที่มี cookie ของชื่อนั้นไม่ถูกนับโควตา per-username
+# (กันลูกค้าในวงเดียวกันรัวชื่อ admin จนพนักงานตัวจริงเข้าไม่ได้) · ยังติดโควตา per-IP ตามเดิม
+KNOWN_DEVICE_COOKIE = "cw_kd"
+KNOWN_DEVICE_DAYS = 90
+# A2: คนไม่ได้ล็อกอินเขียน audit_log ได้ไม่เกินเท่านี้ต่อ IP ต่อ 10 นาที (นับในหน่วยความจำ จำกัดจำนวนที่ติดตาม)
+ANON_AUDIT_LIMIT = 20
+ANON_AUDIT_WINDOW_SEC = 600
+MAX_TRACKED_ANON = 4096
+_anon_audit: dict[str, list[float]] = {}
+
 
 # ---------------------------------------------------------------- helpers
 def client_ip() -> str:
@@ -100,6 +117,56 @@ def rate_limited(bucket: str, limit: int = MAX_ATTEMPTS) -> bool:
 
 def record_attempt(bucket: str) -> None:
     ratelimit.hit(bucket, WINDOW_SEC, _attempts)
+
+
+def anon_audit_allowed(key: str, limit: int = ANON_AUDIT_LIMIT) -> bool:
+    """A2: จองสิทธิ์เขียน audit ของเหตุการณ์ที่ไม่มีพนักงานล็อกอิน -- คืน False เมื่อเกินโควตาของ key นี้
+    (audit_log ไม่ถูก purge ปล่อยให้คนนอกเขียนไม่จำกัด = SD เต็ม + แถวจริงจมหาย)"""
+    now = time.time()
+    if len(_anon_audit) >= MAX_TRACKED_ANON and key not in _anon_audit:
+        for k in [k for k, ts in _anon_audit.items()
+                  if not ts or now - ts[-1] >= ANON_AUDIT_WINDOW_SEC]:
+            del _anon_audit[k]
+        if len(_anon_audit) >= MAX_TRACKED_ANON:
+            return False  # ตารางเต็มด้วย key ที่ยังไม่หมดเวลา -- ไม่เขียนเพิ่มดีกว่าปล่อยโตไม่จำกัด
+    ts = _anon_audit.setdefault(key, [])
+    ts[:] = [t for t in ts if now - t < ANON_AUDIT_WINDOW_SEC]
+    if len(ts) >= limit:
+        return False
+    ts.append(now)
+    return True
+
+
+def _kd_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt="known-device")
+
+
+def known_device_ok(username: str) -> bool:
+    """A3: cookie อุปกรณ์ที่เคยล็อกอินสำเร็จ ต้องเซ็นถูก ไม่เกิน 90 วัน และเป็นของชื่อผู้ใช้เดียวกันนี้"""
+    raw = request.cookies.get(KNOWN_DEVICE_COOKIE)
+    if not raw or not username:
+        return False
+    try:
+        data = _kd_serializer().loads(raw, max_age=KNOWN_DEVICE_DAYS * 86400)
+    except BadSignature:
+        return False
+    return isinstance(data, dict) and data.get("u") == username.lower()[:64]
+
+
+_DUMMY_HASH: str | None = None
+
+
+def _dummy_hash() -> str:
+    """A4: hash หลอกสร้างครั้งเดียว ใช้ verify แทนเมื่อไม่มีชื่อ/บัญชีปิด ให้เวลาตอบเท่ากับกรณีมีบัญชีจริง"""
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = crypto.hash_password(secrets.token_urlsafe(24))
+    return _DUMMY_HASH
+
+
+def _db_now() -> datetime:
+    """เวลาเดียวกับ NOW() ของฐานข้อมูล (เทสต์ patch ตัวนี้ให้เดินตามนาฬิกาจำลอง)"""
+    return datetime.now()
 
 
 def staff_count() -> int:
@@ -178,6 +245,14 @@ def gate():
         return None
     # R2-L03: session เก็บ role ไว้ใน cookie แต่สิทธิ์จริงอาจเปลี่ยนระหว่างที่ login ค้างอยู่
     if "staff_id" in session:
+        # A1: เพดานอายุสัมบูรณ์ -- cookie เก่าที่ไม่มี login_at นับว่าหมดอายุ
+        try:
+            age = time.time() - int(session.get("login_at") or 0)
+        except (TypeError, ValueError):
+            age = None
+        if age is None or age > ADMIN_SESSION_MAX_HOURS * 3600:
+            session.clear()
+            return redirect(url_for("login"))
         staff = query_one("SELECT role, is_active, must_change_password, password_changed_at "
                           "FROM staff WHERE id = %s", (session["staff_id"],))
         if not staff or not staff["is_active"] or staff["role"] != session.get("role"):
@@ -193,8 +268,10 @@ def gate():
     # R2-09: SameSite=Lax อย่างเดียวไม่กันคำขอจากหน้าอื่นใน "site" เดียวกัน (host/IP เดียวกันคนละ port)
     # ตรวจ token ทุก POST รวม /login และ /setup ด้วย (กัน login CSRF -- ถูกจับ login เป็นบัญชีคนอื่น)
     if request.method == "POST" and app.config["CSRF_ENABLED"] and not csrf_ok():
-        audit.log(audit.CSRF_REJECT, staff_id=session.get("staff_id"), target=request.path,
-                  client_ip=g.client_ip)
+        # A2: พนักงานที่ล็อกอินอยู่ลงตามเดิม · คนนอกจำกัดต่อ IP (ไม่งั้นยิง POST เปล่า ๆ ท่วมตาราง)
+        if session.get("staff_id") or anon_audit_allowed(f"csrf:{g.client_ip or 'unknown'}"):
+            audit.log(audit.CSRF_REJECT, staff_id=session.get("staff_id"), target=request.path,
+                      client_ip=g.client_ip)
         abort(400, "แบบฟอร์มหมดอายุหรือไม่ได้ส่งมาจากหน้านี้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง")
     # ยังไม่มีบัญชีผู้ดูแล -> บังคับไปหน้า setup
     if staff_count() == 0 and request.endpoint not in {"setup", "health"}:
@@ -234,11 +311,13 @@ def setup():
         return render_template("setup_closed.html"), 410
 
     if not SETUP_TOKEN_FILE.exists():
+        # path อยู่แค่ใน log ไม่แสดงบนหน้าเว็บ (วงลูกค้าเข้าหน้านี้ได้)
+        app.logger.error("ไม่พบไฟล์ %s — รัน install.sh ใหม่ หรือสร้างด้วย openssl rand -hex 24",
+                         SETUP_TOKEN_FILE)
         return render_template(
             "error.html",
             title="ยังตั้งค่าไม่ได้",
-            message=f"ไม่พบไฟล์ {SETUP_TOKEN_FILE} — รัน install.sh ใหม่ "
-                    "หรือสร้างไฟล์นี้เองด้วย openssl rand -hex 24",
+            message="ยังไม่พร้อมตั้งค่า — ให้ช่างรันตัวติดตั้ง (install.sh) ซ้ำ หรือดูขั้นตอนในคู่มือการติดตั้ง",
         ), 503
 
     if request.method == "GET":
@@ -253,7 +332,7 @@ def setup():
 
     token_in = request.form.get("token", "")
     username = (request.form.get("username") or "").strip()
-    display = (request.form.get("display_name") or "").strip() or username
+    display = (request.form.get("display_name") or "").strip()[:128] or username
     pw1 = request.form.get("password") or ""
     pw2 = request.form.get("password_confirm") or ""
 
@@ -263,7 +342,8 @@ def setup():
     if not crypto.constant_time_eq(token_in, expected):
         record_attempt(f"setup:{ip}")
         errors.append("Setup Token ไม่ถูกต้อง")
-    if not (3 <= len(username) <= 64) or not username.replace("_", "").replace(".", "").isalnum():
+    if (not (3 <= len(username) <= 64) or not username.isascii()
+            or not username.replace("_", "").replace(".", "").isalnum()):
         errors.append("ชื่อผู้ใช้ต้องยาว 3-64 ตัว ใช้ได้เฉพาะ a-z A-Z 0-9 . _")
     if pw1 != pw2:
         errors.append("รหัสผ่านทั้งสองช่องไม่ตรงกัน")
@@ -308,8 +388,12 @@ def login():
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
     user_bucket = f"login-user:{username.lower()[:64]}"
-    if rate_limited(f"login:{ip}") or rate_limited(user_bucket, MAX_USER_ATTEMPTS):
-        audit.log(audit.LOGIN_FAIL, target="rate-limited", client_ip=ip, detail=f"user={username[:64]}")
+    known = known_device_ok(username)  # A3: เครื่องที่เคยล็อกอินชื่อนี้สำเร็จ ข้ามโควตา per-username
+    ip_limited = rate_limited(f"login:{ip}")
+    if ip_limited or (not known and rate_limited(user_bucket, MAX_USER_ATTEMPTS)):
+        # A2: บันทึกครั้งแรกของแต่ละ bucket ในหน้าต่างเวลาเท่านั้น (ไม่งั้นรัวคำขอ = ท่วม audit_log)
+        if anon_audit_allowed(f"rl:{'ip:' + ip if ip_limited else user_bucket}", limit=1):
+            audit.log(audit.LOGIN_FAIL, target="rate-limited", client_ip=ip, detail=f"user={username[:64]}")
         return render_template("login.html",
                                error="พยายามเข้าสู่ระบบมากเกินไป รอ 10 นาทีแล้วลองใหม่"), 429
 
@@ -318,12 +402,32 @@ def login():
         "must_change_password, password_changed_at "
         "FROM staff WHERE username = %s", (username,))
 
-    if not row or not row["is_active"] or not crypto.verify_password(row["password_hash"], password):
+    # A4: ไม่มีชื่อ/บัญชีปิดก็ต้องรัน argon2 เท่ากัน ไม่งั้นเดาชื่อพนักงานจากเวลาตอบได้
+    if row and row["is_active"]:
+        ok = crypto.verify_password(row["password_hash"], password)
+    else:
+        crypto.verify_password(_dummy_hash(), password)
+        ok = False
+    if not ok:
         record_attempt(f"login:{ip}")
         record_attempt(user_bucket)
+        if not known and rate_limited(user_bucket, MAX_USER_ATTEMPTS) and anon_audit_allowed(
+                f"lock:{user_bucket}", limit=1):
+            # A3: โควตาของชื่อนี้เพิ่งเต็ม -- ให้ admin เห็นร่องรอยว่ามีคนรัวชื่อนี้จากวงลูกค้า
+            audit.log(audit.LOGIN_USER_LOCKED, target=username, client_ip=ip,
+                      detail=f"ผิดครบ {MAX_USER_ATTEMPTS} ครั้งใน {WINDOW_SEC // 60} นาที")
         audit.log(audit.LOGIN_FAIL, target=username, client_ip=ip)
         # ข้อความเดียวกันทุกกรณี ไม่บอกใบ้ว่าชื่อผู้ใช้มีจริงไหม
         return render_template("login.html", error="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"), 401
+
+    # A6: รหัสชั่วคราวหมดอายุ (เช็กหลังรหัสถูกเท่านั้น -- ไม่งั้นบอกใบ้ว่าชื่อมีจริง)
+    if row.get("must_change_password"):
+        stamp = row.get("password_changed_at")
+        if not isinstance(stamp, datetime) or _db_now() - stamp > timedelta(hours=TEMP_PASSWORD_MAX_HOURS):
+            audit.log(audit.LOGIN_FAIL, staff_id=row["id"], target=username, client_ip=ip,
+                      detail="temp-password-expired")
+            return render_template("login.html",
+                                   error="รหัสชั่วคราวหมดอายุ ให้ผู้ดูแลรีเซ็ตใหม่"), 403
 
     if crypto.needs_rehash(row["password_hash"]):
         execute("UPDATE staff SET password_hash = %s WHERE id = %s",
@@ -332,14 +436,22 @@ def login():
     session.clear()
     session.permanent = True
     session.update(staff_id=row["id"], username=row["username"], role=row["role"],
-                   pw_at=_pw_stamp(row.get("password_changed_at")))
+                   pw_at=_pw_stamp(row.get("password_changed_at")), login_at=int(time.time()))
     execute("UPDATE staff SET last_login_at = NOW() WHERE id = %s", (row["id"],))
     audit.log(audit.LOGIN_OK, staff_id=row["id"], target=username, client_ip=ip)
 
     if row.get("must_change_password"):
+        audit.log(audit.TEMP_PASSWORD_LOGIN, staff_id=row["id"], target=username, client_ip=ip,
+                  detail="เข้าสู่ระบบด้วยรหัสชั่วคราว")
         flash("กรุณาตั้งรหัสผ่านใหม่ของคุณเองก่อนเริ่มใช้งาน (รหัสที่ได้รับเป็นรหัสชั่วคราว)", "warn")
-        return redirect(url_for("change_password"))
-    return redirect(safe_next(request.args.get("next", "")) or url_for("dashboard"))
+        resp = redirect(url_for("change_password"))
+    else:
+        resp = redirect(safe_next(request.args.get("next", "")) or url_for("dashboard"))
+    # A3: จำอุปกรณ์นี้สำหรับชื่อนี้ (เซ็นด้วย SECRET_KEY, ผูกชื่อผู้ใช้, ไม่ส่งข้ามไซต์)
+    resp.set_cookie(KNOWN_DEVICE_COOKIE, _kd_serializer().dumps({"u": row["username"].lower()[:64]}),
+                    max_age=KNOWN_DEVICE_DAYS * 86400, path="/login", httponly=True,
+                    secure=bool(app.config.get("SESSION_COOKIE_SECURE")), samesite="Strict")
+    return resp
 
 
 @app.post("/logout")

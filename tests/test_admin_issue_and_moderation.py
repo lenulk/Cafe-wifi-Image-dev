@@ -22,6 +22,7 @@ VOUCHERS: dict[int, dict] = {}
 AUDIT: list[tuple] = []
 REVEALS: dict[str, dict] = {}
 _ids = {"customer": 0, "voucher": 0}
+FAIL_AUDIT = False
 
 
 def _reset():
@@ -92,7 +93,13 @@ class FakeCursor:
             if c:
                 c["is_blocked"] = bool(args[0])
                 self.rowcount = 1
+        elif s.startswith("update voucher set auth_sync_needed=1 where customer_id"):
+            for v in VOUCHERS.values():
+                if v["customer_id"] == args[0] and v["status"] == "active":
+                    v["auth_sync_needed"] = 1
         elif s.startswith("insert into audit_log"):
+            if FAIL_AUDIT:
+                raise RuntimeError("audit down")
             AUDIT.append(args)
             self.lastrowid = None
             self.rowcount = 1
@@ -196,18 +203,54 @@ def test_revoke_voucher_sets_status_and_is_idempotent_safe(client):
     assert r2.status_code == 404
 
 
-def test_toggle_block_customer_requires_admin_and_toggles(client):
+def test_block_customer_sets_explicit_state_not_toggle(client):
     _seed_voucher()
     cid = next(iter(CUSTOMERS))
+    vid = next(iter(VOUCHERS))
     assert CUSTOMERS[cid]["is_blocked"] is False
 
-    r = client.post(f"/customers/{cid}/block")
+    r = client.post(f"/customers/{cid}/block", data={"blocked": "1"})
     assert r.status_code == 302
     assert CUSTOMERS[cid]["is_blocked"] is True
+    assert VOUCHERS[vid].get("auth_sync_needed") == 1, "B6(c): ต้องตั้งธงให้ cafe-reconcile ตัดเครื่องทันที"
+    assert any("block_customer" in str(a) for a in AUDIT)
 
-    r2 = client.post(f"/customers/{cid}/block")
+    # สั่งซ้ำด้วยสถานะเป้าหมายเดิม = ไม่ทำอะไร (ไม่พลิกกลับ) และไม่เขียน audit ซ้ำ
+    n_audit = len(AUDIT)
+    r2 = client.post(f"/customers/{cid}/block", data={"blocked": "1"})
     assert r2.status_code == 302
-    assert CUSTOMERS[cid]["is_blocked"] is False, "เรียกซ้ำต้องสลับกลับ (toggle)"
+    assert CUSTOMERS[cid]["is_blocked"] is True and len(AUDIT) == n_audit
+
+    r3 = client.post(f"/customers/{cid}/block", data={"blocked": "0"})
+    assert r3.status_code == 302
+    assert CUSTOMERS[cid]["is_blocked"] is False
+    assert any("unblock_customer" in str(a) for a in AUDIT)
+
+
+def test_block_customer_requires_explicit_target(client):
+    _seed_voucher()
+    cid = next(iter(CUSTOMERS))
+    assert client.post(f"/customers/{cid}/block").status_code == 400
+    assert client.post(f"/customers/{cid}/block", data={"blocked": "x"}).status_code == 400
+    assert CUSTOMERS[cid]["is_blocked"] is False
+
+
+def test_block_customer_unknown_id_404(client):
+    assert client.post("/customers/999/block", data={"blocked": "1"}).status_code == 404
+
+
+def test_block_customer_audit_failure_is_not_swallowed(client):
+    """B6(b): audit.log_required อยู่ใน transaction เดียวกัน -- ล้มแล้วต้องไม่ตอบสำเร็จเงียบ ๆ"""
+    global FAIL_AUDIT
+    _seed_voucher()
+    cid = next(iter(CUSTOMERS))
+    FAIL_AUDIT = True
+    try:
+        client.application.config["PROPAGATE_EXCEPTIONS"] = True
+        with pytest.raises(RuntimeError):
+            client.post(f"/customers/{cid}/block", data={"blocked": "1"})
+    finally:
+        FAIL_AUDIT = False
 
 
 def test_dashboard_renders_with_revoke_button_for_active_voucher(client):
@@ -228,11 +271,11 @@ def test_customers_page_renders_block_button_for_admin(client):
     assert "ระงับ" in html
 
 
-def test_toggle_block_customer_rejected_for_non_admin_staff(client, monkeypatch):
+def test_block_customer_rejected_for_non_admin_staff(client, monkeypatch):
     monkeypatch.setitem(STAFF[0], "role", "staff")
     with client.session_transaction() as sess:
         sess["role"] = "staff"
     _seed_voucher()
     cid = next(iter(CUSTOMERS))
-    r = client.post(f"/customers/{cid}/block")
+    r = client.post(f"/customers/{cid}/block", data={"blocked": "1"})
     assert r.status_code == 403

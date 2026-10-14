@@ -129,6 +129,8 @@ def app_mod(tmp_path, monkeypatch):
     admin_app.SETUP_TOKEN_FILE = tmp_path / "setup.token"  # ไม่มีไฟล์ = setup เสร็จแล้ว
     admin_app.app.config.update(SESSION_COOKIE_SECURE=False, TESTING=True, CSRF_ENABLED=False)
     admin_app._attempts.clear()
+    admin_app._anon_audit.clear()
+    admin_app._db_now = lambda: CLOCK["t"]  # A6: รหัสชั่วคราวหมดอายุตามนาฬิกาจำลอง
     return admin_app
 
 
@@ -368,3 +370,166 @@ def test_login_limited_per_username_even_when_ip_changes(app_mod):
     assert _login(c, "owner", ADMIN_PW).status_code == 429
     app_mod._attempts.clear()
     assert _login(c, "owner", ADMIN_PW).status_code == 302
+
+
+# ---------------------------------------------------------------- hardening รอบ 14 ต.ค. (A1-A6)
+import time as _time
+
+
+def test_a1_session_expires_after_absolute_max_even_if_active(app_mod):
+    c = _client(app_mod)
+    assert _login(c, "owner", ADMIN_PW).status_code == 302
+    assert c.get("/staff").status_code == 200
+    with c.session_transaction() as s:
+        assert abs(s["login_at"] - _time.time()) < 5
+        s["login_at"] = int(_time.time()) - (app_mod.ADMIN_SESSION_MAX_HOURS * 3600 + 60)
+    r = c.get("/staff")
+    assert r.status_code == 302 and "/login" in r.headers["Location"]
+    with c.session_transaction() as s:
+        assert "staff_id" not in s
+
+
+def test_a1_session_without_login_at_counts_as_expired(app_mod):
+    c = _client(app_mod)
+    c._no_login_at = True
+    with c.session_transaction() as s:
+        s.update(staff_id=1, username="owner", role="admin", pw_at="")
+    r = c.get("/staff")
+    assert r.status_code == 302 and "/login" in r.headers["Location"]
+
+
+def test_a2_anonymous_csrf_reject_audit_is_capped_per_ip(app_mod):
+    app_mod.app.config.update(CSRF_ENABLED=True)
+    app_mod._anon_audit.clear()
+    c = _client(app_mod)
+    for _ in range(app_mod.ANON_AUDIT_LIMIT + 15):
+        assert c.post("/login", data=dict(username="x", password="y"),
+                      headers={"X-Real-IP": "10.0.0.9"}).status_code == 400
+    assert _actions().count("csrf_reject") == app_mod.ANON_AUDIT_LIMIT
+    # IP อื่นยังมีโควตาของตัวเอง
+    c.post("/login", data=dict(username="x"), headers={"X-Real-IP": "10.0.0.10"})
+    assert _actions().count("csrf_reject") == app_mod.ANON_AUDIT_LIMIT + 1
+
+
+def test_a2_logged_in_csrf_reject_not_capped(app_mod):
+    app_mod.app.config.update(CSRF_ENABLED=True)
+    c = _client(app_mod)
+    with c.session_transaction() as s:
+        s.update(staff_id=1, username="owner", role="admin", pw_at="")
+    for _ in range(app_mod.ANON_AUDIT_LIMIT + 5):
+        assert c.post("/staff", data=dict(username="z")).status_code == 400
+    assert _actions().count("csrf_reject") == app_mod.ANON_AUDIT_LIMIT + 5
+
+
+def test_a2_rate_limited_login_audits_only_first_time(app_mod):
+    app_mod._anon_audit.clear()
+    c = _client(app_mod)
+    hdr = {"X-Real-IP": "10.0.0.5"}
+    for _ in range(app_mod.MAX_ATTEMPTS):
+        assert c.post("/login", data=dict(username="owner", password="bad"), headers=hdr).status_code == 401
+    AUDIT.clear()
+    for _ in range(10):
+        assert c.post("/login", data=dict(username="owner", password="bad"), headers=hdr).status_code == 429
+    assert [a for a in AUDIT if a[2] == "rate-limited"].__len__() == 1
+
+
+def test_a3_known_device_bypasses_username_bucket_but_not_ip_bucket(app_mod):
+    c = _client(app_mod)
+    assert _login(c, "owner", ADMIN_PW).status_code == 302
+    ck = c.get_cookie("cw_kd", path="/login")
+    assert ck is not None
+    assert ck.http_only and ck.same_site == "Strict" and ck.path == "/login"
+    # คนแปลกหน้า (ไม่มี cookie) รัวชื่อ owner จากหลาย IP จนโควตาชื่อเต็ม
+    stranger = _client(app_mod)
+    for i in range(app_mod.MAX_USER_ATTEMPTS):
+        stranger.post("/login", data=dict(username="owner", password="bad"),
+                      headers={"X-Real-IP": f"10.1.0.{i + 1}"})
+    r = stranger.post("/login", data=dict(username="owner", password=ADMIN_PW),
+                      headers={"X-Real-IP": "10.1.0.200"})
+    assert r.status_code == 429
+    assert "login_user_locked" in _actions()
+    assert _actions().count("login_user_locked") == 1
+    # เครื่องที่มี cookie ผ่านได้
+    c2 = _client(app_mod)
+    c2.set_cookie("cw_kd", ck.value, path="/login")
+    r = c2.post("/login", data=dict(username="owner", password=ADMIN_PW),
+                headers={"X-Real-IP": "10.1.0.201"})
+    assert r.status_code == 302
+    # cookie ของ owner ใช้กับชื่ออื่นไม่ได้
+    with app_mod.app.test_request_context("/login", method="POST",
+                                          headers={"Cookie": f"cw_kd={ck.value}"}):
+        assert app_mod.known_device_ok("owner")
+        assert not app_mod.known_device_ok("somchai")
+    # ยังติดโควตา per-IP
+    c3 = _client(app_mod)
+    c3.set_cookie("cw_kd", ck.value, path="/login")
+    for _ in range(app_mod.MAX_ATTEMPTS):
+        assert c3.post("/login", data=dict(username="owner", password="bad"),
+                       headers={"X-Real-IP": "10.9.9.9"}).status_code == 401
+    assert c3.post("/login", data=dict(username="owner", password=ADMIN_PW),
+                   headers={"X-Real-IP": "10.9.9.9"}).status_code == 429
+
+
+def test_a3_forged_known_device_cookie_ignored(app_mod):
+    with app_mod.app.test_request_context("/login", method="POST",
+                                          headers={"Cookie": "cw_kd=forged.value.here"}):
+        assert not app_mod.known_device_ok("owner")
+
+
+def test_a4_unknown_and_disabled_user_still_run_argon2(app_mod, monkeypatch):
+    calls = []
+    real = crypto.verify_password
+    monkeypatch.setattr(crypto, "verify_password", lambda h, p: (calls.append(h), real(h, p))[1])
+    c = _client(app_mod)
+    assert _login(c, "nobody", "whatever-123").status_code == 401
+    assert len(calls) == 1 and calls[0].startswith("$argon2")
+    STAFF.append(dict(id=2, username="off", password_hash=crypto.hash_password("Xx-123456789"),
+                      display_name="o", role="staff", is_active=0, must_change_password=0,
+                      password_changed_at=None, created_at=CLOCK["t"], last_login_at=None))
+    calls.clear()
+    assert _login(c, "off", "Xx-123456789").status_code == 401
+    assert len(calls) == 1 and calls[0] != STAFF[1]["password_hash"]
+
+
+def test_a6_temp_password_expires_after_24h_and_audits(app_mod):
+    c = _client(app_mod)
+    _login(c, "owner", ADMIN_PW)
+    _, temp = _create(c)
+    s = _client(app_mod)
+    CLOCK["t"] += timedelta(hours=app_mod.TEMP_PASSWORD_MAX_HOURS, minutes=1)
+    r = _login(s, "somchai", temp)
+    assert r.status_code == 403
+    assert "รหัสชั่วคราวหมดอายุ" in r.get_data(as_text=True)
+    assert any(a[1] == "login_fail" and a[4] == "temp-password-expired" for a in AUDIT)
+    with s.session_transaction() as sess:
+        assert "staff_id" not in sess
+    # รหัสผิดยังได้ข้อความทั่วไป ไม่บอกว่ามีชื่อนี้
+    assert _login(_client(app_mod), "somchai", "wrong-pass-1").status_code == 401
+    # admin รีเซ็ตใหม่ -> ใช้ได้อีก
+    sid = STAFF[-1]["id"]
+    r = c.post(f"/staff/{sid}/reset-password")
+    temp2 = re.findall(r'<div class="cred">([^<]+)</div>', r.get_data(as_text=True))[1].strip()
+    assert _login(_client(app_mod), "somchai", temp2).status_code == 302
+
+
+def test_a6_first_temp_password_login_is_audited(app_mod):
+    c = _client(app_mod)
+    _login(c, "owner", ADMIN_PW)
+    _, temp = _create(c)
+    assert _login(_client(app_mod), "somchai", temp).status_code == 302
+    assert "temp_password_login" in _actions()
+
+
+def test_a6_reset_password_refused_on_disabled_account(app_mod):
+    c = _client(app_mod)
+    _login(c, "owner", ADMIN_PW)
+    _create(c)
+    sid = STAFF[-1]["id"]
+    c.post(f"/staff/{sid}/active")
+    before = STAFF[-1]["password_hash"]
+    AUDIT.clear()
+    r = c.post(f"/staff/{sid}/reset-password")
+    assert r.status_code == 302
+    assert STAFF[-1]["password_hash"] == before
+    assert "staff_reset_password" not in _actions()
+    assert "ถูกปิดอยู่" in c.get("/staff").get_data(as_text=True)

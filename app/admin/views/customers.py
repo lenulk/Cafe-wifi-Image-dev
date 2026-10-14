@@ -88,16 +88,31 @@ def reveal(cid: int):
 @core.login_required
 @core.admin_required
 def toggle_block_customer(cid: int):
-    row = core.query_one("SELECT is_blocked FROM customer WHERE id=%s", (cid,))
-    if not row:
-        abort(404)
-    new_state = not row["is_blocked"]
-    core.execute("UPDATE customer SET is_blocked=%s WHERE id=%s", (new_state, cid))
-    audit.log("block_customer" if new_state else "unblock_customer",
-              staff_id=session["staff_id"], target=f"customer:{cid}", client_ip=g.client_ip)
-    # R2-05: เครื่องที่ออนไลน์อยู่ถูกตัดโดย cafe-enforce.timer รอบถัดไป (ทุก 5 นาที) -- แอปนี้
-    # รันเป็น cafewifi สั่ง ndsctl deauth เองไม่ได้
-    flash("ระงับลูกค้ารายนี้แล้ว อุปกรณ์ที่ออนไลน์อยู่จะถูกตัดภายใน 5 นาที" if new_state
+    """ระงับ/ยกเลิกระงับลูกค้า -- ฟอร์มส่งสถานะเป้าหมายมาตรง ๆ (blocked=1/0) ไม่ใช่สลับ
+    แอดมิน 2 คนกดสวนกันจะได้ผลเหมือนกัน ไม่พลิกกลับ · คำสั่งที่สถานะเป็นอย่างนั้นอยู่แล้ว = ไม่ทำอะไร"""
+    target = (request.form.get("blocked") or "").strip()
+    if target not in ("0", "1"):
+        abort(400, "ต้องระบุสถานะเป้าหมาย blocked=1 หรือ 0")
+    new_state = target == "1"
+    # UPDATE + ธงตัดเครื่อง + audit อยู่ใน transaction เดียว: audit บันทึกไม่ได้ = ไม่ระงับ (rollback)
+    with core.get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT is_blocked FROM customer WHERE id=%s FOR UPDATE", (cid,))
+        row = cur.fetchone()
+        if not row:
+            abort(404)
+        if bool(row["is_blocked"]) == new_state:
+            flash("ลูกค้ารายนี้ถูกระงับอยู่แล้ว ไม่มีอะไรเปลี่ยน" if new_state
+                  else "ลูกค้ารายนี้ไม่ได้ถูกระงับอยู่แล้ว ไม่มีอะไรเปลี่ยน", "warn")
+            return redirect(url_for("customers"))
+        cur.execute("UPDATE customer SET is_blocked=%s WHERE id=%s", (new_state, cid))
+        if new_state:
+            # ธงเดียวกับปุ่มปิดสิทธิ์ (revoke_voucher): cafe-reconcile (ทุก 5 วิ) เห็นแล้วตัดเครื่องที่ออนไลน์ทันที
+            cur.execute("UPDATE voucher SET auth_sync_needed=1 WHERE customer_id=%s AND status='active'",
+                        (cid,))
+        audit.log_required("block_customer" if new_state else "unblock_customer",
+                           staff_id=session["staff_id"], target=f"customer:{cid}",
+                           client_ip=g.client_ip, cursor=cur)
+    flash("ระงับลูกค้ารายนี้แล้ว อุปกรณ์ที่ออนไลน์อยู่จะถูกตัดภายในไม่กี่วินาที" if new_state
           else "ยกเลิกการระงับแล้ว", "success")
     return redirect(url_for("customers"))
 
@@ -182,10 +197,11 @@ def evidence():
     if len(reason) < 10:
         return fail("ระบุเลขที่หนังสือ/คำสั่งของเจ้าหน้าที่ หรือเหตุผล อย่างน้อย 10 ตัวอักษร (บันทึกใน audit)")
     try:
-        start = datetime.fromisoformat(form["start"])
+        start = ev.parse_naive_datetime(form["start"])
         end = ev.parse_range_end(form["end"])
-    except ValueError:
-        return fail("รูปแบบวันที่ไม่ถูกต้อง")
+    except ValueError as exc:
+        # ValueError ของ fromisoformat ข้อความเป็นอังกฤษ -- แสดงเฉพาะข้อความของเราเอง (เรื่อง timezone)
+        return fail(str(exc) if "timezone" in str(exc) else "รูปแบบวันที่ไม่ถูกต้อง")
     if end <= start:
         return fail("วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น")
 
@@ -219,29 +235,32 @@ def evidence():
     conn_rows, dns_rows = rows(ev.build_conn_query), rows(ev.build_dns_query)
     tag = f"customer{customer['id']}" if customer else (mac.replace(":", "") if mac else "all")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    conn_csv = ev.rows_to_csv_text(conn_rows, ev.CONN_FIELDS)
-    dns_csv = ev.rows_to_csv_text(dns_rows, ev.DNS_FIELDS)
+    # B1: encode ครั้งเดียว (BOM + UTF-8) แล้วคิด hash จาก bytes ที่เขียนลงซิปจริง
+    conn_bytes = ev.csv_bytes_with_bom(ev.rows_to_csv_text(conn_rows, ev.CONN_FIELDS))
+    dns_bytes = ev.csv_bytes_with_bom(ev.rows_to_csv_text(dns_rows, ev.DNS_FIELDS))
     conn_name, dns_name = f"conn_log_{tag}_{stamp}.csv", f"dns_log_{tag}_{stamp}.csv"
     criteria = dict(mac=mac, start=start.isoformat(), end=end.isoformat(), reason=reason,
                     exported_by=session.get("username"))
     if customer:
         criteria.update(customer_id=customer["id"], natid_masked=customer["natid_masked"])
     manifest = ev.build_manifest(
-        [ev.ExportedFile(path=Path(conn_name), sha256=ev.sha256_text(conn_csv), row_count=len(conn_rows)),
-         ev.ExportedFile(path=Path(dns_name), sha256=ev.sha256_text(dns_csv), row_count=len(dns_rows))],
+        [ev.ExportedFile(path=Path(conn_name), sha256=ev.sha256_bytes(conn_bytes), row_count=len(conn_rows)),
+         ev.ExportedFile(path=Path(dns_name), sha256=ev.sha256_bytes(dns_bytes), row_count=len(dns_rows))],
         criteria)
     readme = ("ไฟล์หลักฐานข้อมูลจราจรทางคอมพิวเตอร์ (พ.ร.บ.คอมพิวเตอร์ มาตรา 26)\n"
               f"ส่งออกเมื่อ {manifest['generated_at']} โดย {session.get('username')}\n"
               f"ช่วงเวลา {start} ถึง {end}\nเหตุผล/เลขที่หนังสือ: {reason}\n\n"
               "ตรวจว่าไฟล์ไม่ถูกแก้ไข: คำนวณ SHA-256 ของไฟล์ .csv แต่ละไฟล์ (เช่น sha256sum <ไฟล์> หรือ\n"
               "certutil -hashfile <ไฟล์> SHA256 บน Windows) แล้วเทียบกับค่าใน manifest.json\n"
+              "(ไฟล์ .csv ขึ้นต้นด้วย BOM ของ UTF-8 เพื่อให้ Excel อ่านภาษาไทยถูก — hash คิดรวม BOM แล้ว)\n"
+              f"{ev.CSV_FORMULA_NOTE}\n"
               "เลขบัตรประชาชนแสดงแบบปิดบางหลัก (natid_masked) ขอเลขเต็มได้จากผู้ดูแลระบบตามขั้นตอน\n")
 
     import zipfile
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(conn_name, "\ufeff" + conn_csv)  # BOM ให้ Excel อ่านภาษาไทยถูก (hash คิดจากเนื้อหาไม่รวม BOM)
-        z.writestr(dns_name, "\ufeff" + dns_csv)
+        z.writestr(conn_name, conn_bytes)  # bytes ชุดเดียวกับที่คิด hash ใน manifest (มี BOM ให้ Excel อ่านไทยถูก)
+        z.writestr(dns_name, dns_bytes)
         z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         z.writestr("README.txt", readme)
     data = buf.getvalue()

@@ -11,6 +11,7 @@ import secrets
 from datetime import datetime, timedelta
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 from common import access, audit, crypto
+from common.customer import PURGED_MARK
 
 from admin import app as core
 from admin.routes import Routes
@@ -24,6 +25,7 @@ routes = Routes()
 # พนักงานไม่เห็นเลขบัตรเต็มบนจอ (§6.2): เห็นแบบ masked และต้องพิมพ์ 4 ตัวท้ายจากบัตรจริง ระบบเทียบ
 # กับที่ลูกค้ากรอกให้ -- ยืนยันว่าบัตรที่ถืออยู่ตรงกับคำขอ และกันกดอนุมัติผิดคำขอ
 PACKAGE_HOURS = (1, 2, 3, 4, 8, 12, 24)
+MAX_QUOTA_MB = 1_000_000   # ~1 TB: เกินตัวเลือกสูงสุดในหน้า (5 GB) หลายเท่า แต่ยังเล็กกว่าขอบ INT มาก
 
 
 def _parse_package():
@@ -33,7 +35,8 @@ def _parse_package():
         hours = max(1, min(24, int(request.form.get("hours") or 4)))
         devices = max(1, min(5, int(request.form.get("devices") or 2)))
         quota_mb: int | None = int(quota_raw) if quota_raw else None
-        if quota_mb is not None and quota_mb <= 0:
+        # B11: คอลัมน์ quota_mb เป็น INT -- ค่าใหญ่เกินที่โพสต์เองทำ INSERT ล้มเป็น 500
+        if quota_mb is not None and not 0 < quota_mb <= MAX_QUOTA_MB:
             raise ValueError
     except ValueError:
         return None
@@ -45,6 +48,13 @@ def _active_voucher(cur, customer_id: int, lock: bool = False):
                 "WHERE customer_id=%s AND status='active' AND valid_until > NOW() "
                 "ORDER BY valid_until DESC LIMIT 1" + (" FOR UPDATE" if lock else ""), (customer_id,))
     return cur.fetchone()
+
+
+def _customer_blocked(cur, customer_id) -> bool:
+    """B6: ลูกค้าที่ถูกระงับห้ามต่อเวลา/เพิ่มเครื่อง -- ตรวจใน transaction เดียวกับที่ล็อก voucher"""
+    cur.execute("SELECT is_blocked FROM customer WHERE id=%s", (customer_id,))
+    row = cur.fetchone()
+    return bool(row and row["is_blocked"])
 
 
 @routes.get("/requests")
@@ -83,7 +93,7 @@ def approve_request(rid: int):
     last4 = re.sub(r"\D", "", request.form.get("last4", ""))
     package = _parse_package()
     if package is None:
-        flash("ชั่วโมง/จำนวนเครื่อง/โควตาต้องเป็นตัวเลข", "err")
+        flash(f"ชั่วโมง/จำนวนเครื่อง/โควตาต้องเป็นตัวเลข (โควตา 1-{MAX_QUOTA_MB:,} MB)", "err")
         return redirect(url_for("requests_page"))
     hours, devices, quota_mb = package
 
@@ -176,10 +186,13 @@ def extend_voucher(vid: int):
     if minutes not in EXTEND_CHOICES_MIN:
         abort(400, "ต่อเวลาได้ 30, 60 หรือ 120 นาที")
     with core.get_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id, status, valid_until FROM voucher WHERE id=%s FOR UPDATE", (vid,))
+        cur.execute("SELECT id, status, valid_until, customer_id FROM voucher WHERE id=%s FOR UPDATE", (vid,))
         v = cur.fetchone()
         if not v or v["status"] != "active" or v["valid_until"] <= datetime.now():
             flash("ต่อเวลาได้เฉพาะสิทธิ์ที่ยังใช้งานได้ — สิทธิ์ที่หมดแล้วให้ลูกค้าขอใช้งานใหม่", "err")
+            return redirect(core.safe_next(request.form.get("next")) or url_for("dashboard"))
+        if _customer_blocked(cur, v["customer_id"]):
+            flash("ลูกค้ารายนี้ถูกระงับการใช้งาน — ต่อเวลาไม่ได้ (ยกเลิกการระงับที่หน้าลูกค้าก่อน)", "err")
             return redirect(core.safe_next(request.form.get("next")) or url_for("dashboard"))
         new_until = v["valid_until"] + timedelta(minutes=minutes)
         cur.execute("UPDATE voucher SET valid_until=%s, auth_sync_needed=1 WHERE id=%s", (new_until, vid))
@@ -204,11 +217,14 @@ def set_voucher_devices(vid: int):
         flash(f"จำนวนเครื่องต้องอยู่ระหว่าง 1-{MAX_DEVICES_PER_VOUCHER}", "err")
         return redirect(back)
     with core.get_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id, username, max_devices, status, valid_until FROM voucher "
+        cur.execute("SELECT id, username, max_devices, status, valid_until, customer_id FROM voucher "
                     "WHERE id=%s FOR UPDATE", (vid,))
         v = cur.fetchone()
         if not v or v["status"] != "active" or v["valid_until"] <= datetime.now():
             flash("สิทธิ์นี้หมดอายุหรือถูกยกเลิกแล้ว", "err")
+            return redirect(back)
+        if _customer_blocked(cur, v["customer_id"]):
+            flash("ลูกค้ารายนี้ถูกระงับการใช้งาน — แก้จำนวนเครื่องไม่ได้", "err")
             return redirect(back)
         cur.execute("SELECT COUNT(*) AS n FROM device WHERE voucher_id=%s", (vid,))
         used = int((cur.fetchone() or {}).get("n") or 0)
@@ -235,9 +251,12 @@ def reject_request(rid: int):
         if not req:
             flash("คำขอนี้ถูกจัดการไปแล้ว", "err")
             return redirect(url_for("requests_page"))
+        # B5 (PDPA): คำขอที่ไม่ได้อนุมัติไม่มีเหตุให้เก็บตัวตนต่อ -- ล้างเลขบัตร (masked ใส่ PURGED เพราะ
+        # คอลัมน์ NOT NULL) + ชื่อเครื่อง + user_agent ทันที · mac/ip คงไว้เป็นข้อมูลจราจรตาม ม.26
         cur.execute("UPDATE access_request SET status='rejected', decided_at=NOW(), decided_by=%s, "
-                    "decision_note=%s, natid_hash=NULL, natid_enc=NULL WHERE id=%s",
-                    (session["staff_id"], note, rid))
+                    "decision_note=%s, natid_hash=NULL, natid_enc=NULL, natid_masked=%s, "
+                    "hostname=NULL, user_agent=NULL WHERE id=%s",
+                    (session["staff_id"], note, PURGED_MARK, rid))
         audit.log_required(audit.REQUEST_REJECT, staff_id=session["staff_id"], target=req["code"],
                            client_ip=g.client_ip,
                            detail=f"customer={req['natid_masked']} reason={note or '-'}", cursor=cur)

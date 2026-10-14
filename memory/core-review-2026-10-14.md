@@ -47,3 +47,10 @@ Report: `docs/code-review-2026-10-14-core.md` (branch `image`, commits 691bbe6..
 - **The 017 migration must run before restarting cafe-fas**, or the register INSERT fails. Re-run install.sh; the new code alone isn't enough.
 - Biggest admin finding: B1, a manifest hash mismatch on the evidence zip. Fixable locally.
 - Pi-only: B2 (approving a MAC that is already authed), B3, B4 (export memory), B7, A7, A8, B12.
+- Local admin fixes landed: B1, A1–A6, B5, B6, B8, B9, B11.
+  - Session cap: absolute 12h, from `session["login_at"]`. tests/conftest.py autouse adds login_at to session_transaction.
+  - Known-device cookie `cw_kd` skips the per-username login bucket.
+  - Temp passwords expire after 24h.
+  - Evidence hash is over the exact zip bytes, BOM included.
+  - Blocking a customer sets voucher.auth_sync_needed, and sync_extended now cuts blocked customers instead of re-authing them.
+- Still Pi-only: B2, B3, B4, B7, A7, A8, B12.

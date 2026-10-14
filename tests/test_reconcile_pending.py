@@ -276,6 +276,9 @@ def test_expire_requests_clears_pii(monkeypatch):
     assert ORIG_EXPIRE() == 2
     (sql, _), = cur.executed
     assert "status='expired'" in sql and "natid_hash=NULL" in sql and "natid_enc=NULL" in sql
+    # B5: ล้างตัวตนครบชุดเหมือนตอนปฏิเสธ (masked NOT NULL -> PURGED) · mac/ip ไม่แตะ
+    assert "natid_masked='PURGED'" in sql and "hostname=NULL" in sql and "user_agent=NULL" in sql
+    assert " mac=" not in sql and ", ip=" not in sql
 
 
 
@@ -288,7 +291,7 @@ class _SyncCursor:
     def execute(self, sql, args=()):
         self.executed.append((sql, args))
         s = sql.lower()
-        if "from voucher v where v.auth_sync_needed" in s:
+        if "where v.auth_sync_needed" in s:
             self._rows = self.vouchers
         elif "from portal_session where voucher_id" in s:
             self._rows = [dict(mac=m) for m in self.macs.get(args[0], [])]
@@ -371,3 +374,15 @@ def test_sync_dead_voucher_without_online_device_just_clears_flag(monkeypatch):
     cur, calls = _sync_env(monkeypatch, [v], {})
     monkeypatch.setattr(enforce, "run", lambda deauth=True: pytest.fail("ไม่มีเครื่องออนไลน์ ไม่ต้องตัด"))
     assert ORIG_SYNC() == 1 and calls == []
+
+
+def test_sync_blocked_customer_active_voucher_is_cut_not_reauthed(monkeypatch):
+    """B6: ระงับลูกค้า -> ตั้ง auth_sync_needed บน voucher ที่ยัง active · ต้องตัดผ่าน cafe-enforce ไม่ใช่ deauth+auth ต่อใหม่"""
+    import tools.enforce_voucher_expiry as enforce
+    v = dict(id=9, status="active", is_blocked=1, valid_until=datetime.now() + timedelta(hours=1))
+    cur, calls = _sync_env(monkeypatch, [v], {9: ["AA:BB:CC:DD:EE:01"]})
+    ran = []
+    monkeypatch.setattr(enforce, "run", lambda deauth=True: ran.append(deauth))
+    assert ORIG_SYNC() == 1
+    assert ran == [True] and calls == [], "ห้ามเรียก ndsctl auth ซ้ำให้ลูกค้าที่ถูกระงับ"
+    assert any("auth_sync_needed=0" in s and a == (9,) for s, a in cur.executed)
