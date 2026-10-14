@@ -123,7 +123,11 @@ def verify_keys(db: str, dek: str, pepper: str) -> tuple[int, int]:
     os.environ["NATID_DEK"], os.environ["NATID_PEPPER"] = dek, pepper
     sys.path.insert(0, str(OPT_DIR))
     from common import crypto
-    r = mysql(db, f"SELECT HEX(natid_enc), natid_hash FROM customer ORDER BY id DESC LIMIT {SAMPLE}")
+    # ข้ามลูกค้าที่ถูกล้างข้อมูลแล้ว (DSR/purge: natid_enc='' natid_hash='PURGED-<id>') -- ถอดไม่ได้โดยธรรมชาติ
+    # เดิมนับเป็น "กุญแจไม่ตรง" -> ร้านที่มีการลบตามกำหนดใน 50 รายล่าสุดโดน DROP ฐานทั้งที่ใช้กุญแจถูกไฟล์
+    r = mysql(db, "SELECT HEX(natid_enc), natid_hash FROM customer "
+                  "WHERE LENGTH(natid_enc) > 0 AND natid_hash NOT LIKE 'PURGED-%' "
+                  f"ORDER BY id DESC LIMIT {SAMPLE}")
     if r.returncode != 0:
         raise RuntimeError("อ่านตาราง customer ไม่ได้")
     ok = n = 0
@@ -153,6 +157,13 @@ def write_keys(dek: str, pepper: str) -> str:
     os.replace(tmp, target)
     getattr(os, "sync", lambda: None)()
     return keybackup.dek_fingerprint(new)
+
+
+def reset_db(db: str) -> None:
+    """กลับเป็นฐานว่างแบบหลังบูตแรก (ให้ลอง .cwkey อื่น/กู้ใหม่/สร้างแอดมินใหม่ได้)
+    GRANT ของผู้ใช้แอปผูกกับชื่อฐาน ไม่หายเมื่อ DROP"""
+    mysql(None, f"DROP DATABASE `{db}`; CREATE DATABASE `{db}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    apply_migrations(db)
 
 
 def main() -> int:
@@ -187,6 +198,8 @@ def main() -> int:
 
     write_status("running", f"กำลังคืนฐานข้อมูลจาก {dump.name}")
     try:
+        # ตั้งแต่เริ่ม import ถ้าพังตรงไหนก็ตาม ต้องล้างฐานทิ้ง: ไม่งั้นมี staff จากไฟล์สำรอง (กู้ซ้ำไม่ได้, wizard
+        # ข้ามขั้นสร้างแอดมิน) แต่ secrets.env ยังเป็นกุญแจของเครื่องใหม่ = ถอดเลขบัตรไม่ได้ทั้งฐาน
         import_dump(db, dump)
         apply_migrations(db)
         try:
@@ -196,19 +209,22 @@ def main() -> int:
         ensure_partition_maintenance(db, days)
         ok, n = verify_keys(db, dek, pepper)
         if n and ok != n:
-            # กุญแจไม่ใช่ของร้านนี้ -- ล้างข้อมูลที่เพิ่งคืนทิ้ง (ถอดไม่ได้อยู่ดี) กลับเป็นฐานว่างแบบหลังบูตแรก
-            # ให้ลองไฟล์ .cwkey อื่น หรือสร้างแอดมินใหม่ได้ · GRANT ของผู้ใช้แอปผูกกับชื่อฐาน ไม่หายเมื่อ DROP
-            mysql(None, f"DROP DATABASE `{db}`; CREATE DATABASE `{db}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-            apply_migrations(db)
+            # กุญแจไม่ใช่ของร้านนี้ -- ล้างข้อมูลที่เพิ่งคืนทิ้ง (ถอดไม่ได้อยู่ดี)
+            reset_db(db)
             write_status("failed", f"กุญแจในไฟล์สำรองไม่ตรงกับข้อมูลใน USB (ถอดได้ {ok}/{n}) -- "
                                    "ใช้ไฟล์ .cwkey ของเครื่องเดียวกับ USB นี้")
             return 1
-        fp = write_keys(dek, pepper)
-        mysql(db, "INSERT INTO audit_log (action, target, detail) VALUES ('setup_restore', "
-                  f"'{dump.name}', 'กู้คืนผ่าน setup wizard: ไฟล์สำรองกุญแจ + ฐานข้อมูลจาก USB (ตรวจถอดเลขบัตร {ok}/{n})')")
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
-        write_status("failed", str(e))
+        fp = write_keys(dek, pepper)       # atomic: ล้ม = secrets.env เดิม คู่กับฐานที่ล้างแล้ว
+    except Exception as e:  # noqa: BLE001 -- ทุกกรณี (รวม BackupError/ValueError) ต้องไม่ค้าง "running"
+        try:
+            reset_db(db)
+        except Exception:  # noqa: BLE001
+            pass
+        write_status("failed", f"กู้คืนไม่สำเร็จ ล้างฐานกลับเป็นว่างแล้ว ลองใหม่ได้: {e}"[:500])
         return 1
+    # กุญแจ + ฐานตรงกันแล้ว -- audit เขียนไม่ได้ไม่ใช่เหตุให้ทิ้งการกู้คืนที่สำเร็จ
+    mysql(db, "INSERT INTO audit_log (action, target, detail) VALUES ('setup_restore', "
+              f"'{dump.name}', 'กู้คืนผ่าน setup wizard: ไฟล์สำรองกุญแจ + ฐานข้อมูลจาก USB (ตรวจถอดเลขบัตร {ok}/{n})')")
     staff = staff_count(db)
     write_status("done", f"กู้คืนสำเร็จจาก {dump.name}", backup=dump.name, customers_checked=n,
                  staff=staff, dek_fp=fp)

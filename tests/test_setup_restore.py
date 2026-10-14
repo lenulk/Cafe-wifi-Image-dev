@@ -179,3 +179,40 @@ def test_partition_maintenance_reapplies_003_when_partitioned(tmp_path, monkeypa
     assert restore.ensure_partition_maintenance("cafewifi", 365) is True
     assert any("ALTER EVENT" in (q or "") and "(365)" in q for q in ran)
     assert any("event_scheduler" in (q or "") for q in ran)
+
+
+# ------------------------------------------------------------------ รีวิว 14 ต.ค. (S1, S8)
+def test_verify_keys_skips_purged_customers(monkeypatch):
+    """S1: ลูกค้าที่ถูกล้างข้อมูล (natid_enc='') เคยถูกนับเป็นกุญแจไม่ตรง -> DROP ฐานทั้งที่กุญแจถูก"""
+    from setup import restore
+    seen = {}
+
+    def fake_mysql(db, sql=None, stdin=None):
+        seen["sql"] = sql
+        return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    monkeypatch.setattr(restore, "mysql", fake_mysql)
+    assert restore.verify_keys("cafewifi", "a" * 64, "b" * 64) == (0, 0)
+    assert "LENGTH(natid_enc) > 0" in seen["sql"] and "NOT LIKE 'PURGED-%'" in seen["sql"]
+
+
+def test_root_failure_after_import_resets_db_and_never_stays_running(root, monkeypatch):
+    """S8: ล้มหลัง import (exception นอกรายการเดิม) ต้องล้างฐาน + status failed ไม่ค้าง running"""
+    before = (root.etc / "secrets.env").read_text(encoding="utf-8")
+
+    def boom(db):
+        raise ValueError("migration พัง")
+    monkeypatch.setattr(root, "apply_migrations", boom)
+    assert root.main() == 1
+    st = _status(root)
+    assert st["state"] == "failed" and "ล้างฐาน" in st["message"]
+    assert any("DROP DATABASE" in (s or "") for s in root.calls["sql"])
+    assert (root.etc / "secrets.env").read_text(encoding="utf-8") == before
+
+
+def test_root_write_keys_failure_resets_db(root, monkeypatch):
+    def boom(dek, pepper):
+        raise keybackup.BackupError("ไฟล์สำรองไม่มี NATID_DEK")
+    monkeypatch.setattr(root, "write_keys", boom)
+    assert root.main() == 1
+    assert _status(root)["state"] == "failed"
+    assert any("DROP DATABASE" in (s or "") for s in root.calls["sql"])

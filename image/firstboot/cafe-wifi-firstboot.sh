@@ -185,6 +185,11 @@ ensure_tech_user() {
   printf '%s\n' "$CONF_SSH_PUBKEY" > "$tmp"
   ssh-keygen -l -f "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; fail "SSH_PUBKEY ใน ${CONF_NAME} ไม่ใช่ public key ที่ถูกต้อง"; }
   rm -f "$tmp"
+  # บัญชีระบบที่มีอยู่แล้ว (www-data, mysql, ...) ห้ามใช้: ฟังก์ชันนี้ให้ NOPASSWD:ALL -- โปรเซสของ service
+  # นั้นจะ sudo เป็น root ได้ทันที · บัญชีคนจริง (UID >= 1000 เช่น cafeadmin ของ pi-gen) ใช้ซ้ำได้
+  if id -u "$user" >/dev/null 2>&1 && (( $(id -u "$user") < 1000 )); then
+    fail "TECH_USER '${user}' เป็นบัญชีระบบ (UID < 1000) -- ใช้ชื่ออื่น เช่น ${DEFAULT_TECH_USER}"
+  fi
   if ! id -u "$user" >/dev/null 2>&1; then
     log "สร้างบัญชีช่าง ${user} (SSH key เท่านั้น)"
     useradd -m -s /bin/bash "$user"

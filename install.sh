@@ -2516,6 +2516,11 @@ main() {
   if [[ "$GATEWAY_NAME" == *[\'\"\\\`\$]* || "$GATEWAY_NAME" == *$'\n'* ]]; then
     die "ชื่อ portal ห้ามมีอักขระ ' \" \\ \` \$ หรือขึ้นบรรทัดใหม่"
   fi
+  # อักขระควบคุม (VT/FF/TAB...) + ตัวแบ่งบรรทัด Unicode (NEL U+0085, U+2028/2029) -- Python splitlines()
+  # แยกเป็นบรรทัดใหม่ = แทรกคีย์ปลอมลงไฟล์สำรองกุญแจได้ · เทียบระดับไบต์ UTF-8 (ชื่อร้านมาจาก cafewifi.conf ได้ด้วย)
+  if printf '%s' "$GATEWAY_NAME" | LC_ALL=C grep -qP '[\x00-\x1f\x7f]|\xc2[\x80-\x9f]|\xe2\x80[\xa8\xa9]'; then
+    die "ชื่อ portal ห้ามมีอักขระควบคุม/อักขระที่มองไม่เห็น"
+  fi
   # build ไม่ได้ daemon-reload (chroot) -- เริ่มช่วงถัดไปบนเครื่องจริงต้องให้ systemd อ่าน unit ใหม่ก่อน
   if [[ "$STAGE" == firstboot || "$STAGE" == site ]] && [[ "$INIT_SYS" == systemd ]]; then
     run systemctl daemon-reload

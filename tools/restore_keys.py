@@ -45,7 +45,11 @@ def merge(restored: str, current: str | None) -> str:
     if missing:
         raise keybackup.BackupError(f"ไฟล์สำรองไม่มี {', '.join(missing)}")
     out, seen = [], set()
-    for line in current.splitlines():
+    lines = current.split("\n")       # \n เท่านั้น ให้ตรงกับ keybackup.parse_env (ไม่แยกที่ \x0b \x85 U+2028)
+    if lines and lines[-1] == "":
+        lines.pop()
+    for line in lines:
+        line = line.rstrip("\r")
         key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
         if key in old:
             out.append(f"{key}={old[key]}")

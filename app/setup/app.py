@@ -8,7 +8,8 @@ setup/app.py -- Setup wizard ของ image (M4, docs/install-from-image.md ข
 ซึ่งตรวจค่าซ้ำ ตรวจเราเตอร์ซ้ำ แล้วรัน install.sh --stage site · wizard ไม่มีสิทธิ์ root เอง
 
 ความปลอดภัย: ช่วงนี้ Pi อยู่วงเดียวกับลูกค้าที่ยังใช้ Wi-Fi ร้านตามปกติ (ยังไม่มี portal)
-  - ทุกหน้าต้องผ่าน setup code ก่อน · ผิด 5 ครั้ง ล็อกทั้งเครื่อง 15 นาที (ไม่ใช่ต่อ IP -- เปลี่ยน IP ได้)
+  - ทุกหน้าต้องผ่าน setup code ก่อน · ผิด 5 ครั้ง ล็อก**เฉพาะ IP นั้น** 15 นาที -- เดิมล็อกทั้งเครื่อง แต่เครื่องไหนในวงก็
+    กดผิดวนให้ช่างเข้าไม่ได้ตลอด · เปลี่ยน IP วนทายก็ไม่คุ้ม: code ~39.6 บิต
   - setup code ใช้ได้จนกว่าจะบันทึกสำเร็จ แล้ว apply.py ลบทิ้ง + ปิด wizard ถาวร (.site-done)
 """
 from __future__ import annotations
@@ -53,7 +54,8 @@ app.config.update(
 )
 
 _lock = threading.Lock()
-_fails: list[float] = []
+_fails: dict[str, list[float]] = {}     # IP -> เวลาที่กรอกผิด
+MAX_TRACKED_IPS = 4096
 _restore_fails: list[float] = []
 
 
@@ -65,16 +67,28 @@ def _read_code() -> str:
         return ""
 
 
-def locked_until() -> float:
+def _prune(now: float) -> None:
+    for ip in [ip for ip, ts in _fails.items() if not ts or now - ts[-1] >= LOCK_SEC]:
+        del _fails[ip]
+
+
+def locked_until(ip: str) -> float:
     now = time.time()
     with _lock:
-        _fails[:] = [t for t in _fails if now - t < LOCK_SEC]
-        return _fails[0] + LOCK_SEC if len(_fails) >= MAX_FAILS else 0.0
+        ts = _fails.get(ip, [])
+        ts[:] = [t for t in ts if now - t < LOCK_SEC]
+        return ts[0] + LOCK_SEC if len(ts) >= MAX_FAILS else 0.0
 
 
-def _record_fail() -> None:
+def _record_fail(ip: str) -> int:
+    """บันทึกการกรอกผิดของ IP นี้ คืนจำนวนครั้งที่เหลือก่อนล็อก"""
+    now = time.time()
     with _lock:
-        _fails.append(time.time())
+        if len(_fails) >= MAX_TRACKED_IPS:
+            _prune(now)
+        ts = _fails.setdefault(ip, [])
+        ts.append(now)
+        return max(0, MAX_FAILS - len(ts))
 
 
 def staff_count() -> int:
@@ -114,7 +128,8 @@ def guard():
         return render_template("setup_done.html"), 410
     if request.method == "POST":
         sent = request.form.get("csrf", "")
-        if not sent or not secrets.compare_digest(sent, session.get("csrf", "")):
+        # เทียบเป็น bytes: compare_digest กับ str ที่ไม่ใช่ ASCII (เช่นภาษาไทย) โยน TypeError = 500
+        if not crypto.constant_time_eq(sent, session.get("csrf", "")):
             abort(400)
     if request.endpoint in ("code", "static") or request.endpoint is None:
         return None
@@ -150,7 +165,8 @@ def index():
 def code():
     if request.method == "GET":
         return render_template("setup_code.html", step=1)
-    until = locked_until()
+    ip = request.remote_addr or "?"
+    until = locked_until(ip)
     if until:
         mins = max(1, int((until - time.time()) // 60) + 1)
         return render_template("setup_code.html", step=1,
@@ -158,8 +174,7 @@ def code():
     expected = _read_code()
     given = (request.form.get("code") or "").upper().replace("-", "").replace(" ", "")
     if not expected or not crypto.constant_time_eq(given, expected):
-        _record_fail()
-        left = max(0, MAX_FAILS - len(_fails))
+        left = _record_fail(ip)
         return render_template("setup_code.html", step=1,
                                errors=[f"setup code ไม่ถูกต้อง (เหลือ {left} ครั้งก่อนล็อก 15 นาที)"]), 400
     session.clear()
@@ -274,13 +289,27 @@ def router():
                            status=read_status(), admin_user=session.get("admin_user"))
 
 
+def _compact_router_result(res: dict) -> dict:
+    """เก็บใน cookie เฉพาะที่หน้าเว็บแสดง -- อุปกรณ์ในวงส่ง RA/DHCP offer มาเยอะ ๆ ได้ (cookie เกิน 4 KB
+    เบราว์เซอร์ทิ้ง session ทั้งก้อน ช่างวนกลับหน้าแรก)"""
+    def part(key: str, list_key: str, ip_key: str) -> dict:
+        d = res.get(key) or {}
+        out = {"ok": bool(d.get("ok")), list_key: [{ip_key: str(x.get(ip_key, ""))[:45]}
+                                                   for x in (d.get(list_key) or [])[:5]]}
+        if d.get("error"):
+            out["error"] = str(d["error"])[:200]
+        return out
+    return {"ok": bool(res.get("ok")), "dhcp": part("dhcp", "servers", "server_ip"),
+            "ipv6": part("ipv6", "routers", "router_ip")}
+
+
 @app.route("/router/check", methods=["POST"])
 def router_check():
     if "net" not in session:
         return redirect(url_for("network"))
     from tools import check_router
     res = check_router.check(session["net"]["nic"])
-    session["router_result"] = res
+    session["router_result"] = _compact_router_result(res)
     session["router_ok_at"] = time.time() if res.get("ok") else 0
     return redirect(url_for("router"))
 
@@ -295,6 +324,8 @@ def apply():
         return redirect(url_for("admin"))
     if read_status().get("state") == "running":
         return render_template("setup_applying.html", step=5, v=session["net"])
+    if read_status(RESTORE_STATUS).get("state") == "running" or RESTORE_REQUEST.exists():
+        return redirect(url_for("restore"))     # กำลังกู้ฐานข้อมูลอยู่ -- ห้ามรัน --stage site ซ้อน
     vals, errors = netinfo.validate(session["net"])
     if errors:
         return redirect(url_for("network"))

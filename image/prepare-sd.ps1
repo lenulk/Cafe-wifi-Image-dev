@@ -42,6 +42,8 @@ if ($FactoryReset) { $ShopName = '' }   # ชื่อร้านเดิม�
 elseif (-not $PSBoundParameters.ContainsKey('ShopName')) { $ShopName = Read-Host 'ชื่อร้าน (แสดงบนหน้า Wi-Fi ลูกค้า, Enter = Cafe-Guest)' }
 $ShopName = $ShopName.Trim()
 if ($ShopName -match "['`"\\``$]" -or $ShopName.Length -gt 64) { throw 'ชื่อร้านยาวไม่เกิน 64 ตัว และห้ามมี '' " \ ` $' }
+# อักขระควบคุม/มองไม่เห็น (ตรงกับ install.sh + setup/netinfo.py) -- Pi ปฏิเสธอยู่ดี แจ้งช่างตั้งแต่ตอนนี้ดีกว่า
+if ($ShopName -match '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]') { throw 'ชื่อร้านห้ามมีอักขระควบคุม/อักขระที่มองไม่เห็น' }
 
 $keyLine = ''
 if (-not $PSBoundParameters.ContainsKey('SshKey')) {

@@ -47,7 +47,9 @@ def _unb64(s: str) -> bytes:
 
 def parse_env(text: str) -> dict[str, str]:
     out: dict[str, str] = {}
-    for line in text.splitlines():
+    # แยกด้วย LF เท่านั้น (เหมือน bash/systemd EnvironmentFile) -- splitlines() แยกที่ VT/NEL/U+2028 ด้วย
+    # ค่าที่มีอักขระพวกนี้ (เช่นชื่อร้าน) จะกลายเป็นบรรทัดใหม่ = แทรก NATID_DEK= ปลอมเข้าไฟล์สำรองได้
+    for line in text.split("\n"):
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -114,7 +116,9 @@ def unpack(blob: bytes, passphrase: str) -> str:
     header = {k: v for k, v in doc.items() if k != "ct"}
     try:
         n, r, p = int(doc["n"]), int(doc["r"]), int(doc["p"])
-        if not (2 ** 10 <= n <= 2 ** 20 and 1 <= r <= 32 and 1 <= p <= 16):
+        # เพดานใกล้ค่าที่ pack() ใช้ (2^15, 8, 1): หัวไฟล์มาจากผู้อัปโหลด และ scrypt ใช้ RAM 128*n*r ไบต์
+        # *ก่อน* รู้ว่ารหัสถูกไหม -- เพดานเดิม (2^20, 32) = ~4 GiB ทำ Pi OOM ฆ่า MariaDB/wizard
+        if not (2 ** 10 <= n <= 2 ** 16 and 1 <= r <= 8 and 1 <= p <= 2):
             raise ValueError
         salt, nonce, ct = _unb64(doc["salt"]), _unb64(doc["nonce"]), _unb64(doc["ct"])
     except (KeyError, ValueError, TypeError) as e:

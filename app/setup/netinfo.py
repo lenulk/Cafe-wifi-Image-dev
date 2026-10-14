@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import unicodedata
 import subprocess
 from pathlib import Path
 
@@ -16,9 +17,17 @@ SYS_NET = Path("/sys/class/net")
 NIC_RE = re.compile(r"^[A-Za-z0-9_.-]{1,15}$")
 # อักขระที่ install.sh ปฏิเสธ (ทำไฟล์ config พัง) -- ตรวจที่นี่ก่อนเพื่อบอกช่างได้ทันที
 BAD_NAME_CHARS = set("'\"\\`$\n\r")
+# NIC ที่ไม่ใช่สายต่อเราเตอร์: lo = ตัดตัวเอง, wl* = Wi-Fi ของช่าง/SSH (ออกแบบไว้สายเดียวทาง eth)
+BAD_NIC_PREFIXES = ("lo", "wl")
 MIN_RETENTION_DAYS = 90       # พ.ร.บ.คอมพิวเตอร์ฯ ม.26
 MAX_RETENTION_DAYS = 3650
 DEFAULT_CLIENT_CIDR = "10.10.0.1/24"
+
+
+def _bad_name_char(c: str) -> bool:
+    """อักขระควบคุม/จัดรูปแบบ/ตัวแบ่งบรรทัด Unicode -- NUL ทำ subprocess (root) ล้ม,
+    VT, NEL, U+2028 ฯลฯ ถูก str.splitlines() แยกเป็นบรรทัดใหม่ = แทรกคีย์ปลอมลง secrets.env ได้"""
+    return c in BAD_NAME_CHARS or unicodedata.category(c) in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp")
 
 
 def _ip_json(*args: str) -> list:
@@ -68,8 +77,10 @@ def validate(req: dict, check_nic_exists: bool = True) -> tuple[dict, list[str]]
     out: dict = {}
 
     nic = str(req.get("nic", "")).strip()
-    if not NIC_RE.match(nic):
+    if not NIC_RE.match(nic) or nic in (".", ".."):
         errors.append("ชื่ออินเทอร์เฟซไม่ถูกต้อง")
+    elif nic.startswith(BAD_NIC_PREFIXES):
+        errors.append(f"ใช้ {nic} ไม่ได้ -- ต้องเป็นพอร์ต LAN ที่ต่อสายไปเราเตอร์ (เช่น eth0)")
     elif check_nic_exists and not (SYS_NET / nic).exists():
         errors.append(f"ไม่พบอินเทอร์เฟซ {nic} บนเครื่องนี้")
     out["nic"] = nic
@@ -90,7 +101,8 @@ def validate(req: dict, check_nic_exists: bool = True) -> tuple[dict, list[str]]
     try:
         cl = ipaddress.IPv4Interface(str(req.get("client_cidr", "")).strip())
         # /24 เท่านั้น: dnsmasq ใน install.sh ใช้ netmask 255.255.255.0 ตายตัว
-        if cl.network.prefixlen != 24 or not cl.ip.is_private \
+        # is_private รวม 127/8, 169.254/16 ด้วย -- วงลูกค้าต้องเป็น RFC1918 จริง
+        if cl.network.prefixlen != 24 or not cl.ip.is_private or cl.ip.is_loopback or cl.ip.is_link_local \
                 or cl.ip in (cl.network.network_address, cl.network.broadcast_address):
             raise ValueError
         out["client_cidr"] = str(cl)
@@ -108,8 +120,8 @@ def validate(req: dict, check_nic_exists: bool = True) -> tuple[dict, list[str]]
     name = str(req.get("gateway_name", "")).strip()
     if not name:
         name = "Cafe-Guest"
-    if len(name) > 64 or any(c in BAD_NAME_CHARS for c in name):
-        errors.append("ชื่อร้านยาวไม่เกิน 64 ตัว และห้ามมี ' \" \\ ` $")
+    if len(name) > 64 or any(_bad_name_char(c) for c in name):
+        errors.append("ชื่อร้านยาวไม่เกิน 64 ตัว และห้ามมี ' \" \\ ` $ หรืออักขระพิเศษที่มองไม่เห็น")
     out["gateway_name"] = name
 
     try:

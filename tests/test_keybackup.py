@@ -230,3 +230,27 @@ def test_restore_wrong_passphrase_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setenv("CAFEWIFI_RESTORE_PASSPHRASE", "wrong passphrase!!")
     assert restore_keys.main([str(f)]) == 3
     assert (tmp_path / "secrets.env").read_text(encoding="utf-8") == "NATID_DEK=keep\n"
+
+
+# ------------------------------------------------------------------ รีวิว 14 ต.ค. (S2, S6)
+def test_unpack_rejects_memory_hungry_scrypt_params():
+    """S2: หัวไฟล์มาจากผู้อัปโหลด -- n/r ใหญ่ = scrypt กิน RAM หลาย GiB ก่อนตรวจรหัส"""
+    doc = json.loads(keybackup.pack(SECRETS, PASS))
+    for over in ({"n": 2 ** 20}, {"r": 32}, {"p": 16}):
+        bad = json.dumps({**doc, **over}).encode()
+        with pytest.raises(keybackup.BackupError, match="หัวไฟล์"):
+            keybackup.unpack(bad, PASS)
+
+
+def test_parse_env_splits_on_lf_only():
+    """S6: VT/NEL/U+2028 ในค่า (เช่นชื่อร้าน) ต้องไม่กลายเป็นบรรทัดใหม่"""
+    env = keybackup.parse_env("GATEWAY_NAME=a\x0bNATID_DEK=evil x\nNATID_DEK=" + "a" * 64 + "\r\n")
+    assert env["NATID_DEK"] == "a" * 64
+    assert env["GATEWAY_NAME"].startswith("a\x0bNATID_DEK=evil")
+
+
+def test_restore_merge_keeps_odd_lines_intact():
+    from tools import restore_keys
+    cur = "GATEWAY_NAME=a\x85b\nNATID_DEK=" + "f" * 64 + "\nNATID_PEPPER=" + "e" * 64 + "\n"
+    out = restore_keys.merge("NATID_DEK=" + "a" * 64 + "\nNATID_PEPPER=" + "b" * 64 + "\n", cur)
+    assert out == "GATEWAY_NAME=a\x85b\nNATID_DEK=" + "a" * 64 + "\nNATID_PEPPER=" + "b" * 64 + "\n"

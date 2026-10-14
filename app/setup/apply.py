@@ -85,7 +85,7 @@ def finish_success() -> None:
     write_status("done", "ตั้งค่าเสร็จ")
 
 
-def main() -> int:
+def _main() -> int:
     STATE_DIR.mkdir(mode=0o755, exist_ok=True)
     if SITE_DONE.exists():
         REQUEST_FILE.unlink(missing_ok=True)
@@ -136,6 +136,15 @@ def main() -> int:
     finish_success()
     processing.unlink(missing_ok=True)
     return 0
+
+
+def main() -> int:
+    """ทุก exception ที่ไม่คาดคิดต้องจบที่ fail(): ถึงจุดนั้น wizard ถูก stop ไปแล้ว ถ้าหลุดออกไปเฉย ๆ
+    status ค้าง "running" และไม่มีหน้าเว็บให้ช่างเห็นจนกว่าจะรีบูต"""
+    try:
+        return _main()
+    except Exception as e:  # noqa: BLE001
+        return fail(f"ข้อผิดพลาดภายใน: {type(e).__name__}: {e}"[:300], log=True)
 
 
 if __name__ == "__main__":

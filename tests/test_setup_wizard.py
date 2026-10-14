@@ -246,3 +246,77 @@ def test_validate_rejects_non_24_client():
     _, errs = netinfo.validate({"nic": "eth0", "uplink_cidr": "192.168.1.5/24", "uplink_gw": "192.168.1.1",
                                 "client_cidr": "10.10.0.1/16", "retention_days": 180}, check_nic_exists=False)
     assert any("/24" in e for e in errs)
+
+
+# ------------------------------------------------------------------ รีวิว 14 ต.ค. (S3, S5-S7, S11, S12)
+def test_wrong_code_lock_is_per_ip_not_whole_box(wiz):
+    """S3: เครื่องหนึ่งกดผิดจนล็อก ต้องไม่กันช่างที่อยู่อีก IP"""
+    for _ in range(5):
+        r = wiz.post("/code", data={"csrf": csrf(wiz), "code": "WRONG000"},
+                     environ_overrides={"REMOTE_ADDR": "10.0.0.66"})
+        assert r.status_code == 400
+    r = wiz.post("/code", data={"csrf": csrf(wiz), "code": CODE},
+                 environ_overrides={"REMOTE_ADDR": "10.0.0.66"})
+    assert r.status_code == 429
+    other = wiz.mod.app.test_client()
+    tok = re.search(r'name="csrf" value="([^"]+)"', other.get("/code").get_data(as_text=True)).group(1)
+    r = other.post("/code", data={"csrf": tok, "code": CODE}, environ_overrides={"REMOTE_ADDR": "10.0.0.7"})
+    assert r.status_code == 302
+
+
+def test_non_ascii_csrf_is_400_not_500(wiz):
+    """S7: compare_digest(str ภาษาไทย) เคยโยน TypeError"""
+    wiz.get("/code")
+    assert wiz.post("/code", data={"csrf": "ก", "code": CODE}).status_code == 400
+
+
+@pytest.mark.parametrize("name", ["a\x00b", "a\x0bNATID_DEK=x", "a\x85b", "a b", "a‎b", "tab\there"])
+def test_shop_name_rejects_control_and_unicode_line_breaks(name):
+    """S5/S6: NUL ทำ apply (root) ล้ม · VT/NEL/U+2028 ถูก splitlines() แยกเป็นบรรทัดใหม่"""
+    from setup import netinfo
+    _, errs = netinfo.validate({"nic": "eth0", "uplink_cidr": "192.168.1.5/24", "uplink_gw": "192.168.1.1",
+                                "client_cidr": "10.10.0.1/24", "gateway_name": name, "retention_days": 180},
+                               check_nic_exists=False)
+    assert any("ชื่อร้าน" in e for e in errs)
+
+
+def test_shop_name_thai_still_ok():
+    from setup import netinfo
+    v, errs = netinfo.validate({"nic": "eth0", "uplink_cidr": "192.168.1.5/24", "uplink_gw": "192.168.1.1",
+                                "client_cidr": "10.10.0.1/24", "gateway_name": "ร้านกาแฟบ้านสวน ☕",
+                                "retention_days": 180}, check_nic_exists=False)
+    assert not errs and v["gateway_name"] == "ร้านกาแฟบ้านสวน ☕"
+
+
+@pytest.mark.parametrize("nic,cidr", [("lo", "10.10.0.1/24"), ("wlan0", "10.10.0.1/24"), ("..", "10.10.0.1/24"),
+                                      ("eth0", "127.0.5.1/24"), ("eth0", "169.254.3.1/24")])
+def test_validate_rejects_wrong_nic_and_non_rfc1918_client(nic, cidr):
+    """S12"""
+    from setup import netinfo
+    _, errs = netinfo.validate({"nic": nic, "uplink_cidr": "192.168.1.5/24", "uplink_gw": "192.168.1.1",
+                                "client_cidr": cidr, "retention_days": 180}, check_nic_exists=False)
+    assert errs
+
+
+def test_router_result_in_cookie_is_bounded(wiz):
+    """S11: RA/DHCP offer จำนวนมากจากอุปกรณ์ในวงต้องไม่ดัน cookie เกิน 4 KB"""
+    login(wiz); make_admin(wiz); net_form(wiz)
+    many = [{"router_ip": f"fe80::{i:x}", "prefixes": ["2001:db8::/64"] * 20, "junk": "x" * 200}
+            for i in range(200)]
+    wiz.router["result"] = {"ok": False, "dhcp": {"ok": True, "servers": []},
+                            "ipv6": {"ok": False, "routers": many}}
+    r = wiz.post("/router/check", data={"csrf": csrf(wiz, "/router")})
+    assert r.status_code == 302
+    assert len(r.headers.get("Set-Cookie", "")) < 4000
+    html = wiz.get("/router").get_data(as_text=True)
+    assert "fe80::0" in html and "ยังเปิดอยู่" in html
+
+
+def test_apply_refused_while_restore_running(wiz):
+    """S12: ห้ามรัน --stage site ซ้อนกับการกู้ฐานข้อมูล"""
+    login(wiz); make_admin(wiz); net_form(wiz)
+    wiz.post("/router/check", data={"csrf": csrf(wiz, "/router")})
+    (wiz.state / "restore.json").write_text(json.dumps({"state": "running"}), encoding="utf-8")
+    r = wiz.post("/apply", data={"csrf": csrf(wiz, "/router")})
+    assert r.status_code == 302 and r.headers["Location"].endswith("/restore")
+    assert not (wiz.run / "apply.json").exists()
