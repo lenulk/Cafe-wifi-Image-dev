@@ -877,7 +877,12 @@ install_app_files() {
     warn "ไม่พบโฟลเดอร์ app/ ข้าง install.sh — ข้ามขั้นตอนนี้"
   fi
   [[ -d "${SCRIPT_DIR}/sql" ]]   && run_sh "cp -a '${SCRIPT_DIR}/sql'   '${OPT_DIR}/'"
-  [[ -d "${SCRIPT_DIR}/tools" ]] && run_sh "cp -a '${SCRIPT_DIR}/tools' '${OPT_DIR}/'"
+  if [[ -d "${SCRIPT_DIR}/tools" ]]; then
+    run_sh "cp -a '${SCRIPT_DIR}/tools' '${OPT_DIR}/'"
+    # U12: lab_* / bench_* เป็นเครื่องมือแล็บ (ทิ้งบัญชีแอดมิน/SSH key/ลูกค้าจำลอง ถ้าช่างรันพลาดบนเครื่องจริง)
+    # ไม่มี unit/timer/สคริปต์ติดตั้งตัวไหนเรียกใช้ -- ไม่ลงเครื่องจริง (ลบทิ้งทุกครั้งที่รันทับ กันของเก่าค้างจากรุ่นก่อน)
+    run_sh "rm -f '${OPT_DIR}'/tools/lab_* '${OPT_DIR}'/tools/bench_*"
+  fi
   [[ -d "${SCRIPT_DIR}/docs" ]]  && run_sh "cp -a '${SCRIPT_DIR}/docs'  '${OPT_DIR}/'"
   # image: --stage firstboot/site รันจาก ${OPT_DIR}/install.sh (ใช้ ${OPT_DIR}/sql ข้าง ๆ กัน)
   # เพราะใน image ไม่มีโฟลเดอร์โปรเจกต์ต้นฉบับ
@@ -2048,6 +2053,36 @@ Persistent=true
 WantedBy=timers.target
 UNIT
 
+  # T9 (รีวิว tools 14 ต.ค.): check_disk วันละครั้งเร็วไม่พอ -- ดิสก์เต็มกลางวัน = log หยุดเขียนทั้งวัน (ผิด ม.26)
+  # แยก unit ให้รันทุก 15 นาที · บรรทัดใน cafe-maintenance ข้างบนคงไว้ (ไม่เสียหาย)
+  # ไม่มี `-` นำหน้า ExecStart: ล้มแล้ว systemd ต้องมองเห็นว่า unit failed (ต่างจาก maintenance ที่ต้องรันต่อ)
+  write_file /etc/systemd/system/cafe-check-disk.service 0644 <<UNIT
+[Unit]
+Description=Cafe WiFi disk space check (alert before logs stop being written)
+Wants=mariadb.service
+After=mariadb.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=${ETC_DIR}/secrets.env
+Environment=PYTHONPATH=${OPT_DIR}
+WorkingDirectory=${OPT_DIR}
+ExecStart=${VENV_DIR}/bin/python -m tools.check_disk
+UNIT
+
+  write_file /etc/systemd/system/cafe-check-disk.timer 0644 <<'UNIT'
+[Unit]
+Description=Check disk space every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+UNIT
+
   # แก้บั๊ก H3/M1: บังคับอายุ voucher จริง + ปิด session ค้าง -- ต้องรันถี่กว่างาน
   # maintenance รายคืนมาก เพราะเป็นการบังคับสิทธิ์การเข้าถึงเครือข่าย ไม่ใช่แค่ housekeeping
   # (ทุก 5 นาที คือ ความคลาดเคลื่อนสูงสุดที่ลูกค้าจะใช้เน็ตเกินเวลาที่จ่ายไว้ได้)
@@ -2383,7 +2418,7 @@ start_services() {
     run systemctl enable "$s" 2>/dev/null || true
     run systemctl restart "$s" 2>/dev/null || warn "เปิด ${s} ไม่สำเร็จ — ตรวจด้วย: systemctl status ${s}"
   done
-  for s in cafe-maintenance.timer cafe-enforce.timer; do
+  for s in cafe-maintenance.timer cafe-enforce.timer cafe-check-disk.timer; do
     run systemctl enable --now "$s" 2>/dev/null || warn "เปิด ${s} ไม่สำเร็จ — ตรวจด้วย: systemctl status ${s}"
   done
   if (( ! SKIP_NETWORK )); then

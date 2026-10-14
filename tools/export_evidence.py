@@ -3,7 +3,9 @@ tools/export_evidence.py — ส่งออกข้อมูลจราจร
 
 ใช้งาน:
     python -m tools.export_evidence --mac AA:BB:CC:DD:EE:FF --from 2026-08-01 --to 2026-08-22
-    python -m tools.export_evidence --natid 1234567890123 --from 2026-08-01 --to 2026-08-22
+    python -m tools.export_evidence --natid-stdin --from 2026-08-01 --to 2026-08-22   # แนะนำ: เลขไม่อยู่ใน argv
+    python -m tools.export_evidence --natid --from 2026-08-01 --to 2026-08-22         # ไม่ใส่ค่า = ถามแบบไม่แสดงเลข
+    python -m tools.export_evidence --natid 1234567890123 --from 2026-08-01 --to 2026-08-22   # ใช้ได้ แต่เลขค้างใน history/ps
 
 --natid หา customer จาก natid_hash แล้วส่งออกเฉพาะแถวที่โยงกลับไปหาลูกค้ารายนั้นได้แบบไม่กำกวม
 (mac + ip + ช่วงเวลาของ portal_session ด้วย JOIN ชุดเดียวกับหน้า /logs) แถวที่เข้าได้หลาย session
@@ -26,6 +28,7 @@ import json
 import logging
 import os
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -98,8 +101,12 @@ def _write_private(path: Path, text: str) -> None:
     """
     R2-10: เขียนไฟล์สิทธิ์ 0600 ตั้งแต่ตอนสร้าง (ไม่ใช่ chmod ทีหลัง ซึ่งมีช่วงที่ไฟล์เป็น 0644
     ตาม umask ปริยาย) ไฟล์ส่งออกคือข้อมูลจราจรจำนวนมากที่โยงถึงตัวบุคคลได้
+
+    U10: O_EXCL -- ไม่เขียนทับไฟล์หลักฐานที่มีอยู่แล้วเด็ดขาด (FileExistsError) · O_NOFOLLOW กัน symlink
+    ที่ถูกวางดักไว้ในโฟลเดอร์ export (Windows ไม่มี flag นี้ -- getattr คืน 0)
     """
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
         if hasattr(os, "fchmod"):
             os.fchmod(f.fileno(), 0o600)  # เผื่อไฟล์มีอยู่ก่อนด้วยสิทธิ์อื่น
@@ -216,12 +223,29 @@ def query_customer_rows(build_query_fn, customer_id: int, start: datetime, end: 
     return rows
 
 
+def unique_stamp(out_dir: Path, tag: str, base_stamp: str) -> str:
+    """
+    U10: ชื่อไฟล์ระดับวินาที -- export ซ้ำในวินาทีเดียวกันต่อท้าย -2, -3 ... แทนการเขียนทับ
+    (ชุดไฟล์ conn/dns/manifest ใช้ stamp เดียวกันเสมอ จึงเช็คทั้งสามชื่อ)
+    """
+    n, stamp = 1, base_stamp
+    while any((out_dir / f"{prefix}_{tag}_{stamp}.{ext}").exists()
+              for prefix, ext in (("conn_log", "csv"), ("dns_log", "csv"), ("manifest", "json"))):
+        n += 1
+        stamp = f"{base_stamp}-{n}"
+    return stamp
+
+
 def export(mac: str | None, start: datetime, end: datetime, out_dir: Path,
           query_conn_fn, query_dns_fn, staff_id: int | None = None,
-          customer: dict | None = None) -> dict:
+          customer: dict | None = None, actor: str | None = None,
+          audit_result: bool = False) -> dict:
     """
     customer = {"id", "natid_masked"} เมื่อส่งออกตามเลขบัตร (--natid) -- ไม่รับเลขบัตรเต็มเข้ามา
     เลย เพื่อไม่ให้หลุดไปอยู่ใน audit_log, ชื่อไฟล์ หรือ manifest
+
+    U8: actor = ผู้สั่งจริงเมื่อรันจาก CLI (SUDO_USER/ผู้ล็อกอิน) · audit_result=True = ลง audit แถวที่สอง
+    หลังส่งออกสำเร็จ (จำนวนแถว + sha256 ของแต่ละไฟล์ + โฟลเดอร์ปลายทาง -- ไม่มีเลขบัตร)
     """
     if end <= start:
         raise ValueError("วันที่สิ้นสุดต้องอยู่หลังวันที่เริ่มต้น")
@@ -236,9 +260,10 @@ def export(mac: str | None, start: datetime, end: datetime, out_dir: Path,
 
     from common import audit
     audit.log_required(audit.EXPORT_LOG, staff_id=staff_id, target=target,
-                       detail=f"requested range={start}..{end}")
+                       detail=f"requested range={start}..{end}" + (f" actor={actor}" if actor else ""))
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stamp = unique_stamp(out_dir, tag, datetime.now().strftime("%Y%m%d-%H%M%S"))
     conn_rows = query_conn_fn(mac, start, end)
     dns_rows = query_dns_fn(mac, start, end)
 
@@ -252,6 +277,13 @@ def export(mac: str | None, start: datetime, end: datetime, out_dir: Path,
     manifest_path = out_dir / f"manifest_{tag}_{stamp}.json"
     _write_private(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2))
 
+    if audit_result:
+        audit.log(audit.EXPORT_LOG, staff_id=staff_id, target=target,
+                  detail=(f"completed actor={actor or '-'} out_dir={out_dir} "
+                          f"conn_rows={conn_file.row_count} conn_sha256={conn_file.sha256} "
+                          f"dns_rows={dns_file.row_count} dns_sha256={dns_file.sha256} "
+                          f"manifest={manifest_path.name}"))
+
     return {"manifest_path": manifest_path, "conn_file": conn_file, "dns_file": dns_file}
 
 
@@ -262,12 +294,55 @@ def build_parser():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     who = p.add_mutually_exclusive_group()
     who.add_argument("--mac", help="กรองเฉพาะ MAC นี้ (ไม่ใส่ทั้งคู่ = ทุกเครื่อง)")
-    who.add_argument("--natid", help="เลขประจำตัวประชาชน 13 หลัก -- ส่งออกเฉพาะข้อมูลของลูกค้ารายนี้")
+    who.add_argument("--natid", nargs="?", const="-", metavar="NATID",
+                     help="เลขประจำตัวประชาชน 13 หลัก -- ส่งออกเฉพาะข้อมูลของลูกค้ารายนี้ "
+                          "(ไม่ใส่ค่าหรือใส่ '-' = ถามแบบไม่แสดงเลข/อ่านจาก stdin · ใส่เลขตรง ๆ จะค้างใน history/ps)")
+    who.add_argument("--natid-stdin", action="store_true",
+                     help="อ่านเลขประจำตัวประชาชนหนึ่งบรรทัดจาก stdin (ไม่ให้เลขอยู่ใน argv)")
     p.add_argument("--from", dest="start", required=True, help="YYYY-MM-DD")
     p.add_argument("--to", dest="end", required=True,
                   help="YYYY-MM-DD (นับถึงสิ้นวันนั้น) หรือระบุเวลาเองเป็น YYYY-MM-DDTHH:MM:SS")
     p.add_argument("--out", default="/var/log/cafe-wifi/exports")
     return p
+
+
+NATID_ARGV_WARNING = ("คำเตือน: ใส่เลขประจำตัวประชาชนทางบรรทัดคำสั่ง -- เลขเต็มอาจค้างใน shell history, `ps` และ sudo log "
+                      "(รอบหน้าใช้ --natid-stdin หรือ --natid เฉย ๆ แล้วพิมพ์ตอนถาม)")
+
+
+def resolve_natid(natid_arg: str | None, from_stdin: bool, stdin=None, getpass_fn=None,
+                  err=None) -> str | None:
+    """
+    U7: รับเลขบัตรโดยไม่ให้อยู่ใน argv ได้ -- --natid-stdin / --natid (ไม่มีค่าหรือ '-'):
+    stdin เป็น TTY -> getpass (ไม่สะท้อนเลข) · เป็น pipe -> อ่านหนึ่งบรรทัด · ใส่ค่าตรง ๆ ยังใช้ได้แต่เตือน
+    """
+    stdin = stdin if stdin is not None else sys.stdin
+    err = err if err is not None else sys.stderr
+    if natid_arg and natid_arg != "-" and not from_stdin:
+        print(NATID_ARGV_WARNING, file=err)
+        return natid_arg
+    if not (from_stdin or natid_arg == "-"):
+        return None
+    if stdin.isatty():
+        import getpass
+        value = (getpass_fn or getpass.getpass)("เลขประจำตัวประชาชน 13 หลัก (ไม่แสดงขณะพิมพ์): ")
+    else:
+        value = stdin.readline()
+    value = (value or "").strip()
+    if not value:
+        raise ValueError("ไม่ได้รับเลขประจำตัวประชาชน")
+    return value
+
+
+def cli_actor() -> str:
+    """U8: ผู้สั่งจริง -- SUDO_USER (ผู้ที่ sudo มา) -> ผู้ล็อกอิน -> USER/LOGNAME"""
+    name = os.environ.get("SUDO_USER")
+    if not name:
+        try:
+            name = os.getlogin()
+        except OSError:
+            name = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
+    return name
 
 
 def _cli() -> int:  # pragma: no cover
@@ -283,9 +358,13 @@ def _cli() -> int:  # pragma: no cover
         p.error(str(e))
 
     customer = None
-    if args.natid:
+    try:
+        natid = resolve_natid(args.natid, args.natid_stdin)
+    except ValueError as e:
+        p.error(str(e))
+    if natid:
         try:
-            customer = find_customer(args.natid, query_one)
+            customer = find_customer(natid, query_one)
         except ValueError as e:
             p.error(str(e))
         if customer is None:
@@ -304,7 +383,11 @@ def _cli() -> int:  # pragma: no cover
 
     logging.basicConfig(level=logging.INFO)
     try:
-        result = export(args.mac, start, end, Path(args.out), q_conn, q_dns, customer=customer)
+        result = export(args.mac, start, end, Path(args.out), q_conn, q_dns, customer=customer,
+                        actor=cli_actor(), audit_result=True)
+    except FileExistsError as e:
+        print(f"ผิดพลาด: ไฟล์ปลายทางมีอยู่แล้ว ไม่เขียนทับ: {e}", file=sys.stderr)
+        return 1
     except ValueError as e:
         p.error(str(e))
     print(f"ส่งออกสำเร็จ: {result['manifest_path']}")

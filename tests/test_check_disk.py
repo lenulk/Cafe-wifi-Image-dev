@@ -74,6 +74,7 @@ def audit_calls(monkeypatch):
     calls = []
     import common.audit as audit_mod
     monkeypatch.setattr(audit_mod, "log", lambda action, **kw: calls.append((action, kw)))
+    monkeypatch.setattr(check_disk, "recently_alerted", lambda path, level: False)
     return calls
 
 
@@ -137,3 +138,65 @@ def test_run_defaults_to_80_90_when_no_env_and_no_explicit_args(tmp_path, audit_
 # ฟังก์ชันที่อ้างค่า default นั้นไปแล้ว -- ลองเขียนเทสต์แบบนี้ไว้ก่อนแล้วพบว่า "ผ่านโดยบังเอิญ"
 # เพราะดิสก์จริงของเครื่องที่ทดสอบ (C:\) ตอนนั้นเต็มเกิน 90% พอดี ไม่ได้ผ่านเพราะ mock ทำงาน
 # จริง -- ตรรกะที่สำคัญ (run(), check_path(), check_all()) มีเทสต์ inject fake ครบแล้วด้านบน
+
+
+# ---------------------------------------------------------------- T9
+def test_percent_is_used_over_used_plus_free_like_df():
+    """df: used/(used+free) · มี reserved blocks (total > used+free) ต้องไม่ถูกนับเป็นที่ว่าง"""
+    u = _Usage(total=100, used=80, free=10)   # 90% ตาม df (ไม่ใช่ 80%)
+    st = check_disk.check_path("/", 80, 90, disk_usage_fn=lambda p: u)
+    assert st.percent_used == pytest.approx(80 / 90 * 100)
+    assert st.level == "warn"
+
+
+def test_missing_log_dir_does_not_stop_root_check(tmp_path, audit_calls):
+    def usage(p):
+        if p == str(tmp_path / "nope"):
+            raise FileNotFoundError(p)
+        return _fake_usage(95)
+    statuses = check_disk.run(log_dir=str(tmp_path / "nope"), warn_pct=80, crit_pct=90, disk_usage_fn=usage)
+    by_path = {s.path: s for s in statuses}
+    assert by_path[str(tmp_path / "nope")].level == "error"
+    assert by_path["/"].level == "crit", "/ ต้องยังถูกตรวจ"
+    assert {kw["target"] for _, kw in audit_calls} == {str(tmp_path / "nope"), "/"}
+
+
+def test_audit_written_even_when_alert_file_write_fails(tmp_path, audit_calls, monkeypatch):
+    order = []
+    import common.audit as audit_mod
+    monkeypatch.setattr(audit_mod, "log", lambda action, **kw: order.append("audit"))
+
+    def boom(path, line):
+        order.append("file")
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(check_disk, "write_alert", boom)
+    statuses = check_disk.run(log_dir=str(tmp_path), warn_pct=80, crit_pct=90,
+                              disk_usage_fn=lambda p: _fake_usage(95))
+    assert len(statuses) == 2
+    assert order == ["audit", "file", "audit", "file"], "audit ก่อนไฟล์ และทำต่อแม้ไฟล์ล้ม"
+
+
+def test_same_level_alert_is_not_repeated_within_window(tmp_path, audit_calls, monkeypatch):
+    """timer ทุก 15 นาที: ระดับเดิมที่บันทึกไปแล้วใน REPEAT_HOURS ไม่ลง audit ซ้ำ แต่ alert.log ยังเขียน"""
+    monkeypatch.setattr(check_disk, "recently_alerted", lambda path, level: True)
+    check_disk.run(log_dir=str(tmp_path), warn_pct=80, crit_pct=90,
+                   disk_usage_fn=lambda p: _fake_usage(95))
+    assert audit_calls == []
+    assert "CRITICAL" in (tmp_path / "alert.log").read_text(encoding="utf-8")
+
+
+def test_recently_alerted_queries_by_level_and_fails_open(monkeypatch):
+    import common.db as db_mod
+    seen = {}
+
+    def fake_query_one(sql, args):
+        seen["args"] = args
+        return {"hit": 1}
+    monkeypatch.setattr(db_mod, "query_one", fake_query_one)
+    assert check_disk.recently_alerted("/", "crit") is True
+    assert seen["args"][1:] == ("/", "crit %")
+
+    def broken(sql, args):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(db_mod, "query_one", broken)
+    assert check_disk.recently_alerted("/", "crit") is False, "อ่าน DB ไม่ได้ = บันทึกซ้ำดีกว่าเงียบ"

@@ -141,10 +141,17 @@ def sync_extended() -> int:
     if dead and any(sessions[v["id"]] for v in dead):
         from tools import enforce_voucher_expiry
         try:
-            enforce_voucher_expiry.run(deauth=True)
+            summary = enforce_voucher_expiry.run(deauth=True)
         except Exception as exc:  # noqa: BLE001 -- คงธงไว้ให้รอบถัดไป (5 วิ) ลองใหม่
             log.error("ตัดเครื่องของสิทธิ์ที่ถูกปิดไม่สำเร็จ: %s", exc)
             dead_ok = False
+        else:
+            # T3: run() ไม่ raise เมื่อ ndsctl deauth ล้ม แต่นับใน deauth_failed -- ถ้าล้างธงตอนนี้
+            # ลูกค้าที่ถูกปิดสิทธิ์/ระงับจะยังออนไลน์ถึงรอบ cafe-enforce (5 นาที) จึงคงธงให้ลูป 5 วิ ลองใหม่
+            failed = getattr(summary, "deauth_failed", 0)
+            if failed:
+                log.error("ตัดเครื่องของสิทธิ์ที่ถูกปิดไม่ครบ (deauth ล้มเหลว %s เครื่อง) -- คงธงไว้ลองใหม่", failed)
+                dead_ok = False
     for v in vouchers:
         ok = True
         if v in dead and not dead_ok:

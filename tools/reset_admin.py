@@ -11,10 +11,22 @@ tools/reset_admin.py — รีเซ็ตรหัสผ่านผู้ด�
 from __future__ import annotations
 
 import getpass
+import os
 import sys
 
-from common import crypto
-from common.db import execute, query_one
+from common import audit, crypto
+from common.db import get_conn, query_one
+
+
+def cli_actor() -> str:
+    """ใครสั่งเครื่องมือนี้จริง: SUDO_USER (ผู้ที่ sudo มา) -> ผู้ใช้ที่ล็อกอิน -> USER/LOGNAME"""
+    name = os.environ.get("SUDO_USER")
+    if not name:
+        try:
+            name = os.getlogin()
+        except OSError:
+            name = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
+    return name
 
 
 def main() -> int:
@@ -39,9 +51,19 @@ def main() -> int:
         return 1
 
     # password_changed_at = NOW(): session ที่ login ค้างไว้ด้วยรหัสเก่าหลุดทันที (admin/app.py gate())
-    execute("UPDATE staff SET password_hash = %s, is_active = 1, must_change_password = 0, "
-            "password_changed_at = NOW() WHERE id = %s",
-            (crypto.hash_password(pw1), row["id"]))
+    # U6: UPDATE กับ audit อยู่ transaction เดียวกัน -- audit ล้ม = rollback รหัสผ่านไม่เปลี่ยน (fail closed)
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE staff SET password_hash = %s, is_active = 1, must_change_password = 0, "
+                        "password_changed_at = NOW() WHERE id = %s",
+                        (crypto.hash_password(pw1), row["id"]))
+            audit.log_required(audit.STAFF_RESET_PASSWORD, target=username,
+                               detail=f"actor={cli_actor()} via=CLI tools.reset_admin role={row['role']}",
+                               cursor=cur)
+    except Exception as exc:  # noqa: BLE001
+        print(f"รีเซ็ตรหัสผ่านไม่สำเร็จ (บันทึก audit หรืออัปเดตล้มเหลว ไม่มีอะไรถูกเปลี่ยน): {exc}",
+              file=sys.stderr)
+        return 1
     print(f"รีเซ็ตรหัสผ่านของ '{username}' (role={row['role']}) เรียบร้อย")
     return 0
 

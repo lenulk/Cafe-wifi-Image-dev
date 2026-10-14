@@ -54,3 +54,15 @@ Report: `docs/code-review-2026-10-14-core.md` (branch `image`, commits 691bbe6..
   - Evidence hash is over the exact zip bytes, BOM included.
   - Blocking a customer sets voucher.auth_sync_needed, and sync_extended now cuts blocked customers instead of re-authing them.
 - Still Pi-only: B2, B3, B4, B7, A7, A8, B12.
+
+**tools/ review (same day, report `docs/code-review-2026-10-14-tools.md`), the last section of the 14 Oct review:**
+- Fixed locally: T3, T6, T7, T9, U1–U8, U10–U12.
+- T8 is the user's decision: **no automatic deletion of audit_log**. An admin presses `/audit/scrub` instead, which replaces MAC and national-ID text with `[ลบแล้ว]` in rows older than ≥180 days and keeps the rows themselves.
+- New timer `cafe-check-disk.timer` runs every 15 minutes. It is in install.sh start_services and firstboot SITE_UNITS. The audit for the same level is written at most once every 6 h.
+- restore_keys refuses when secrets.env is empty (it used to restore the whole bundle).
+- Export CLI: use `--natid-stdin` instead of putting the national ID in argv.
+- T10 won't fix.
+- **Pi needed:**
+  - T1: right after openNDS restarts, ndsctl json may list only some clients. Sessions get marked gone, then cut as orphans. This is the top priority on the Pi.
+  - T2, T4, T5 (quota counted only on conntrack DESTROY), T11, U9.
+  - The partition DROP event uses CURDATE() and has no clock check.

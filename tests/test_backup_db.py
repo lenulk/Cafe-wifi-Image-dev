@@ -24,6 +24,7 @@ pytestmark = pytest.mark.skipif(
 FAKE_DUMP_SCRIPT = """#!/bin/sh
 echo "-- fake mysqldump output"
 echo "INSERT INTO customer VALUES (1);"
+echo "-- Dump completed on 2026-10-14 03:30:00"
 """
 
 FAKE_DUMP_FAIL_SCRIPT = """#!/bin/sh

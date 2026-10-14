@@ -133,3 +133,55 @@ def test_net_range_covering_gateway_rejected(tmp_path):
 
 def test_net_non_ip_range_rejected(tmp_path):
     assert validate(tmp_path, start="10.10.0.x", end="10.10.0.250").returncode != 0
+
+
+# ------------------------------------------------------------------ รีวิว tools 14 ต.ค. (U12, T9)
+def test_install_app_files_excludes_lab_and_bench_tools(tmp_path):
+    """U12: lab_*/bench_* ไม่ลงเครื่องจริง (แม้มีของเก่าค้างอยู่จากรุ่นก่อน) · เครื่องมือจริงยังอยู่"""
+    src, dst = tmp_path / "src", tmp_path / "opt"
+    (src / "tools").mkdir(parents=True)
+    for d in ("app", "sql", "docs"):
+        (src / d).mkdir()
+    (dst / "tools").mkdir(parents=True)
+    for n in ("backup_db.py", "check_disk.py", "lab_client.sh", "lab_ra_sim.py", "lab_fulltest.sh", "bench_dns_search.py"):
+        (src / "tools" / n).write_text("x")
+    (dst / "tools" / "lab_old.sh").write_text("stale")
+    # SCRIPT_DIR/OPT_DIR เป็น readonly หลัง source -- สลับ path ในคำสั่งก่อนรันจริงแทน
+    pre = ('INIT_SYS=systemd; DRY_RUN=0\n'
+           f'run_sh() {{ local c="${{1//$SCRIPT_DIR/{src.as_posix()}}}"; c="${{c//$OPT_DIR/{dst.as_posix()}}}"; '
+           'case "$c" in cp*|rm*) bash -c "$c";; esac; }')
+    r = call(tmp_path, "install_app_files", pre=pre)
+    assert r.returncode == 0, r.stderr
+    left = sorted(p.name for p in (dst / "tools").iterdir())
+    assert left == ["backup_db.py", "check_disk.py"]
+
+
+def test_nothing_installed_references_lab_or_bench_tools():
+    """ไฟล์ที่ติดตั้งลงเครื่อง (install.sh/image/app) ต้องไม่เรียก lab_*/bench_* -- กันตัดแล้วของพัง"""
+    import re
+    pat = re.compile(r"tools[/.](lab_|bench_)")
+    for rel in ("install.sh", "image/firstboot", "image/check-image.sh", "app"):
+        base = REPO / rel
+        files = [base] if base.is_file() else [p for p in base.rglob("*") if p.is_file() and p.suffix in
+                                                  {".sh", ".py", ".service", ".timer", ".html", ""}]
+        for f in files:
+            text = f.read_text(encoding="utf-8", errors="ignore")
+            for line in text.splitlines():
+                if pat.search(line) and "rm -f" not in line:
+                    pytest.fail(f"{f}: {line.strip()}")
+
+
+def test_check_disk_has_its_own_15min_timer(services):
+    s = unit(services, "cafe-check-disk.service")
+    assert "ExecStart=" in s and "-m tools.check_disk" in s
+    assert "EnvironmentFile=" in s and "secrets.env" in s and "PYTHONPATH=" in s
+    assert "Type=oneshot" in s
+    t = unit(services, "cafe-check-disk.timer")
+    assert "OnBootSec=5min" in t and "OnUnitActiveSec=15min" in t and "AccuracySec=1min" in t
+    assert "WantedBy=timers.target" in t
+
+
+def test_start_services_enables_check_disk_timer(tmp_path):
+    r = call(tmp_path, "start_services", pre="INIT_SYS=systemd; DRY_RUN=0; SKIP_NETWORK=1")
+    assert r.returncode == 0, r.stderr
+    assert "cafe-check-disk.timer" in (tmp_path / "cmds.log").read_text(encoding="utf-8")

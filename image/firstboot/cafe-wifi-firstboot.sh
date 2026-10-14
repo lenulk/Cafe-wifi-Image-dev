@@ -37,7 +37,7 @@ SYSTEMCTL="${CAFEWIFI_SYSTEMCTL:-systemctl}"
 # service ที่ install.sh --stage site เปิด (configure_network/opennds, start_nginx, start_services)
 SITE_UNITS=(opennds.service dnsmasq.service nginx.service cafe-fas.service cafe-admin.service cafe-logger.service
             cafe-wifi-netsetup.service cafe-wifi-conntrack-acct.service nftables.service
-            cafe-enforce.timer cafe-maintenance.timer cafe-reconcile.timer cafe-bypass-detect.timer)
+            cafe-enforce.timer cafe-maintenance.timer cafe-check-disk.timer cafe-reconcile.timer cafe-bypass-detect.timer)
 WIZARD_UNITS=(cafe-wifi-setup.service cafe-wifi-apply.path cafe-wifi-restore.path)
 
 log()  { printf '[firstboot] %s\n' "$*"; }

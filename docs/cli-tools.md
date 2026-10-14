@@ -2,7 +2,7 @@
 
 เอกสารนี้อธิบายสคริปต์ใน `tools/`, `image/` และ `app/logger/run_all.py` ว่ารันอย่างไร ต้องใช้สิทธิ์อะไร อ่านเขียนอะไร และมีความเสี่ยงแค่ไหน ข้อมูลทั้งหมดอ้างจากซอร์สโค้ดและ `install.sh` (ไม่ได้รันสคริปต์จริงเพื่อจัดทำเอกสาร) ส่วนที่ยืนยันจากโค้ดไม่ได้จะเขียนว่า "ไม่แน่ชัด"
 
-สคริปต์ที่รันอัตโนมัติผ่าน systemd มี 5 ตัว คือ `purge_old_data`, `backup_db`, `check_disk` (รายวัน 03:30 ผ่าน `cafe-maintenance.timer`), `enforce_voucher_expiry` (ทุก 5 นาที) และ `reconcile_pending` (ทุกประมาณ 5 วินาที) ที่เหลือเป็นเครื่องมือที่รันด้วยมือ หรือถูกเรียกจากเว็บ/ตัวติดตั้ง
+สคริปต์ที่รันอัตโนมัติผ่าน systemd มี 5 ตัว คือ `purge_old_data`, `backup_db` (รายวัน 03:30 ผ่าน `cafe-maintenance.timer`), `check_disk` (ทุก 15 นาทีผ่าน `cafe-check-disk.timer` และซ้ำอีกครั้งใน maintenance 03:30), `enforce_voucher_expiry` (ทุก 5 นาที) และ `reconcile_pending` (ทุกประมาณ 5 วินาที) ที่เหลือเป็นเครื่องมือที่รันด้วยมือ หรือถูกเรียกจากเว็บ/ตัวติดตั้ง
 
 ## สารบัญ
 
@@ -19,7 +19,7 @@
 |---|---|---|---|
 | `tools/purge_old_data.py` | ลบ conn_log/dns_log ที่เก่ากว่าเกณฑ์ และล้างข้อมูลระบุตัวตนของลูกค้าที่ไม่ได้มาร้านนาน | ใช่ `cafe-maintenance.timer` รายวัน 03:30 | ใช่ (unit ไม่มี `User=` จึงรันเป็น root) |
 | `tools/backup_db.py` | สำรองฐาน `cafewifi` เป็น `.sql.gz` และคัดลอกออกนอกเครื่องถ้าตั้งค่าไว้ | ใช่ `cafe-maintenance.timer` รายวัน 03:30 | ใช่ (root ตาม unit) |
-| `tools/check_disk.py` | เตือนเมื่อดิสก์ `LOG_DIR` และ `/` ใช้เกิน 80%/90% | ใช่ `cafe-maintenance.timer` รายวัน 03:30 | ใช่ (root ตาม unit) |
+| `tools/check_disk.py` | เตือนเมื่อดิสก์ `LOG_DIR` และ `/` ใช้เกิน 80%/90% | ใช่ `cafe-check-disk.timer` ทุก 15 นาที (และ `cafe-maintenance.timer` 03:30) | ใช่ (root ตาม unit) |
 | `tools/enforce_voucher_expiry.py` | หมดอายุ voucher, ตัด session ด้วย `ndsctl deauth`, ปิด session ที่หลุดไปแล้ว | ใช่ `cafe-enforce.timer` ทุก 5 นาที | ใช่ (root ตาม unit และ docstring ของ `deauth_mac`) |
 | `tools/reconcile_pending.py` | ยืนยัน pending session กับ openNDS แล้วเปิดสิทธิ์ใน DB | ใช่ `cafe-reconcile.timer` ทุกประมาณ 5 วินาที | ใช่ (`User=root` ใน unit) |
 | `tools/reset_admin.py` | ตั้งรหัสผ่านผู้ดูแลระบบใหม่จากบรรทัดคำสั่ง | ไม่ (รันด้วยมือ) | ใช่ (ตาม docstring) |
@@ -84,16 +84,17 @@
   - `BACKUP_DIR` ค่าปริยาย `/var/backups/cafe-wifi`
   - `BACKUP_RETENTION_DAYS` ค่าปริยาย `14`
   - `OFFSITE_BACKUP_DIR` ว่าง = ข้ามการคัดลอกออกนอกเครื่อง
+  - `BACKUP_TIMEOUT_SEC` เพดานเวลา dump ทั้งก้อน ค่าปริยาย `3600` เกินแล้วฆ่า mysqldump/gzip ลบ `.tmp` และถือว่าล้มเหลว
   - `OFFSITE_REQUIRE_SEPARATE_DEVICE=1` ถ้าตั้งไว้ จะไม่คัดลอกลงอุปกรณ์เดียวกับ backup (กันการคัดลอกลง SD ใบเดิมโดยไม่รู้ตัว)
   - `DB_NAME` (ค่าปริยาย `cafewifi`), `DB_HOST` (`127.0.0.1`), `DB_PORT` (`3306`), `DB_USER` (`cafewifi`), `DB_PASS`
   - `LOG_DIR` ใช้เขียน `backup-status.json`
 - **อ่าน/เขียน:**
-  - เขียน `<BACKUP_DIR>/<DB_NAME>-<YYYYmmdd-HHMMSS>.sql.gz` โหมด `0600`
+  - เขียน `<BACKUP_DIR>/<DB_NAME>-<YYYYmmdd-HHMMSS>.sql.gz` โหมด `0600` (สร้าง `.tmp` ด้วย `O_EXCL` 0600 ตั้งแต่แรก) แล้วตรวจว่าท้ายสตรีมมี `-- Dump completed` ก่อน rename — ไม่ครบ = ล้มเหลว ไม่ rename
   - เขียน `<OFFSITE_BACKUP_DIR>/<ชื่อไฟล์>` ถ้าคัดลอกได้ (โหมด `0600` ถ้า filesystem รองรับ)
   - เขียน `<LOG_DIR>/backup-status.json` (ไม่มีความลับ มีเวลา ขนาด และผลการคัดลอก)
-  - ลบไฟล์ `*.sql.gz` ใน `BACKUP_DIR` และโฟลเดอร์ offsite ที่เก่ากว่า retention
+  - ลบไฟล์ `*.sql.gz` ใน `BACKUP_DIR` และโฟลเดอร์ offsite ที่เก่ากว่า retention (prune offsite ทำแม้รอบนั้นคัดลอกล้ม เช่น USB เต็ม; USB ไม่ได้เสียบไม่ทำให้พัง) และลบ `*.sql.gz.tmp` ค้างที่เก่ากว่า 1 วันทั้งสองที่
 - **ไม่ใช้** `--routines` และ `--triggers` ตามคอมเมนต์ในไฟล์ (สิทธิ์ของ `DB_USER` ไม่พอ) โครงสร้าง schema อยู่ใน `sql/*.sql` ต้องรันตอน restore เอง
-- **Exit code:** `0` สำเร็จ, `1` เมื่อ `BackupError` (ไม่พบ `mysqldump` หรือ `gzip`, dump ล้มเหลว, gzip ล้มเหลว) ความล้มเหลวของ offsite **ไม่ทำให้ exit code เป็น 1** (ตามคอมเมนต์ในโค้ด)
+- **Exit code:** `0` สำเร็จ, `1` เมื่อ `BackupError`/`ValueError`/`OSError` (ไม่พบ `mysqldump` หรือ `gzip`, dump ล้มเหลว/เกินเวลา/ไม่ครบ, gzip ล้มเหลว, ดิสก์เต็ม) และเขียน `backup-status.json` เป็น `ok=false` พร้อมข้อความเสมอ ความล้มเหลวของ offsite **ไม่ทำให้ exit code เป็น 1** (ตามคอมเมนต์ในโค้ด)
 - **รันอัตโนมัติ:** ใช่ `cafe-maintenance.service` บรรทัด `ExecStart=-...tools.backup_db` (`install.sh` บรรทัด ~1980) ทำงานหลัง purge
 - **ความปลอดภัย:**
   - ไฟล์ dump มี `natid_enc` (ข้อมูลเข้ารหัส) ถอดรหัสได้ต้องมี `secrets.env` คู่กัน
@@ -111,7 +112,7 @@
 - **ตัวแปรสภาพแวดล้อม:** `LOG_DIR`, `DISK_WARN_PCT`, `DISK_CRIT_PCT`
 - **อ่าน/เขียน:** อ่านสถานะดิสก์ผ่าน `shutil.disk_usage` เขียน `<LOG_DIR>/alert.log` (เฉพาะกรณี warn/crit) และ `audit_log`
 - **Exit code:** `1` ถ้ามี path ใดอยู่ระดับ `crit` มิฉะนั้น `0` (ระดับ warn ไม่ทำให้ exit code เป็น 1)
-- **รันอัตโนมัติ:** ใช่ บรรทัด `ExecStart=-...tools.check_disk` ใน `cafe-maintenance.service` (`install.sh` บรรทัด ~1981)
+- **รันอัตโนมัติ:** ใช่ `cafe-check-disk.service` + `cafe-check-disk.timer` (`OnBootSec=5min`, `OnUnitActiveSec=15min`) และยังมีบรรทัด `ExecStart=-...tools.check_disk` ใน `cafe-maintenance.service` ด้วย (`install.sh`)
 - **ความปลอดภัย:** อ่านอย่างเดียว ปลอดภัย แต่บันทึก alert ทุกครั้งที่รัน (ไม่ dedupe)
 
 ### tools/enforce_voucher_expiry.py
@@ -160,6 +161,7 @@
   ```
 - **อาร์กิวเมนต์:** `<username>` ตัวเดียวเท่านั้น ถ้าจำนวนอาร์กิวเมนต์ไม่ใช่ 1 จะพิมพ์ docstring แล้วคืน `2`
 - **การโต้ตอบ:** ถามรหัสผ่านใหม่และยืนยันด้วย `getpass` (ไม่แสดงบนหน้าจอ) ต้องผ่าน `crypto.check_admin_password`
+- **Audit:** เขียน `audit_log` action `staff_reset_password` (target = username, detail มี `actor=` จาก `SUDO_USER` หรือผู้ล็อกอิน และ `via=CLI`) ใน transaction เดียวกับ UPDATE — เขียน audit ไม่ได้ = rollback รหัสผ่านไม่เปลี่ยน
 - **อ่าน/เขียน:** อ่าน `staff` ด้วย `username` แล้วอัปเดต `password_hash`, `is_active = 1`, `must_change_password = 0`, `password_changed_at = NOW()` (session เก่าที่ login ด้วยรหัสเดิมจะหลุด)
 - **Exit code:** `0` สำเร็จ, `1` ไม่พบผู้ใช้ / รหัสไม่ผ่านเกณฑ์ / ยืนยันรหัสไม่ตรงกัน, `2` จำนวนอาร์กิวเมนต์ผิด
 - **รันอัตโนมัติ:** ไม่ (รันด้วยมือ) ไม่พบการอ้างอิงใน `install.sh`
@@ -176,25 +178,33 @@
   ```bash
   sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.export_evidence --mac <mac-address> --from <YYYY-MM-DD> --to <YYYY-MM-DD>'
   ```
+  ค้นด้วยเลขบัตร **แนะนำให้ไม่ใส่เลขในบรรทัดคำสั่ง** (เลขจะค้างใน shell history / `ps` / sudo log) ใช้แบบใดแบบหนึ่งนี้แทน:
+  ```bash
+  # พิมพ์ตอนถาม (ไม่แสดงเลขบนจอ)
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.export_evidence --natid --from <YYYY-MM-DD> --to <YYYY-MM-DD>'
+  # หรืออ่านจาก stdin หนึ่งบรรทัด
+  read -rs NID; echo "$NID" | sudo bash -c '... -m tools.export_evidence --natid-stdin --from <YYYY-MM-DD> --to <YYYY-MM-DD>'; unset NID
+  ```
 - **อาร์กิวเมนต์:**
   | flag | ค่า | หมายเหตุ |
   |---|---|---|
   | `--mac` | MAC address | กรองเฉพาะเครื่องนี้ (ทำให้เป็นตัวพิมพ์ใหญ่ `:` คั่น ตาม `normalize_mac`) ใช้ร่วมกับ `--natid` ไม่ได้ |
-  | `--natid` | เลขบัตร 13 หลัก | ส่งออกเฉพาะข้อมูลของลูกค้ารายนี้ ดูคำเตือนด้านล่าง ใช้ร่วมกับ `--mac` ไม่ได้ |
+  | `--natid` | เลขบัตร 13 หลัก (ไม่ใส่ค่า หรือ `-` = ถามด้วย getpass เมื่อเป็น TTY / อ่านจาก stdin เมื่อเป็น pipe) | ส่งออกเฉพาะข้อมูลของลูกค้ารายนี้ ถ้าใส่เลขตรง ๆ จะพิมพ์คำเตือนภาษาไทยทาง stderr · ใช้ร่วมกับ `--mac` ไม่ได้ |
+  | `--natid-stdin` | (ไม่มีค่า) | อ่านเลขบัตรหนึ่งบรรทัดจาก stdin (TTY = ถามแบบไม่แสดงเลข) · ใช้ร่วมกับ `--mac`/`--natid` ไม่ได้ |
   | `--from` | `YYYY-MM-DD` | บังคับ ใช้ `datetime.fromisoformat` |
   | `--to` | `YYYY-MM-DD` หรือ `YYYY-MM-DDTHH:MM:SS` | บังคับ วันที่เปล่าหมายถึง **สิ้นวันนั้น** (`parse_range_end`) |
   | `--out` | โฟลเดอร์ | ค่าปริยาย `/var/log/cafe-wifi/exports` |
 
   ไม่ใส่ `--mac` หรือ `--natid` จะส่งออกทุกเครื่อง
 - **อ่าน/เขียน:**
-  - เขียน `<out>/conn_log_<tag>_<stamp>.csv`, `<out>/dns_log_<tag>_<stamp>.csv` และ `<out>/manifest_<tag>_<stamp>.json` โดย `tag` เป็น MAC ที่ตัด `:` หรือ `customer<id>` และไม่มีเลขบัตรเต็มในชื่อไฟล์ (ตาม docstring) ไฟล์ตั้งสิทธิ์ `0600`
-  - เขียน `audit_log` ด้วย `EXPORT_LOG`
+  - เขียน `<out>/conn_log_<tag>_<stamp>.csv`, `<out>/dns_log_<tag>_<stamp>.csv` และ `<out>/manifest_<tag>_<stamp>.json` โดย `tag` เป็น MAC ที่ตัด `:` หรือ `customer<id>` และไม่มีเลขบัตรเต็มในชื่อไฟล์ (ตาม docstring) ไฟล์ตั้งสิทธิ์ `0600` สร้างด้วย `O_EXCL`+`O_NOFOLLOW` ไม่เขียนทับไฟล์เดิม — export ซ้ำในวินาทีเดียวกันได้ชื่อต่อท้าย `-2`, `-3`
+  - เขียน `audit_log` ด้วย `EXPORT_LOG` สองแถวเมื่อรันจาก CLI: ก่อนดึงข้อมูล (`requested range=... actor=<SUDO_USER/ผู้ล็อกอิน>`) และหลังสำเร็จ (`completed` + จำนวนแถว + sha256 ของแต่ละไฟล์ + โฟลเดอร์ปลายทาง · ไม่มีเลขบัตร)
 - **Exit code:** `0` สำเร็จ, `1` ไม่พบลูกค้าตาม `--natid` (พิมพ์ข้อความแล้วคืน 1) ข้อผิดพลาดของ argparse หรือ `ValueError` (เช่น `--to` ก่อน `--from`) ทำให้ `p.error` คืน `2`
 - **รันอัตโนมัติ:** ไม่
 - **ความปลอดภัย:**
   - ข้อมูลจำนวนมาก เก็บไฟล์ไว้อย่างปลอดภัยและลบด้วยมือเอง
-  - `--natid` รับเลขบัตรเต็มผ่านบรรทัดคำสั่ง ค่านี้จะอยู่ใน shell history และ `ps` ได้ (ตามโค้ด `_cli` รับค่าตรง ๆ) ควรใช้หน้าเว็บ `/evidence` แทนเมื่อทำได้
-  - ตาม `_cli` ไม่ได้ส่ง `staff_id` เข้า `export()` จึงบันทึก audit โดยไม่ระบุผู้ดำเนินการ (ดู[ข้อสังเกต](#ข้อสังเกตจากการอ่านโค้ด))
+  - `--natid <เลข>` ยังใช้ได้แต่เลขอยู่ใน shell history, `ps` และ sudo log — ใช้ `--natid` เฉย ๆ หรือ `--natid-stdin` แทน (หรือหน้าเว็บ `/evidence`)
+  - CLI ไม่มี `staff_id` (ไม่ใช่ session เว็บ) จึงบันทึกผู้ทำใน `detail` เป็น `actor=` (`SUDO_USER` หรือผู้ล็อกอิน) แทน
   - ใน docker-test ใช้ช่วง `2000-01-01`–`2100-01-01` (`docs/docker-test.md`) ซึ่งเป็นการทดสอบเท่านั้น
 
 ### tools/restore_keys.py
@@ -215,7 +225,8 @@
 - **อ่าน/เขียน:**
   - อ่าน `.cwkey`
   - เขียน `<ETC_DIR>/secrets.env` (ย้ายของเดิมไปเป็น `secrets.env.before-restore-<เวลา>` ก่อน) ผ่านไฟล์ชั่วคราว `secrets.env.new`
-  - ถ้าไม่มี `secrets.env` เดิม สร้างใหม่โหมด `0640`
+  - **ถ้า `secrets.env` เดิมไม่มีหรือว่าง จะปฏิเสธ (exit `2`)** — ไม่กู้ทั้งก้อนจากไฟล์สำรอง (FAS_KEY/SECRET_KEY/DB_PASS ของเครื่องเก่าจะไม่ตรงกับเครื่องนี้) ให้กู้ด้วยตัวช่วยกู้คืนแบบเต็มหรือติดตั้งเครื่องใหม่ก่อน
+  - ไฟล์ `secrets.env.new` และ `.before-restore-*` สร้างโหมด `0600` ด้วย `O_EXCL` + `fsync` แล้ว `os.replace` + fsync โฟลเดอร์ (สิทธิ์/เจ้าของของไฟล์จริงคัดลอกจาก `secrets.env` เดิม)
 - **Exit code:** `0` สำเร็จ หรือกุญแจชุดนี้ใช้อยู่แล้ว, `1` ไม่ใช่ root, `2` ไฟล์ไม่ถูกต้อง หรือไฟล์สำรองไม่มี `NATID_DEK`/`NATID_PEPPER`, `3` รหัสผ่านไฟล์สำรองผิด
 - **รันอัตโนมัติ:** ไม่ เรียกจาก `app/setup/restore.py` (บรรทัด ~119–122) ด้วย `restore_keys.merge(...)` ซึ่งเป็นตัวช่วยกู้คืนของ wizard
 - **ความปลอดภัย:**
@@ -330,6 +341,8 @@
 ## ใช้ในแล็บทดสอบเท่านั้น (lab_*)
 
 ทุกสคริปต์ในหมวดนี้ออกแบบมาเพื่อแล็บ ห้ามรันบนเครื่องที่มีลูกค้าใช้งานจริง ยกเว้นที่ระบุไว้ต่างออกไป
+
+`install.sh` **ไม่คัดลอก** `tools/lab_*` และ `tools/bench_*` ลง `/opt/cafe-wifi` (ลบทิ้งทุกครั้งที่ติดตั้งทับ) — ไฟล์เหล่านี้มีอยู่ใน repo เท่านั้น รันจากเครื่องพัฒนาหรือคัดลอกเข้า Pi เองเมื่อจะทดสอบ
 
 ### tools/lab_issue_voucher.py
 

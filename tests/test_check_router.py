@@ -115,3 +115,53 @@ def test_check_reports_raw_socket_errors(monkeypatch):
     r = cr.check("eth0")
     # ตรวจไม่ได้ต้องไม่ถือว่าผ่าน (ไม่งั้นเปิด portal ทั้งที่ DHCP ของเราเตอร์ยังเปิด)
     assert r["ok"] is False and r["dhcp"]["ok"] is False and "error" in r["dhcp"]
+
+
+# ------------------------------------------------------------------ U11: เฟรมตัดสั้น/ขยะต้องไม่ raise
+def test_truncated_ra_returns_none_not_struct_error():
+    full = _ra()
+    assert len(full) == 14 + 40 + 16 + 32
+    hdr = 14 + 40 + 16
+    for cut in range(0, len(full)):  # ตัดทุกความยาว ต้องไม่ raise
+        got = cr.parse_ra(full[:cut])
+        if cut < hdr + 2 and cut < hdr:
+            assert got is None, cut                      # หัว RA ไม่ครบ
+        if hdr + 2 <= cut < len(full):
+            assert got is None, cut                      # option prefix อ้าง 32 ไบต์แต่เฟรมสั้นกว่า
+
+
+def test_ra_option_length_overrun_returns_none():
+    frame = bytearray(_ra())
+    frame[14 + 40 + 16 + 1] = 40  # olen = 40*8 ไบต์ เกินเฟรมมาก
+    assert cr.parse_ra(bytes(frame)) is None
+
+
+def test_garbage_dhcp_replies_return_none():
+    good = _offer(0x1234)
+    assert cr.parse_dhcp_reply(good, 0x1234)
+    for cut in range(0, len(good)):
+        got = cr.parse_dhcp_reply(good[:cut], 0x1234)    # ต้องไม่ raise ทุกความยาว
+        if cut < 14 + 20 + 8 + 240:
+            assert got is None, cut
+    bad_ihl = bytearray(good)
+    bad_ihl[14] = 0x4F  # IHL 60 ไบต์ เกินความยาวจริงของ IP header ในเฟรม
+    assert cr.parse_dhcp_reply(bytes(bad_ihl), 0x1234) is None
+    zero_ihl = bytearray(good)
+    zero_ihl[14] = 0x40
+    assert cr.parse_dhcp_reply(bytes(zero_ihl), 0x1234) is None
+    # option ตัดกลางทาง (type 53 อ้าง length เกินเฟรม) ต้องไม่ raise
+    assert cr.parse_dhcp_reply(good[:-5] + b"\x35\x09", 0x1234) is None or True
+    import os
+    for _ in range(200):
+        junk = b"\xff" * 6 + ROUTER_MAC + b"\x08\x00" + os.urandom(300)
+        cr.parse_dhcp_reply(junk, 1)
+
+
+def test_check_survives_unexpected_parser_exception(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("parser bug")
+    monkeypatch.setattr(cr, "probe_dhcp", boom)
+    monkeypatch.setattr(cr, "probe_ipv6_ra", boom)
+    r = cr.check("eth0")
+    assert r["ok"] is False
+    assert "parser bug" in r["dhcp"]["error"] and "parser bug" in r["ipv6"]["error"]

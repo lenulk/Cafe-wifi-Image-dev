@@ -5,6 +5,8 @@
 import contextlib
 import json
 
+import os
+
 import pytest
 
 from common import crypto, keybackup
@@ -254,3 +256,54 @@ def test_restore_merge_keeps_odd_lines_intact():
     cur = "GATEWAY_NAME=a\x85b\nNATID_DEK=" + "f" * 64 + "\nNATID_PEPPER=" + "e" * 64 + "\n"
     out = restore_keys.merge("NATID_DEK=" + "a" * 64 + "\nNATID_PEPPER=" + "b" * 64 + "\n", cur)
     assert out == "GATEWAY_NAME=a\x85b\nNATID_DEK=" + "a" * 64 + "\nNATID_PEPPER=" + "b" * 64 + "\n"
+
+
+# ------------------------------------------------------------------ U5 (รีวิว tools 14 ต.ค.)
+@pytest.mark.parametrize("cur", ["", "   \n", None])
+def test_restore_merge_refuses_when_current_missing_or_empty(cur):
+    """U5: เดิมคืนไฟล์สำรองทั้งก้อน (FAS_KEY/SECRET_KEY/DB_PASS เครื่องเก่า) -- ต้องปฏิเสธ"""
+    from tools import restore_keys
+    with pytest.raises(keybackup.BackupError, match="secrets.env"):
+        restore_keys.merge(SECRETS, cur)
+
+
+def test_restore_main_refuses_when_secrets_env_missing(tmp_path, monkeypatch, capsys):
+    from tools import restore_keys
+    monkeypatch.setenv("ETC_DIR", str(tmp_path))
+    monkeypatch.setattr(restore_keys, "ETC_DIR", tmp_path)
+    f = tmp_path / "b.cwkey"
+    f.write_bytes(keybackup.pack(SECRETS, PASS))
+    monkeypatch.setenv("CAFEWIFI_RESTORE_PASSPHRASE", PASS)
+    assert restore_keys.main([str(f)]) == 2
+    assert not (tmp_path / "secrets.env").exists()
+    assert "secrets.env" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name != "posix", reason="สิทธิ์ไฟล์แบบ POSIX")
+def test_restore_files_are_private_even_with_loose_umask(tmp_path, monkeypatch):
+    from tools import restore_keys
+    monkeypatch.setenv("ETC_DIR", str(tmp_path))
+    monkeypatch.setattr(restore_keys, "ETC_DIR", tmp_path)
+    (tmp_path / "secrets.env").write_text("NATID_DEK=ffff\nNATID_PEPPER=eeee\nFAS_KEY=k\n", encoding="utf-8")
+    (tmp_path / "secrets.env").chmod(0o640)
+    f = tmp_path / "b.cwkey"
+    f.write_bytes(keybackup.pack(SECRETS, PASS))
+    monkeypatch.setenv("CAFEWIFI_RESTORE_PASSPHRASE", PASS)
+    old = os.umask(0o000)
+    try:
+        assert restore_keys.main([str(f)]) == 0
+    finally:
+        os.umask(old)
+    keep = list(tmp_path.glob("secrets.env.before-restore-*"))[0]
+    assert oct(keep.stat().st_mode & 0o777) == "0o600"
+    assert oct((tmp_path / "secrets.env").stat().st_mode & 0o777) == "0o640"
+    assert not (tmp_path / "secrets.env.new").exists()
+
+
+def test_write_private_never_overwrites_and_is_binary(tmp_path):
+    from tools import restore_keys
+    p = tmp_path / "x"
+    restore_keys._write_private(p, b"a\nb\n")
+    assert p.read_bytes() == b"a\nb\n"
+    with pytest.raises(FileExistsError):
+        restore_keys._write_private(p, b"z")

@@ -76,12 +76,20 @@ def build_dhcp_discover(mac: bytes, xid: int) -> bytes:
 
 
 def parse_dhcp_reply(frame: bytes, xid: int) -> dict | None:
-    """คืน dict ถ้าเป็น DHCPOFFER/ACK ที่ตอบ xid ของเรา (ไม่สนว่าส่งถึง MAC ไหน)"""
+    """คืน dict ถ้าเป็น DHCPOFFER/ACK ที่ตอบ xid ของเรา (ไม่สนว่าส่งถึง MAC ไหน)
+    U11: เฟรมตัดสั้น/ขยะจากสายต้องได้ None ไม่ใช่ exception (probe อ่านเฟรมของใครก็ไม่รู้บนวง LAN)"""
+    try:
+        return _parse_dhcp_reply(frame, xid)
+    except (struct.error, ValueError, IndexError, OSError):
+        return None
+
+
+def _parse_dhcp_reply(frame: bytes, xid: int) -> dict | None:
     if len(frame) < 14 + 20 + 8 + 240 or frame[12:14] != struct.pack("!H", ETH_P_IP):
         return None
     ip = frame[14:]
     ihl = (ip[0] & 0x0F) * 4
-    if ip[9] != 17:
+    if ihl < 20 or ip[9] != 17 or len(ip) < ihl + 8:
         return None
     udp = ip[ihl:]
     sport, dport = struct.unpack("!HH", udp[:4])
@@ -129,7 +137,15 @@ def build_router_solicit(src_mac: bytes) -> bytes:
 
 
 def parse_ra(frame: bytes) -> dict | None:
-    """คืน dict ถ้าเป็น Router Advertisement ที่ทำให้มือถือใช้ IPv6 ได้จริง"""
+    """คืน dict ถ้าเป็น Router Advertisement ที่ทำให้มือถือใช้ IPv6 ได้จริง
+    U11: เฟรมตัดสั้น/option ยาวเกินเฟรม -> None ไม่ใช่ struct.error (เดิมทำให้ /router/check ของ wizard 500)"""
+    try:
+        return _parse_ra(frame)
+    except (struct.error, ValueError, IndexError, OSError):
+        return None
+
+
+def _parse_ra(frame: bytes) -> dict | None:
     if len(frame) < 14 + 40 + 16 or frame[12:14] != struct.pack("!H", ETH_P_IPV6):
         return None
     ip6 = frame[14:]
@@ -145,6 +161,8 @@ def parse_ra(frame: bytes) -> dict | None:
         otype, olen = opts[i], opts[i + 1] * 8
         if olen == 0:
             break
+        if i + olen > len(opts):
+            return None                                  # option อ้างความยาวเกินเฟรม = เฟรมถูกตัด
         if otype == 3 and olen >= 32:                    # Prefix Information
             plen = opts[i + 2]
             flags = opts[i + 3]
@@ -269,13 +287,13 @@ def check(iface: str, dhcp_timeout: float = 20.0, ra_timeout: float = 10.0) -> d
     try:
         offers = probe_dhcp(iface, dhcp_timeout)
         result["dhcp"] = {"ok": not offers, "servers": offers}
-    except OSError as e:
-        result["dhcp"] = {"ok": False, "error": str(e), "servers": []}
+    except Exception as e:  # noqa: BLE001 -- ตัวแยกเฟรม/socket พังแบบไม่คาดคิด = ok=False ไม่ใช่ crash
+        result["dhcp"] = {"ok": False, "error": str(e) or type(e).__name__, "servers": []}
     try:
         ras = probe_ipv6_ra(iface, ra_timeout)
         result["ipv6"] = {"ok": not ras, "routers": ras}
-    except OSError as e:
-        result["ipv6"] = {"ok": False, "error": str(e), "routers": []}
+    except Exception as e:  # noqa: BLE001
+        result["ipv6"] = {"ok": False, "error": str(e) or type(e).__name__, "routers": []}
     result["ok"] = result["dhcp"]["ok"] and result["ipv6"]["ok"]
     return result
 

@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -36,10 +35,38 @@ ETC_DIR = Path(os.environ.get("ETC_DIR", "/etc/cafe-wifi"))
 RESTORE = ("NATID_DEK", "NATID_PEPPER")
 
 
+def _write_private(path: Path, data: bytes) -> None:
+    """U5: สร้างไฟล์ 0600 ตั้งแต่ตอนเปิด (ไม่ตาม umask) แล้ว fsync ก่อนปิด -- ไฟล์นี้คือกุญแจถอดเลขบัตรทั้งร้าน"""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _fsync_dir(directory: Path) -> None:
+    """fsync โฟลเดอร์หลัง os.replace ให้การเปลี่ยนชื่อรอดไฟดับ (Windows ไม่รองรับ -- ข้าม)"""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def merge(restored: str, current: str | None) -> str:
     """secrets.env ของเครื่องปัจจุบัน แทนเฉพาะค่าใน RESTORE ด้วยของในไฟล์สำรอง"""
-    if not current:
-        return restored
+    if not current or not current.strip():
+        # U5: เดิมคืนไฟล์สำรอง "ทั้งก้อน" -> FAS_KEY/SECRET_KEY/DB_PASS ของเครื่องเก่าหลุดเข้ามา ขัด allowlist
+        # (และ service จะใช้ค่าที่ไม่ตรงกับ openNDS/MariaDB ของเครื่องนี้) -- ปฏิเสธดีกว่าเดา
+        raise keybackup.BackupError(
+            "secrets.env ของเครื่องนี้ไม่มีหรือว่างเปล่า -- ไม่รู้ค่า FAS_KEY/SECRET_KEY/DB_PASS ของเครื่องนี้ "
+            "จึงกู้เฉพาะกุญแจข้อมูลไม่ได้: ให้กู้จากไฟล์สำรองแบบเต็ม (setup wizard) หรือติดตั้งเครื่องใหม่ก่อน "
+            "แล้วค่อยรันเครื่องมือนี้")
     old = {k: v for k, v in keybackup.parse_env(restored).items() if k in RESTORE}
     missing = [k for k in RESTORE if k not in old]
     if missing:
@@ -97,22 +124,20 @@ def main(argv: list[str] | None = None) -> int:
     except keybackup.BackupError as e:
         print(f"ผิดพลาด: {e}", file=sys.stderr)
         return 2
-    if current is not None:
-        keep = target.with_name(f"secrets.env.before-restore-{time.strftime('%Y%m%d-%H%M%S')}")
-        shutil.copy2(target, keep)
-        print(f"เก็บกุญแจชุดเดิมของเครื่องนี้ไว้ที่ {keep}")
+    keep = target.with_name(f"secrets.env.before-restore-{time.strftime('%Y%m%d-%H%M%S')}")
+    _write_private(keep, current.encode("utf-8"))  # สำเนาก่อนกู้ก็มีกุญแจ -- 0600 + fsync
+    print(f"เก็บกุญแจชุดเดิมของเครื่องนี้ไว้ที่ {keep}")
     tmp = target.with_name("secrets.env.new")
-    tmp.write_text(new, encoding="utf-8")
-    if current is not None:
-        shutil.copystat(target, tmp)
-        try:
-            st = target.stat()
-            os.chown(tmp, st.st_uid, st.st_gid)
-        except (AttributeError, PermissionError):
-            pass
-    else:
-        os.chmod(tmp, 0o640)
+    tmp.unlink(missing_ok=True)
+    _write_private(tmp, new.encode("utf-8"))
+    try:
+        st = target.stat()
+        os.chmod(tmp, st.st_mode & 0o777)  # ใช้สิทธิ์/เจ้าของเดิมของ secrets.env (ปกติ 0640 root:cafewifi)
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except (AttributeError, PermissionError):
+        pass
     os.replace(tmp, target)
+    _fsync_dir(target.parent)
     print(f"✓ กู้ {target} แล้ว (ลายนิ้วมือ {keybackup.dek_fingerprint(new)})")
 
     dbname = keybackup.parse_env(new).get("DB_NAME", "cafewifi")

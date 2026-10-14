@@ -368,6 +368,16 @@ def test_sync_revoked_keeps_flag_when_enforce_fails(monkeypatch):
     assert not any("auth_sync_needed=0" in s for s, _ in cur.executed), "รอบถัดไปต้องลองใหม่"
 
 
+def test_sync_revoked_keeps_flag_when_enforce_reports_deauth_failed(monkeypatch):
+    """T3: enforce.run() ไม่ raise เมื่อ ndsctl deauth ล้ม แต่คืน deauth_failed > 0 -> ต้องคงธงไว้ลองใหม่"""
+    import tools.enforce_voucher_expiry as enforce
+    v = dict(id=9, status="revoked", valid_until=datetime.now() + timedelta(hours=1))
+    cur, _ = _sync_env(monkeypatch, [v], {9: ["AA:BB:CC:DD:EE:01"]})
+    monkeypatch.setattr(enforce, "run", lambda deauth=True: enforce.EnforceSummary(deauth_failed=1))
+    assert ORIG_SYNC() == 0
+    assert not any("auth_sync_needed=0" in s for s, _ in cur.executed), "รอบถัดไปต้องลองใหม่"
+
+
 def test_sync_dead_voucher_without_online_device_just_clears_flag(monkeypatch):
     import tools.enforce_voucher_expiry as enforce
     v = dict(id=9, status="revoked", valid_until=datetime.now() + timedelta(hours=1))

@@ -30,11 +30,14 @@ SELECT/INSERT/UPDATE/DELETE (แก้บั๊ก GRANT ALL รอบ 3) -- ถ
 """
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
 import shutil
 import subprocess
+import time
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -44,6 +47,42 @@ log = logging.getLogger("cafe-wifi.backup")
 
 class BackupError(RuntimeError):
     pass
+
+
+# U3: เพดานเวลา dump ทั้งก้อน (วินาที) -- mysqldump ค้างต้องไม่ลากงาน maintenance ที่เหลือของคืนนั้นไปด้วย
+DEFAULT_BACKUP_TIMEOUT_SEC = 3600
+# U1: .tmp ที่เก่ากว่านี้ (วัน) = ซากของ dump/copy ที่ถูกฆ่ากลางคัน ลบทิ้งได้
+STALE_TMP_DAYS = 1
+DUMP_COMPLETE_MARK = b"-- Dump completed"
+
+
+def _timeout_from_env() -> float:
+    try:
+        v = float(os.environ.get("BACKUP_TIMEOUT_SEC", DEFAULT_BACKUP_TIMEOUT_SEC))
+    except ValueError:
+        return float(DEFAULT_BACKUP_TIMEOUT_SEC)
+    return v if v > 0 else float(DEFAULT_BACKUP_TIMEOUT_SEC)
+
+
+def verify_dump_complete(path: Path) -> None:
+    """
+    U4: mysqldump ที่ตายกลางทางแต่ pipe ยังปิดสวย ๆ ได้ไฟล์ .gz ที่ถูกต้องแต่ข้อมูลไม่ครบ
+    -- เช็คว่าบรรทัดสุดท้ายที่ไม่ว่างมี `-- Dump completed` (mysqldump เขียนให้เสมอถ้าไม่ใช้ --skip-comments)
+    อ่านแบบ stream เก็บแค่ท้ายสตรีม ไม่โหลดทั้งไฟล์เข้า RAM
+    """
+    tail = b""
+    try:
+        with gzip.open(path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                tail = (tail + chunk)[-8192:]
+    except (OSError, EOFError, zlib.error) as exc:
+        raise BackupError(f"ไฟล์ backup เปิดอ่านไม่ได้/เสียหาย: {exc}") from exc
+    lines = [ln for ln in tail.splitlines() if ln.strip()]
+    if not lines or DUMP_COMPLETE_MARK not in lines[-1]:
+        raise BackupError("dump ไม่ครบ: ไม่พบบรรทัด '-- Dump completed' ท้ายไฟล์")
 
 
 @dataclass(frozen=True)
@@ -56,7 +95,7 @@ class BackupResult:
 
 def dump_database(db_name: str, host: str, port: int, user: str, password: str,
                   out_path: Path, mysqldump_bin: str = "mysqldump",
-                  gzip_bin: str = "gzip") -> Path:
+                  gzip_bin: str = "gzip", timeout: float | None = None) -> Path:
     """
     รัน mysqldump --single-transaction (ไม่ lock ตาราง InnoDB ระหว่าง dump) ต่อสายผ่าน
     pipe จริงเข้า `gzip` (คนละโปรเซส) เขียนผ่านไฟล์ .tmp ก่อนแล้วค่อย rename ให้เป็นชื่อจริง
@@ -83,16 +122,33 @@ def dump_database(db_name: str, host: str, port: int, user: str, password: str,
                "-h", host, "-P", str(port), "-u", user, db_name]
     env = dict(os.environ, MYSQL_PWD=password)  # ไม่ใส่รหัสผ่านใน argv (โผล่ใน `ps` ได้)
 
+    timeout = timeout if timeout is not None else _timeout_from_env()
+    tmp_path.unlink(missing_ok=True)  # ซากจากรอบก่อน (O_EXCL ด้านล่างจะไม่ยอมเขียนทับ)
     dump_proc = gzip_proc = None
     try:
-        with open(tmp_path, "wb") as out_file:
+        # U4: สิทธิ์ 0600 ตั้งแต่ตอนสร้าง ไม่พึ่ง umask (เนื้อหามี natid_enc)
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(fd, "wb") as out_file:
             dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE,
                                          stderr=subprocess.PIPE, env=env)
             gzip_proc = subprocess.Popen([gzip_bin], stdin=dump_proc.stdout,
                                          stdout=out_file, stderr=subprocess.PIPE)
             dump_proc.stdout.close()  # ให้ SIGPIPE ทำงานถูกถ้า gzip ตายก่อน (idiom มาตรฐาน)
-            _, dump_err = dump_proc.communicate()
-            _, gzip_err = gzip_proc.communicate()
+            deadline = time.monotonic() + timeout
+            try:
+                _, dump_err = dump_proc.communicate(timeout=max(0.1, deadline - time.monotonic()))
+                _, gzip_err = gzip_proc.communicate(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                for proc in (dump_proc, gzip_proc):
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                    try:
+                        proc.communicate(timeout=10)
+                    except Exception:  # noqa: BLE001
+                        pass
+                raise BackupError(f"สำรอง DB เกินเวลา {int(timeout)} วินาที — ยกเลิกแล้ว") from None
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
@@ -105,6 +161,11 @@ def dump_database(db_name: str, host: str, port: int, user: str, password: str,
         tmp_path.unlink(missing_ok=True)
         raise BackupError(f"gzip exit code {gzip_proc.returncode}: "
                           f"{gzip_err.decode(errors='replace')[:500]}")
+    try:
+        verify_dump_complete(tmp_path)
+    except BackupError:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     tmp_path.rename(out_path)
     out_path.chmod(0o600)  # เนื้อหามี natid_enc -- จำกัดสิทธิ์เหมือน secrets.env
@@ -120,6 +181,29 @@ def prune_old_backups(backup_dir: Path, keep_days: int, pattern: str = "*.sql.gz
             path.unlink()
             pruned += 1
     return pruned
+
+
+def prune_stale_tmp(backup_dir: Path, max_age_days: int = STALE_TMP_DAYS) -> int:
+    """U1: ลบ *.sql.gz.tmp ที่ค้างเกิน max_age_days (dump/copy ถูกฆ่ากลางคัน) คืนจำนวนที่ลบ"""
+    cutoff = time.time() - max_age_days * 86400
+    removed = 0
+    for path in backup_dir.glob("*.sql.gz.tmp"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def _prune_dir_safely(directory: Path, keep_days: int) -> int:
+    """U1: prune + ลบ .tmp ค้าง โดยไม่ raise (USB ไม่ได้เสียบ/ถอดกลางคัน) -- คืนจำนวนไฟล์ที่ลบ"""
+    try:
+        return prune_old_backups(directory, keep_days) + prune_stale_tmp(directory)
+    except OSError as exc:
+        log.warning("ล้าง backup เก่าใน %s ไม่สำเร็จ: %s", directory, exc)
+        return 0
 
 
 # 2026-10-03: install.sh ตั้งให้ USB ที่ตั้งชื่อ (label) ว่า CAFEBACKUP mount อัตโนมัติที่ /mnt/cafe-backup
@@ -237,9 +321,11 @@ def run(backup_dir: Path | None = None, keep_days: int | None = None,
     offsite_path = copy_offsite(out_path, offsite_dir,  # N4
                                 require_separate_device=os.environ.get("OFFSITE_REQUIRE_SEPARATE_DEVICE") == "1")
     pruned = prune_old_backups(backup_dir, keep_days)
-    if offsite_path is not None:
+    prune_stale_tmp(backup_dir)
+    if offsite_dir:
+        # U1: prune ปลายทางแม้รอบนี้ copy ล้ม (เช่น USB เต็ม -- ถ้าไม่ prune จะเต็มถาวร) · ถ้า USB ไม่ได้เสียบไม่ raise
         # ไฟล์ dump แต่ละไฟล์มีข้อมูลครบทั้งฐาน (log ย้อนหลังทั้งช่วงเก็บ) เก็บบน USB เท่ากับในเครื่องก็พอ
-        prune_old_backups(offsite_path.parent, keep_days)
+        _prune_dir_safely(Path(offsite_dir), keep_days)
     log.info("สำรอง DB สำเร็จ: %s (%d bytes) — ลบ backup เก่า %d ไฟล์ — offsite: %s",
             out_path, size, pruned, offsite_path or "ข้าม")
     return BackupResult(path=out_path, size_bytes=size, pruned=pruned, offsite_path=offsite_path)
@@ -249,9 +335,9 @@ def main() -> int:  # pragma: no cover
     logging.basicConfig(level=logging.INFO)
     try:
         result = run()
-    except BackupError as exc:
-        log.error(str(exc))
-        write_status(status_path(), None, str(exc))
+    except (BackupError, ValueError, OSError) as exc:  # U2: ห้ามหลุดโดยไม่เขียน status
+        log.error("สำรอง DB ล้มเหลว: %s", exc)
+        write_status(status_path(), None, f"{type(exc).__name__}: {exc}"[:500])
         return 1
     write_status(status_path(), result)
     return 0

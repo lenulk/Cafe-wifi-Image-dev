@@ -89,6 +89,26 @@
 </div>
 {% endif %}
 
+<div class="card">
+  <h2 style="margin:0 0 .5rem">ล้างข้อมูลลูกค้าใน audit เก่า</h2>
+  <p class="hint">ไม่ลบแถว -- ลบเฉพาะ MAC และเลขบัตรประชาชนออกจากช่องเป้าหมาย/รายละเอียด
+    ส่วนผู้ทำ การกระทำ เวลา และ IP ยังอยู่ครบ · เลือกได้เฉพาะวันที่ห่างจากวันนี้เกิน {{ scrub_days }} วัน
+    (ก่อนหรือเท่ากับ {{ scrub_latest }}) · <strong>ย้อนกลับไม่ได้</strong> · การล้างถูกบันทึกเป็น audit_scrub</p>
+  <form method="post" action="{{ url_for('audit_scrub') }}"
+        onsubmit="return confirm('ล้าง MAC และเลขบัตรในแถว audit ก่อนวันที่เลือก? ย้อนกลับไม่ได้');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="frow">
+      <div><label for="scrub_cutoff">ล้างแถวก่อนวันที่</label>
+        <input type="date" id="scrub_cutoff" name="cutoff" max="{{ scrub_latest }}" required></div>
+      <div><label for="scrub_reason">เหตุผล (อย่างน้อย 10 ตัวอักษร)</label>
+        <input type="text" id="scrub_reason" name="reason" minlength="10" maxlength="500" required></div>
+      <div><label for="scrub_pw">รหัสผ่านของคุณ</label>
+        <input type="password" id="scrub_pw" name="current_password" autocomplete="current-password" required></div>
+    </div>
+    <p style="margin-top:.75rem"><button type="submit">ล้างข้อมูลลูกค้า</button></p>
+  </form>
+</div>
+
 <script>
   document.querySelectorAll('input[name=range]').forEach(function (el) {
     el.addEventListener('change', function () {

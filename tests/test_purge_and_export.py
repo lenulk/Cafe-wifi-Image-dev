@@ -44,8 +44,29 @@ def test_purge_conn_and_dns_logs_calls_correct_sql():
     cutoff = datetime(2026, 1, 1)
     n_conn, n_dns = purge_old_data.purge_conn_and_dns_logs(fake_exec, cutoff)
     assert n_conn == 42 and n_dns == 42
-    assert calls[0] == ("DELETE FROM conn_log WHERE ts < %s", (cutoff,))
-    assert calls[1] == ("DELETE FROM dns_log WHERE ts < %s", (cutoff,))
+    assert calls[0] == ("DELETE FROM conn_log WHERE ts < %s LIMIT 10000", (cutoff,))
+    assert calls[1] == ("DELETE FROM dns_log WHERE ts < %s LIMIT 10000", (cutoff,))
+
+
+def test_batched_delete_loops_until_short_batch():
+    """T6: ลบเป็นชุด LIMIT จนกว่าจะได้น้อยกว่าขนาดชุด"""
+    results = iter([10, 10, 3])
+    calls = []
+
+    def fake_exec(sql, args=()):
+        calls.append(sql)
+        return next(results)
+
+    assert purge_old_data.batched_delete(fake_exec, "DELETE FROM conn_log WHERE ts < %s",
+                                         (datetime(2026, 1, 1),), batch=10) == 23
+    assert len(calls) == 3 and all(c.endswith("LIMIT 10") for c in calls)
+
+
+def test_clock_is_suspect_logic():
+    now = datetime(2026, 10, 14)
+    assert purge_old_data.clock_is_suspect(None, now) is False, "ไม่มี log เลย = ผ่าน"
+    assert purge_old_data.clock_is_suspect(now - timedelta(days=30), now) is False
+    assert purge_old_data.clock_is_suspect(now - timedelta(days=31), now) is True
 
 
 def test_purge_stale_customers_anonymizes_only_those_without_active_voucher():
@@ -85,6 +106,9 @@ def test_purge_stale_customers_none_found():
 
 # ---------------------------------------------------------------- purge: end-to-end ผ่าน run()
 class _FakeCursor:
+    newest_log = None   # T7: ค่า MAX(ts) ที่ fake คืน (None = ไม่มี log) · ตั้งใน test ผ่าน class attr
+    fail_on = None      # T6: ขึ้นต้น SQL (lowercase) ที่ให้ raise
+
     def __init__(self, anonymized_log, stale_customers):
         self._anonymized_log = anonymized_log
         self._stale = stale_customers
@@ -93,7 +117,11 @@ class _FakeCursor:
 
     def execute(self, sql, args=()):
         s = " ".join(sql.split()).lower()
-        if s.startswith("delete from conn_log"):
+        if self.fail_on and s.startswith(self.fail_on):
+            raise RuntimeError("จำลอง DB ล้ม")
+        if s.startswith("select max(ts)"):
+            self._select_result = {"newest": self.newest_log}
+        elif s.startswith("delete from conn_log"):
             self.rowcount = 5
         elif s.startswith("delete from dns_log"):
             self.rowcount = 8
@@ -158,6 +186,52 @@ def test_run_end_to_end_with_fake_db(monkeypatch):
     assert "portal_session=-6 device=-7 bypass_alert=-2" in str(audit_calls[0])
     assert len(audit_calls) == 1
     assert "access_request=-4" in str(audit_calls[0]), "คำขอใช้งานเก่าต้องถูกลบตามอายุ log"
+
+
+def _run_env(monkeypatch, newest_log=None, fail_on=None):
+    import common.db as db
+    anonymized, audits = [], []
+
+    class Cur(_FakeCursor):
+        pass
+    Cur.newest_log, Cur.fail_on = newest_log, fail_on
+
+    class FakeConn:
+        def cursor(self):
+            return Cur(anonymized, [{"id": 1}])
+
+    monkeypatch.setattr(db, "get_conn", lambda: contextlib.nullcontext(FakeConn()))
+    monkeypatch.setattr(db, "execute", lambda sql, args=(): audits.append(args))
+    return anonymized, audits
+
+
+def test_run_isolates_failing_step_and_reports_failure(monkeypatch):
+    """T6: ขั้น session ล้ม -> ขั้นอื่น (log/ลูกค้า/คำขอ) ยังทำ · audit purge_failed · failed_steps ไม่ว่าง"""
+    anonymized, audits = _run_env(monkeypatch, fail_on="delete from portal_session")
+    summary = purge_old_data.run(retention_days=180, customer_retention_days=180)
+    assert summary.failed_steps == ("session_data",)
+    assert summary.conn_log_deleted == 5 and summary.dns_log_deleted == 8
+    assert summary.customers_deleted == 1 and anonymized == [1]
+    assert summary.access_requests_deleted == 4, "ขั้นหลังจากขั้นที่ล้มต้องยังทำ"
+    assert any(a[1] == "purge_failed" for a in audits), "ต้องมี audit purge_failed"
+    assert any("failed=session_data" in str(a) for a in audits)
+
+
+def test_run_skips_all_deletes_when_clock_jumped_forward(monkeypatch):
+    """T7: now ล้ำหน้า log ล่าสุด > 30 วัน -> ไม่ลบอะไรเลย + audit purge_skipped_clock"""
+    now = datetime(2026, 10, 14)
+    _, audits = _run_env(monkeypatch, newest_log=now - timedelta(days=45))
+    summary = purge_old_data.run(retention_days=180, customer_retention_days=180, now=now)
+    assert summary.skipped_clock and summary.total() == 0 and summary.failed_steps == ()
+    assert [a[1] for a in audits] == ["purge_skipped_clock"]
+    assert "now=2026-10-14" in audits[0][4] and "newest_log=2026-08-30" in audits[0][4]
+
+
+def test_run_proceeds_when_newest_log_is_recent_or_absent(monkeypatch):
+    now = datetime(2026, 10, 14)
+    for newest in (now - timedelta(days=2), None):
+        _run_env(monkeypatch, newest_log=newest)
+        assert not purge_old_data.run(retention_days=180, now=now).skipped_clock
 
 
 def test_purge_session_data_uses_cutoff_and_respects_fk():
