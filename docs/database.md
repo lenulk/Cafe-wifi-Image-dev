@@ -367,6 +367,7 @@ erDiagram
 | `013_rate_attempt.sql` | สร้างตาราง `rate_attempt` |
 | `014_dns_qname_rev.sql` | เพิ่ม `dns_log.qname_rev` (= `REVERSE(qname)`) + ดัชนี ให้ค้นโดเมนแบบ "ตรงพอดีหรือซับโดเมน" ใช้ดัชนีได้ (`common/domain_match.py`) |
 | `015_conn_dst_name.sql` | เพิ่ม `conn_log.dst_name VARCHAR(255) NULL` (คอลัมน์เดียว ไม่มีดัชนี; `conn_collector` เติมตอนเขียน) |
+| `017_consent_policy_version.sql` | เพิ่ม `access_request.consent_version VARCHAR(32) NULL` (เวอร์ชันนโยบายความเป็นส่วนตัวที่ลูกค้ายินยอม; ค่าจาก `common/policy.py`) |
 
 ลำดับที่ `install.sh` รันจริง (บรรทัด ~931-1040): 001, 005, 006, 007, 008, 009, 010, 013, 012, 011 และ 003 เฉพาะเมื่อกำหนด `--enable-partitions` ไฟล์ 012 กับ 013 ไม่พึ่งกันจึงสลับลำดับได้โดยไม่กระทบ
 

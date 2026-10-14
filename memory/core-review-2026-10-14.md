@@ -29,3 +29,21 @@ Report: `docs/code-review-2026-10-14-core.md` (branch `image`, commits 691bbe6..
 - **Needs the Pi:**
   - S10: run restore import as a non-root DB user and disable `\!` in the mysql client.
   - Test S13 with `TECH_USER=www-data` in cafewifi.conf; firstboot must fail with an error.
+
+**Network layer review (commit 497c67a, report `docs/code-review-2026-10-14-network.md`):**
+- **Highest priority on the Pi: N1.** Our own nftables forward chain ends with `ip saddr $CLIENT_NET accept`, so the gate relies only on openNDS's rules. Customers get free internet when:
+  - the Pi is booting and openNDS is still waiting on time-sync (up to 180s)
+  - openNDS has crashed
+  - install.sh is re-run, or nftables is reloaded (`flush ruleset` wipes openNDS's tables)
+- N1 fix direction: forward only packets carrying the openNDS authenticated mark. Check the real mark values on the Pi first; a wrong guess cuts off every customer.
+- `tests/test_install_sh.py` + `CAFEWIFI_SOURCE_ONLY=1` let tests source install.sh functions on this machine. Use this pattern to test install.sh changes from now on.
+- server.key is now 0600 root:root. After re-running install.sh on the Pi, verify that nginx still starts.
+
+**Admin review + small leftovers (same day, report `docs/code-review-2026-10-14-admin.md`):**
+- Small leftovers fixed:
+  - consent_version is stored (sql/017 + common/policy.py; bump PRIVACY_POLICY_VERSION whenever the policy text changes)
+  - a register deadlock (1213/1205) now redirects to /request instead of a 500
+  - /request still shows an approved, still-valid multi-day voucher after 1 day
+- **The 017 migration must run before restarting cafe-fas**, or the register INSERT fails. Re-run install.sh; the new code alone isn't enough.
+- Biggest admin finding: B1, a manifest hash mismatch on the evidence zip. Fixable locally.
+- Pi-only: B2 (approving a MAC that is already authed), B3, B4 (export memory), B7, A7, A8, B12.

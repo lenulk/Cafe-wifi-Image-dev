@@ -79,16 +79,20 @@ class FakeCursor:
         elif s.startswith("select id from access_request where code=%s"):
             self._rows = [r for r in ar if r["code"] == args[0] and _live_pending(r)]
         elif s.startswith("insert into access_request"):
-            code, mac, ip, host, os_label, ua, h, enc, masked = args
+            code, mac, ip, host, os_label, ua, h, enc, masked, consent_version = args
             ar.append(dict(id=len(ar) + 1, code=code, mac=mac, ip=ip, hostname=host, os_label=os_label,
                            user_agent=ua, natid_hash=h, natid_enc=enc,
-                           natid_masked=masked, consent_at=_now(), status="pending",
+                           natid_masked=masked, consent_at=_now(), consent_version=consent_version, status="pending",
                            created_at=_now(), expires_at=_now() + timedelta(minutes=15),
                            decided_at=None, decided_by=None, decision_note=None, voucher_id=None,
                            portal_session_id=None, auth_sent_at=None))
             self.lastrowid = len(ar)
         elif s.startswith("select ar.code, ar.status, ar.expires_at"):
-            mine = [r for r in ar if r["mac"] == args[0]]
+            def _visible(r):  # ตรงกับ WHERE ใน request_status(): ภายใน 1 วัน หรืออนุมัติแล้วและสิทธิ์ยังไม่หมด
+                v = next((x for x in vou if x["id"] == r["voucher_id"]), None)
+                return (r["created_at"] > _now() - timedelta(days=1)
+                        or (r["status"] == "approved" and v is not None and v["valid_until"] > _now()))
+            mine = [r for r in ar if r["mac"] == args[0] and _visible(r)]
             if mine:
                 r = mine[-1]
                 sess = next((x for x in ps if x["id"] == r["portal_session_id"]), None)
@@ -864,3 +868,64 @@ def test_natid_field_converts_thai_digits_in_browser(fas):
 def test_non_ascii_nonce_is_rejected_not_500(fas):
     r = fas.post("/login", data=dict(nonce="ก" * 40, natid=NATID, consent="on"))
     assert 400 <= r.status_code < 500
+
+
+# ---------------------------------------------------------------- เวอร์ชันนโยบาย / ส่งซ้ำพร้อมกัน / หน้ารอสิทธิ์หลายวัน
+def test_register_stores_policy_version_and_policy_page_shows_it(fas):
+    from common.policy import PRIVACY_POLICY_VERSION
+    _register(fas)
+    assert DB["access_request"][0]["consent_version"] == PRIVACY_POLICY_VERSION
+    assert PRIVACY_POLICY_VERSION in fas.get("/policy").get_data(as_text=True)
+
+
+@pytest.mark.parametrize("errno", [1213, 1205])
+def test_concurrent_double_submit_deadlock_redirects_not_500(fas, monkeypatch, errno):
+    import pymysql
+    nonce = _nonce(fas.get(_gw_url()).get_data(as_text=True))
+    n_audit = len(DB["audit"])
+
+    class DeadlockCursor(FakeCursor):
+        def execute(self, sql, args=()):
+            if " ".join(sql.split()).lower().startswith("insert into access_request"):
+                raise pymysql.err.OperationalError(errno, "Deadlock found when trying to get lock")
+            return super().execute(sql, args)
+
+    monkeypatch.setattr(FakeConn, "cursor", lambda self: DeadlockCursor())
+    r = fas.post("/login", data=dict(nonce=nonce, natid=NATID, consent="on"))
+    assert r.status_code == 303 and r.headers["Location"].endswith("/request")
+    assert len(DB["audit"]) == n_audit            # audit.log เฉพาะตอนสำเร็จ
+
+
+def test_other_operational_errors_still_propagate(fas, monkeypatch):
+    import pymysql
+    nonce = _nonce(fas.get(_gw_url()).get_data(as_text=True))
+
+    class DownCursor(FakeCursor):
+        def execute(self, sql, args=()):
+            raise pymysql.err.OperationalError(2003, "Can't connect")
+
+    monkeypatch.setattr(FakeConn, "cursor", lambda self: DownCursor())
+    with pytest.raises(pymysql.err.OperationalError):
+        fas.post("/login", data=dict(nonce=nonce, natid=NATID, consent="on"))
+
+
+def test_status_page_keeps_multiday_approved_request_older_than_a_day(fas):
+    _register(fas)
+    r = DB["access_request"][0]
+    r.update(status="approved", created_at=_now() - timedelta(days=2), voucher_id=1)
+    DB["voucher"].append(dict(id=1, customer_id=1, valid_until=_now() + timedelta(days=1),
+                              quota_mb=None, used_mb=0, status="active"))
+    assert "ไม่พบคำขอ" not in fas.get("/request").get_data(as_text=True)
+    # สิทธิ์หมดอายุแล้ว + คำขอเก่าเกิน 1 วัน = ไม่แสดง
+    DB["voucher"][0]["valid_until"] = _now() - timedelta(hours=1)
+    assert "ไม่พบคำขอ" in fas.get("/request").get_data(as_text=True)
+
+
+def test_status_query_matches_recent_or_unexpired_approved(fas, monkeypatch):
+    seen = []
+    orig = FakeCursor.execute
+    monkeypatch.setattr(FakeCursor, "execute", lambda self, sql, args=(): (seen.append(" ".join(sql.split())),
+                                                                          orig(self, sql, args))[1])
+    fas.get("/request")
+    q = next(s for s in seen if s.startswith("SELECT ar.code, ar.status"))
+    assert "ar.created_at > NOW() - INTERVAL 1 DAY OR (ar.status = 'approved' AND v.valid_until > NOW())" in q

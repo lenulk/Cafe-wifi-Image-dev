@@ -1055,6 +1055,15 @@ SQL
     warn "ไม่พบ sql/016_portal_session_ip_idx.sql — ข้าม (การหา MAC จาก IP จะช้าเมื่อข้อมูลเยอะ แต่ยังทำงานถูกต้อง)"
   fi
 
+  # เวอร์ชันนโยบายความเป็นส่วนตัวที่ลูกค้ายินยอม -- portal INSERT คอลัมน์ consent_version เสมอ ต้องมีก่อน cafe-fas เริ่ม
+  local consentver="${SCRIPT_DIR}/sql/017_consent_policy_version.sql"
+  if [[ -f "$consentver" ]]; then
+    run_sh "mysql '${DB_NAME}' < '${consentver}'"
+    ok "เพิ่มคอลัมน์ access_request.consent_version แล้ว"
+  else
+    die "ไม่พบ sql/017_consent_policy_version.sql — portal จะบันทึกคำขอไม่ได้ถ้าไม่มีคอลัมน์นี้"
+  fi
+
 
   # แก้บั๊ก (พบตอนตรวจทานรอบ 2): sql/003_partitions.sql มีอยู่ในโปรเจกต์และ Task Board
   # ติ๊กว่าเขียนแล้ว แต่ install.sh ไม่เคยเรียกใช้ไฟล์นี้เลยสักบรรทัด -- เป็น optional

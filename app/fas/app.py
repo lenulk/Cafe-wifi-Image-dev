@@ -25,9 +25,11 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 
+import pymysql
 from flask import Flask, abort, redirect, render_template, request
 
 from common import access, audit, crypto, device_info, ratelimit, traffic
+from common.policy import PRIVACY_POLICY_VERSION
 from common.db import execute, get_conn, query_one
 from logger.netutil import resolve_mac
 from .opennds_proto import ClientContext, FasProtocolError, decrypt_fas_payload
@@ -233,40 +235,50 @@ def login():
     nid_hash = crypto.natid_hash(nid)
     masked = crypto.mask_natid(nid)
 
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT is_blocked FROM customer WHERE natid_hash=%s", (nid_hash,))
-        cust = cur.fetchone()
-        if cust and cust["is_blocked"]:
-            record_attempt(bucket)
-            return render_template("register.html", nonce=nonce,
-                                   error="ขอใช้งานไม่ได้ กรุณาติดต่อพนักงาน"), 403
-        # กดส่งซ้ำ/ย้อนกลับมาหน้าเดิม = ใช้คำขอที่รออยู่ ไม่สร้างใหม่ให้รกหน้าอนุมัติ
-        cur.execute("SELECT id FROM access_request WHERE mac=%s AND status='pending' "
-                    "AND expires_at > NOW() FOR UPDATE", (mac,))
-        if cur.fetchone():
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT is_blocked FROM customer WHERE natid_hash=%s", (nid_hash,))
+            cust = cur.fetchone()
+            if cust and cust["is_blocked"]:
+                record_attempt(bucket)
+                return render_template("register.html", nonce=nonce,
+                                       error="ขอใช้งานไม่ได้ กรุณาติดต่อพนักงาน"), 403
+            # กดส่งซ้ำ/ย้อนกลับมาหน้าเดิม = ใช้คำขอที่รออยู่ ไม่สร้างใหม่ให้รกหน้าอนุมัติ
+            cur.execute("SELECT id FROM access_request WHERE mac=%s AND status='pending' "
+                        "AND expires_at > NOW() FOR UPDATE", (mac,))
+            if cur.fetchone():
+                return redirect("/request", code=303)
+            cur.execute("SELECT COUNT(*) AS n FROM access_request WHERE status='pending' "
+                        "AND expires_at > NOW()")
+            if int(cur.fetchone()["n"]) >= access.MAX_PENDING_REQUESTS:
+                app.logger.error("คำขอที่รออนุมัติเต็ม %d รายการ", access.MAX_PENDING_REQUESTS)
+                return render_template("register.html", nonce=nonce,
+                                       error="ขณะนี้มีคำขอรออยู่มาก กรุณาติดต่อพนักงานโดยตรง"), 503
+            cur.execute("UPDATE fas_context SET consumed_at=NOW() WHERE nonce_hash=%s "
+                        "AND consumed_at IS NULL AND expires_at > NOW()", (_nonce_hash(nonce),))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return render_template("error.html", title="หน้านี้หมดอายุแล้ว",
+                                       message="กรุณาเปิดหน้าเข้าใช้งานใหม่"), 400
+            code = access.gen_request_code(cur)
+            # ชื่อเครื่อง/OS ช่วยพนักงานถามลูกค้าว่า "ใช่เครื่องนี้ไหม" -- เครื่องบอกเอง ปลอมได้ ใช้ประกอบเท่านั้น
+            ua = request.headers.get("User-Agent", "")[:device_info.UA_MAX]
+            cur.execute(
+                "INSERT INTO access_request (code, mac, ip, hostname, os_label, user_agent, natid_hash, "
+                "natid_enc, natid_masked, consent_at, consent_version, expires_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,"
+                f"DATE_ADD(NOW(), INTERVAL {access.REQUEST_TTL_MIN} MINUTE))",
+                (code, mac, real_ip, device_info.lease_hostname(mac, real_ip),
+                 device_info.os_from_user_agent(ua), ua or None,
+                 nid_hash, crypto.natid_encrypt(nid), masked, PRIVACY_POLICY_VERSION))
+    except pymysql.err.OperationalError as exc:
+        # กดส่งซ้ำพร้อมกัน (แตะสองครั้ง): SELECT ... FOR UPDATE บนแถวที่ยังไม่มีขอ gap lock ทั้งสองคำขอแล้ว
+        # INSERT ชนกัน -> MariaDB เลือกฆ่าหนึ่งฝั่ง (1213) หรือรอล็อกนานจนหมดเวลา (1205) · transaction ของฝั่งที่แพ้
+        # ถูก rollback ทั้งหมด (get_conn) ไม่มีอะไรค้าง ส่วนฝั่งที่ชนะสร้างคำขอที่รออยู่ไว้แล้ว -> พาไปหน้ารอ
+        if exc.args and exc.args[0] in (1213, 1205):
+            app.logger.warning("ส่งคำขอลงทะเบียนซ้อนกัน (MySQL %s) mac=%s -- ใช้คำขอที่รออยู่", exc.args[0], mac)
             return redirect("/request", code=303)
-        cur.execute("SELECT COUNT(*) AS n FROM access_request WHERE status='pending' "
-                    "AND expires_at > NOW()")
-        if int(cur.fetchone()["n"]) >= access.MAX_PENDING_REQUESTS:
-            app.logger.error("คำขอที่รออนุมัติเต็ม %d รายการ", access.MAX_PENDING_REQUESTS)
-            return render_template("register.html", nonce=nonce,
-                                   error="ขณะนี้มีคำขอรออยู่มาก กรุณาติดต่อพนักงานโดยตรง"), 503
-        cur.execute("UPDATE fas_context SET consumed_at=NOW() WHERE nonce_hash=%s "
-                    "AND consumed_at IS NULL AND expires_at > NOW()", (_nonce_hash(nonce),))
-        if cur.rowcount != 1:
-            conn.rollback()
-            return render_template("error.html", title="หน้านี้หมดอายุแล้ว",
-                                   message="กรุณาเปิดหน้าเข้าใช้งานใหม่"), 400
-        code = access.gen_request_code(cur)
-        # ชื่อเครื่อง/OS ช่วยพนักงานถามลูกค้าว่า "ใช่เครื่องนี้ไหม" -- เครื่องบอกเอง ปลอมได้ ใช้ประกอบเท่านั้น
-        ua = request.headers.get("User-Agent", "")[:device_info.UA_MAX]
-        cur.execute(
-            "INSERT INTO access_request (code, mac, ip, hostname, os_label, user_agent, natid_hash, "
-            "natid_enc, natid_masked, consent_at, expires_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),"
-            f"DATE_ADD(NOW(), INTERVAL {access.REQUEST_TTL_MIN} MINUTE))",
-            (code, mac, real_ip, device_info.lease_hostname(mac, real_ip),
-             device_info.os_from_user_agent(ua), ua or None,
-             nid_hash, crypto.natid_encrypt(nid), masked))
+        raise
 
     audit.log(audit.ACCESS_REQUEST, target=code, client_ip=real_ip,
               detail=f"mac={mac} customer={masked}")
@@ -304,7 +316,10 @@ def request_status():
         "v.used_mb, v.status AS voucher_status FROM access_request ar "
         "LEFT JOIN portal_session ps ON ps.id = ar.portal_session_id "
         "LEFT JOIN voucher v ON v.id = ar.voucher_id "
-        "WHERE ar.mac = %s AND ar.created_at > NOW() - INTERVAL 1 DAY "
+        # คำขอใน 1 วัน หรือที่อนุมัติแล้วและสิทธิ์ (voucher แบบหลายวัน) ยังไม่หมดอายุ -- ไม่งั้นลูกค้าที่ได้
+        # สิทธิ์ 3 วันเปิดหน้านี้วันที่ 2 แล้วเห็น "ไม่พบคำขอ" ทั้งที่ยังใช้เน็ตได้
+        "WHERE ar.mac = %s AND (ar.created_at > NOW() - INTERVAL 1 DAY "
+        "OR (ar.status = 'approved' AND v.valid_until > NOW())) "
         "ORDER BY ar.id DESC LIMIT 1", (mac,))
     if not row:
         return render_template("request_status.html", state="none")
@@ -367,7 +382,7 @@ def human_bytes(n) -> str:
 
 @app.get("/policy")
 def policy():
-    return render_template("policy.html")
+    return render_template("policy.html", version=PRIVACY_POLICY_VERSION)
 
 
 @app.errorhandler(404)
