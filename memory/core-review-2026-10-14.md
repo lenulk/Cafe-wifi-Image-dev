@@ -22,3 +22,10 @@ Report: `docs/code-review-2026-10-14-core.md` (branch `image`, commits 691bbe6..
 
 **Why:** the user said to fix whatever can be fixed now and to record anything that needs the Pi in a file first.
 **How to apply:** when taking the Pi out to test, start from the report's Pi table. Do not fix M1 or M2 by guessing. See [[log-search-upgrade-2026-10-12]], [[real-pi-deployment]].
+
+**Setup wizard + image review (same day, commit 5dfece5, report `docs/code-review-2026-10-14-setup-image.md`):**
+- Fixed S1–S3, S5–S8, S11–S13.
+- User decisions: S3 means a wrong setup code locks only that IP, not the whole box. S4 (setup code sent over HTTP) is kept as is for now; don't raise it again.
+- **Needs the Pi:**
+  - S10: run restore import as a non-root DB user and disable `\!` in the mysql client.
+  - Test S13 with `TECH_USER=www-data` in cafewifi.conf; firstboot must fail with an error.

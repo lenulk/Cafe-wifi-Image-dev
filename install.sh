@@ -123,7 +123,8 @@ write_file() {
     return 0
   fi
   install -d -m 0755 "$(dirname "$path")"
-  cat > "$path"
+  # umask 077 ตอนสร้าง: ไฟล์ลับ (เช่น /etc/config/opennds มี faskey) ต้องไม่อ่านได้ทั่วไปแม้เสี้ยววินาทีก่อน chmod
+  ( umask 077; cat > "$path" )
   chmod "$mode" "$path"
   [[ -n "$own" ]] && chown "$own" "$path"
   return 0
@@ -1730,12 +1731,9 @@ build_opennds() {
     if run_sh "git clone --branch '${OPENNDS_REF}' --depth 1 https://github.com/openNDS/openNDS.git '${src}'"; then
       ok "clone openNDS (${OPENNDS_REF}) สำเร็จ"
     else
-      warn "clone openNDS tag '${OPENNDS_REF}' ไม่สำเร็จ (อาจไม่มี tag นี้จริงแล้ว — ตรวจที่ https://github.com/openNDS/openNDS/tags แล้วระบุใหม่ด้วย --opennds-ref) ใช้ default branch (ล่าสุด, ไม่ pin) แทน"
+      # ไม่ fallback ไป default branch แล้ว: รุ่นล่าสุดไม่เคยทดสอบ และรูปแบบ config อาจต่างจากที่เรา generate
       run_sh "rm -rf '${src}'"
-      if ! run_sh "git clone --depth 1 https://github.com/openNDS/openNDS.git '${src}'"; then
-        warn "clone openNDS ไม่สำเร็จ — ติดตั้งเองภายหลังแล้วรันซ้ำด้วย --skip-opennds"
-        return 0
-      fi
+      die "clone openNDS tag '${OPENNDS_REF}' ไม่สำเร็จ — ตรวจ tag ที่ https://github.com/openNDS/openNDS/tags แล้วระบุด้วย --opennds-ref หรือข้ามด้วย --skip-opennds"
     fi
     if ! run_sh "make -C '${src}' -j\"\$(nproc)\" && make -C '${src}' install"; then
       warn "build openNDS ไม่สำเร็จ (มักขาด libmicrohttpd-dev)"
@@ -1977,7 +1975,8 @@ WorkingDirectory=${OPT_DIR}
 EnvironmentFile=${ETC_DIR}/secrets.env
 Environment=PYTHONPATH=${OPT_DIR}
 ExecStart=${VENV_DIR}/bin/python -m logger.run_all
-Restart=on-failure
+# always: ตัวเก็บหลักฐาน ม.26 ต้องกลับมาเองแม้ออกด้วย exit 0
+Restart=always
 RestartSec=10
 # R2-06: SIGTERM ไปที่ python ตัวเดียว ให้มันปิด conntrack เองหลังดูดเหตุการณ์ที่ค้างในท่อ -- ค่าปริยาย
 # (control-group) ส่งถึง conntrack พร้อมกัน ถ้ามันตายก่อน จะดูเหมือน crash และข้ามขั้นตอนดูดคิว
@@ -2012,6 +2011,9 @@ UNIT
   write_file /etc/systemd/system/cafe-maintenance.service 0644 <<UNIT
 [Unit]
 Description=Cafe WiFi daily maintenance (retention purge + DB backup + disk check + log integrity + time check)
+# Persistent=true ทำให้ timer ยิงทันทีหลังบูต ก่อน DB พร้อม (ExecStart มี - จึงล้มเงียบ ๆ) -- รอ DB + นาฬิกา sync ก่อน
+Wants=mariadb.service time-sync.target
+After=mariadb.service time-sync.target
 
 [Service]
 Type=oneshot
@@ -2084,6 +2086,8 @@ Description=Run cafe-wifi voucher expiry enforcement every 5 minutes
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=5min
+# ค่าปริยาย AccuracySec=1min ทำให้รอบห่างไม่สม่ำเสมอ (บทเรียนเดียวกับ cafe-reconcile.timer)
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target
@@ -2157,6 +2161,8 @@ Description=Run cafe-wifi bypass detector every 1 minute
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=1min
+# ค่าปริยาย AccuracySec=1min ทำให้รอบห่างไม่สม่ำเสมอ (บทเรียนเดียวกับ cafe-reconcile.timer)
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target
@@ -2165,6 +2171,9 @@ UNIT
   run systemctl daemon-reload
   ok "สร้าง systemd unit แล้ว"
 }
+
+# กุญแจ CA ของร้าน: อ่านได้เฉพาะ root (nginx master อ่านตอน start; ไม่มีโค้ดแอปอ่าน)
+secure_tls_key() { chmod 0600 "$1"; chown root:root "$1"; }
 
 # ใบรับรองเป็นความลับประจำเครื่อง (private key) -- ห้ามสร้างตอน --stage build ไม่งั้นทุกร้านที่ flash
 # image เดียวกันได้ key เดียวกัน (docs/image-build-plan.md §2) · firstboot ออกด้วย IP ลูกค้าตั้งต้น
@@ -2187,15 +2196,21 @@ make_tls_cert() {
     local nc; nc="$(openssl x509 -in "${cert}/server.crt" -noout -ext nameConstraints 2>/dev/null || true)"
     if (( ! keyok )) || [[ "$san" != *"admin.cafe.wifi"* || "$san" != *"IP Address:${lan_ip}"* || "$nc" != *"DNS:cafe.wifi"* ]]; then
       info "ใบรับรองเดิมไม่มีชื่อ admin.cafe.wifi / IP ${lan_ip} / ข้อจำกัดชื่อ — ออกใหม่ (เครื่องพนักงานต้องติดตั้งใบรับรองใหม่)"
-      mv -f "${cert}/server.crt" "${cert}/server.crt.old"; mv -f "${cert}/server.key" "${cert}/server.key.old" 2>/dev/null || true
+      # กุญแจเก่าลบทิ้งเลย ไม่เก็บ .old ไว้ให้อ่าน (กุญแจ CA ที่พนักงานเคยติดตั้งไว้ในมือถือ)
+      mv -f "${cert}/server.crt" "${cert}/server.crt.old"; rm -f "${cert}/server.key"
     fi
   fi
   if [[ ! -f "${cert}/server.crt" ]] && (( ! DRY_RUN )); then
-    openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+    local tmp_log; tmp_log="$(mktemp)"
+    if ! openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
       -keyout "${cert}/server.key" -out "${cert}/server.crt" \
       -subj "/C=TH/O=Cafe WiFi Gateway/CN=admin.cafe.wifi" \
-      -addext "subjectAltName=DNS:admin.cafe.wifi,DNS:cafe.wifi,DNS:localhost,IP:${lan_ip}"       -addext "basicConstraints=critical,CA:TRUE,pathlen:0"       -addext "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign"       -addext "nameConstraints=critical,permitted;DNS:cafe.wifi,permitted;DNS:localhost,permitted;IP:${lan_ip}/255.255.255.255"       >/dev/null 2>&1
-    chmod 0640 "${cert}/server.key"; chown root:"$APP_USER" "${cert}/server.key"
+      -addext "subjectAltName=DNS:admin.cafe.wifi,DNS:cafe.wifi,DNS:localhost,IP:${lan_ip}"       -addext "basicConstraints=critical,CA:TRUE,pathlen:0"       -addext "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign"       -addext "nameConstraints=critical,permitted;DNS:cafe.wifi,permitted;DNS:localhost,permitted;IP:${lan_ip}/255.255.255.255"       >"$tmp_log" 2>&1; then
+      local why; why="$(tail -3 "$tmp_log")"; rm -f "$tmp_log"
+      die "สร้างใบรับรองไม่สำเร็จ: ${why}"
+    fi
+    rm -f "$tmp_log"
+    secure_tls_key "${cert}/server.key"
     sync
     ok "สร้าง self-signed certificate (825 วัน)"
   fi
@@ -2203,6 +2218,8 @@ make_tls_cert() {
   # (Chrome Android ติด captive portal ไม่มีปุ่มข้ามหน้าเตือน -- ทดสอบบนมือถือจริง 2026-10-05) · nameConstraints
   # ข้างบนจำกัดให้ใช้ได้เฉพาะ cafe.wifi/IP ของ Pi: กุญแจหลุดก็ปลอมเว็บอื่นให้มือถือพนักงานเชื่อไม่ได้
   # ดาวน์โหลดได้ที่ http://<GATEWAY_IP>:${FAS_PORT}/${APP_NAME}.crt (nginx) -- ไฟล์สาธารณะ ไม่มีกุญแจ
+  # ติดตั้งเก่าเคยเป็น 0640 root:cafewifi -- ทุกรอบลดสิทธิ์ลงเป็น 0600 root:root (ผู้ใช้ cafewifi รัน FAS ฝั่งลูกค้า)
+  if [[ -f "${cert}/server.key" ]] && (( ! DRY_RUN )); then secure_tls_key "${cert}/server.key"; fi
   if [[ -f "${cert}/server.crt" ]] && (( ! DRY_RUN )); then
     mkdir -p "$CA_PUBLIC_DIR"; chmod 0755 "$CA_PUBLIC_DIR"
     cp -f "${cert}/server.crt" "${CA_PUBLIC_DIR}/${APP_NAME}.crt"; chmod 0644 "${CA_PUBLIC_DIR}/${APP_NAME}.crt"
@@ -2279,11 +2296,13 @@ NGINX
 
 # ตรวจ config + เปิด nginx -- ต้องมีใบรับรองแล้ว (nginx -t ไม่ผ่านถ้าไฟล์ ssl_certificate ยังไม่มี)
 start_nginx() {
-  if run_sh "nginx -t >/dev/null 2>&1"; then
+  local ngt
+  if ngt="$( (( DRY_RUN )) && echo ok || nginx -t 2>&1 )"; then
     svc enable nginx
     svc restart nginx
     ok "Nginx พร้อม"
   else
+    warn "nginx -t ผิดพลาด: $(printf '%s' "$ngt" | tail -5)"
     warn "nginx -t ไม่ผ่าน — ตรวจสอบด้วย: nginx -t (config ของเราคือ ${APP_NAME}.conf ใน conf.d หรือ sites-available)"
   fi
   return 0
@@ -2473,6 +2492,25 @@ uninstall() {
   printf '    %-24s firewall rules\n\n' "/etc/nftables.conf"
 }
 
+# dnsmasq ใช้ netmask 255.255.255.0 ตายตัว (dhcp-range) -- ค่า CLI ที่ไม่ใช่ IPv4 /24 หรือ pool นอกวง/ทับ gateway
+# จะทำให้ DHCP พังเงียบ ๆ หลังติดตั้ง จึงตรวจก่อนแตะระบบ
+validate_net_args() {
+  local oct='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+  local ipre="^${oct}\.${oct}\.${oct}\.${oct}\$"
+  [[ "$CLIENT_CIDR" =~ ^(${oct}\.${oct}\.${oct})\.(${oct})/24$ ]] \
+    || die "--client-cidr ต้องเป็น IPv4 รูปแบบ a.b.c.d/24 เท่านั้น (ได้รับ '${CLIENT_CIDR}')"
+  local net="${BASH_REMATCH[1]}" gw_last="${BASH_REMATCH[5]}" ip
+  for ip in "$DHCP_START" "$DHCP_END"; do
+    [[ "$ip" =~ $ipre ]] || die "ช่วง DHCP ต้องเป็น IPv4 (ได้รับ '${ip}')"
+    [[ "${ip%.*}" == "$net" ]] || die "ช่วง DHCP ${ip} อยู่นอกวง ${net}.0/24 ของ --client-cidr"
+  done
+  local s="${DHCP_START##*.}" e="${DHCP_END##*.}"
+  (( 10#$s <= 10#$e )) || die "ช่วง DHCP เริ่ม (${DHCP_START}) ต้องไม่มากกว่าสิ้นสุด (${DHCP_END})"
+  if (( 10#$gw_last >= 10#$s && 10#$gw_last <= 10#$e )); then
+    die "ช่วง DHCP ${DHCP_START}-${DHCP_END} ครอบคลุม IP ของ Pi เอง (${net}.${gw_last})"
+  fi
+}
+
 # ============================================================================
 #  main
 # ============================================================================
@@ -2521,6 +2559,7 @@ main() {
   if printf '%s' "$GATEWAY_NAME" | LC_ALL=C grep -qP '[\x00-\x1f\x7f]|\xc2[\x80-\x9f]|\xe2\x80[\xa8\xa9]'; then
     die "ชื่อ portal ห้ามมีอักขระควบคุม/อักขระที่มองไม่เห็น"
   fi
+  if [[ "$STAGE" == all || "$STAGE" == site ]] && (( ! SKIP_NETWORK )); then validate_net_args; fi
   # build ไม่ได้ daemon-reload (chroot) -- เริ่มช่วงถัดไปบนเครื่องจริงต้องให้ systemd อ่าน unit ใหม่ก่อน
   if [[ "$STAGE" == firstboot || "$STAGE" == site ]] && [[ "$INIT_SYS" == systemd ]]; then
     run systemctl daemon-reload
@@ -2558,4 +2597,5 @@ main() {
   fi
 }
 
-main "$@"
+# ให้เทสต์ source ฟังก์ชันได้โดยไม่รัน main
+[[ "${CAFEWIFI_SOURCE_ONLY:-0}" == 1 ]] || main "$@"
