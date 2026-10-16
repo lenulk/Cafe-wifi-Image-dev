@@ -48,6 +48,7 @@ REQUEST_MISMATCH = "request_mismatch"  # 4 ตัวท้ายบนบัต�
 VOUCHER_EXTEND = "voucher_extend"    # ต่อเวลาสิทธิ์ที่ยังใช้ได้ (ปุ่ม +1 ชม. บนแดชบอร์ด)
 AUDIT_SCRUB = "audit_scrub"  # T8 -- admin สั่งล้าง MAC/เลขบัตรในแถว audit เก่า (ไม่ลบแถว: ผู้ทำ/การกระทำ/เวลาคงอยู่) -- ลงทั้งตอนเริ่มและตอนจบ
 VOUCHER_DEVICES = "voucher_devices"  # แก้จำนวนเครื่องของสิทธิ์ที่ยังใช้ได้ (เช่น ลูกค้าขอเพิ่มเครื่อง)
+DEVICE_RESUME = "device_resume"  # เครื่องที่อนุมัติแล้วกลับมาในวงลูกค้า (ตื่นจากจอดับ/Pi รีสตาร์ท/เดินออกแล้วกลับมา) -> คืนสิทธิ์เดิมให้เอง
 
 
 def log(action: str, staff_id: int | None = None, target: str = "",

@@ -44,6 +44,7 @@ class _FakeCursor:
 
 ORIG_AUTHORIZE = rp.authorize_approved
 ORIG_EXPIRE = rp.expire_requests
+ORIG_RESUME = rp.resume_returning
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +53,7 @@ def _no_request_steps(monkeypatch):
     monkeypatch.setattr(rp, "authorize_approved", lambda: 0)
     monkeypatch.setattr(rp, "expire_requests", lambda: 0)
     monkeypatch.setattr(rp, "sync_extended", lambda: 0)
+    monkeypatch.setattr(rp, "resume_returning", lambda: 0)
 
 
 class _FakeConn:
@@ -450,3 +452,94 @@ def test_main_treats_lock_conflict_as_retry_next_round(monkeypatch):
         pymysql.err.OperationalError(2003, "Can't connect")))
     with pytest.raises(pymysql.err.OperationalError):
         rp.main()
+
+
+# ---------------------------------------------------------------- เครื่องที่อนุมัติแล้วกลับมา
+def test_present_clients_keeps_only_active_neighbors_in_client_net(monkeypatch):
+    import json as _json
+    entries = [
+        {"dst": "10.10.0.105", "lladdr": "9e:31:8b:2f:68:a8", "state": ["REACHABLE"]},
+        {"dst": "10.10.0.106", "lladdr": "aa:bb:cc:dd:ee:02", "state": ["STALE"]},
+        {"dst": "10.10.0.107", "state": ["FAILED"]},
+        {"dst": "172.20.18.1", "lladdr": "00:ea:bd:18:3f:7f", "state": ["DELAY"]},
+    ]
+
+    class R:
+        returncode, stdout = 0, _json.dumps(entries).encode()
+
+    monkeypatch.setenv("CLIENT_CIDR", "10.10.0.1/24")
+    monkeypatch.setattr(rp.subprocess, "run", lambda *a, **k: R())
+    assert rp.present_clients() == {"9E:31:8B:2F:68:A8": "10.10.0.105"}
+
+
+class _ResumeCursor(_AuthCursor):
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.lastrowid = 42
+
+
+def _resume_env(monkeypatch, rows, client, reserve_err=None, auth_ok=True):
+    cur = _ResumeCursor(rows)
+    conn = _FakeConn(cur)
+    rolled = []
+    conn.rollback = lambda: rolled.append(True)
+    reserved, authed, audited = [], [], []
+    monkeypatch.setattr(rp, "present_clients", lambda: {"9E:31:8B:2F:68:A8": "10.10.0.105"})
+    monkeypatch.setattr(rp, "get_conn", lambda: conn)
+    monkeypatch.setattr(rp, "gateway_clients", lambda macs: {} if client is None else {"9e:31:8b:2f:68:a8": client})
+    monkeypatch.setattr(rp.access, "reserve_pending_session",
+                        lambda cur, v, mac, ip, h=None, o=None: reserved.append((v, mac, ip, h, o))
+                        or ((reserve_err, None) if reserve_err else (None, 42)))
+    monkeypatch.setattr(rp, "_auth_mac", lambda mac, minutes: authed.append((mac, minutes)) or auth_ok)
+    monkeypatch.setattr(rp.audit, "log", lambda *a, **k: audited.append((a, k)))
+    return cur, reserved, authed, audited, rolled
+
+
+def _bound(minutes=80):
+    return dict(mac="9E:31:8B:2F:68:A8", id=6, max_devices=2, hostname="Redmi-Note-14-5G",
+                os_label="Android 16", valid_until=datetime.now() + timedelta(minutes=minutes, seconds=-30))
+
+
+def test_resume_returning_reauths_bound_device_under_same_voucher(monkeypatch):
+    """Pi 2026-10-16: openNDS รีสตาร์ทตอน Redmi จอดับ -> ตื่นมาต้องได้เน็ตต่อด้วยสิทธิ์เดิม ไม่ใช่หน้าลงทะเบียน"""
+    cur, reserved, authed, audited, _ = _resume_env(
+        monkeypatch, [_bound()], {"ip": "10.10.0.105", "state": "Preauthenticated"})
+    assert ORIG_RESUME() == 1
+    assert reserved == [({"id": 6, "max_devices": 2}, "9E:31:8B:2F:68:A8", "10.10.0.105",
+                         "Redmi-Note-14-5G", "Android 16")]
+    assert authed == [("9E:31:8B:2F:68:A8", 80)]
+    assert audited and audited[0][0][0] == rp.audit.DEVICE_RESUME
+    (sql, args), = cur.executed
+    assert "v.status='active'" in sql and "v.valid_until > now()" in sql.lower()
+    assert "not c.is_blocked" in sql.lower(), "ลูกค้าที่ถูกระงับห้ามได้สิทธิ์คืน"
+    assert "ps.state='pending'" in sql and "ps.ended_at is null" in sql.lower(), "เครื่องที่มี session อยู่แล้วห้ามซ้ำ"
+    assert args == ("9E:31:8B:2F:68:A8",)
+
+
+def test_resume_waits_until_opennds_sees_device_at_same_ip(monkeypatch):
+    for client in (None, {"ip": "10.10.0.199", "state": "Preauthenticated"}):
+        _, reserved, authed, _, _ = _resume_env(monkeypatch, [_bound()], client)
+        assert ORIG_RESUME() == 0 and reserved == [] and authed == []
+
+
+def test_resume_no_bound_device_does_not_touch_ndsctl(monkeypatch):
+    _resume_env(monkeypatch, [], {"ip": "10.10.0.105"})
+    monkeypatch.setattr(rp, "gateway_clients", lambda macs: pytest.fail("ไม่มีเครื่องที่ต้องคืนสิทธิ์ ไม่ต้องถาม openNDS"))
+    assert ORIG_RESUME() == 0
+
+
+def test_resume_reserve_refused_rolls_back_and_skips_auth(monkeypatch):
+    _, _, authed, audited, rolled = _resume_env(
+        monkeypatch, [_bound()], {"ip": "10.10.0.105"}, reserve_err="ครบจำนวนเครื่อง")
+    assert ORIG_RESUME() == 0 and rolled == [True] and authed == [] and audited == []
+
+
+def test_resume_auth_failure_is_not_counted(monkeypatch):
+    _, _, authed, audited, _ = _resume_env(monkeypatch, [_bound()], {"ip": "10.10.0.105"}, auth_ok=False)
+    assert ORIG_RESUME() == 0 and len(authed) == 1 and audited == []
+
+
+def test_resume_uses_longest_remaining_voucher_when_mac_bound_twice(monkeypatch):
+    rows = [_bound(120), {**_bound(30), "id": 3}]
+    _, reserved, authed, _, _ = _resume_env(monkeypatch, rows, {"ip": "10.10.0.105"})
+    assert ORIG_RESUME() == 1 and reserved[0][0]["id"] == 6 and authed == [("9E:31:8B:2F:68:A8", 120)]

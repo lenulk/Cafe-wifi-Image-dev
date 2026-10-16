@@ -68,3 +68,5 @@ Report: `docs/code-review-2026-10-14-core.md` (branch `image`, commits 691bbe6..
   - The partition DROP event uses CURDATE() and has no clock check.
 
 **Pi results 2026-10-16** (docs/hardware-test-log.md §3.16): B2 confirmed→fixed→re-verified; B3 display fixed; B5/U8/M12 OK; M1 closed (dnsmasq 2.91 prints `query[HTTPS]`); M2 not reproduced (399/399 across logrotate); M6 OK (DB down 68 s, 500/500, no log_gap needed); U9/B4 streaming export (iter_rows + write_csv_stream, web cap 300k rows). Still open: A8/H2 (DB grants — owner decision, proposed audit_log triggers), T1/T2/T4/T5/T11 (need AP + several phones), N1, N2.
+
+**Phones via AP 2026-10-16 (hardware-test-log §3.18):** T1 ok at 3 phones (openNDS restores all in ~32 s < 45 s enforce sweep), T2 ok, T4 ok (new 8.9 s, revoked ~1 s). **N1 confirmed + fixed**: forward now accepts only openNDS mark bit 0x20000 + own `cafe_walledgarden` set (dnsmasq nftset); nftables reload/start drop-in try-restarts openNDS. Fail-closed: openNDS down = nobody online (intended). Still open: N2 (router IPv6 RA), T1/T4 at 10+ devices, T5 quota overshoot, openNDS appends duplicate nftset lines to /etc/dnsmasq.conf each start (low).

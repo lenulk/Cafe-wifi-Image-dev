@@ -1,13 +1,15 @@
 """ยืนยัน pending FAS sessions กับ openNDS ก่อนนับว่าออนไลน์จริง."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import math
+import os
 import subprocess
 from datetime import datetime
 
-from common import audit
+from common import access, audit
 from common.db import get_conn
 
 log = logging.getLogger("cafe-wifi.reconcile_pending")
@@ -85,6 +87,34 @@ def _gateway_authenticated(mac: str) -> bool:
     return bool(client) and str(client.get("state", "")).lower().startswith("auth")
 
 
+def _minutes_left(valid_until: datetime) -> int:
+    return max(1, math.ceil((valid_until - datetime.now()).total_seconds() / 60))
+
+
+def _auth_mac(mac: str, minutes: int) -> bool:
+    """`ndsctl auth <mac> <นาที>` -- True ถ้า openNDS เปิดสิทธิ์ให้แล้ว (sessiontimeout = นาทีที่สิทธิ์เหลือ)"""
+    from tools.enforce_voucher_expiry import run_ndsctl
+    try:
+        res = run_ndsctl(["ndsctl", "auth", mac.lower(), str(minutes)])
+        if res.returncode != 0 and _gateway_authenticated(mac):
+            # B2 (ยืนยันบน Pi 2026-10-16): MAC ที่ออนไลน์อยู่แล้ว (ลูกค้าส่งคำขอซ้ำจากแท็บที่เปิดค้าง
+            # แล้วพนักงานอนุมัติทั้งคู่) -> openNDS ตอบ "Failed to authenticate client" exit 1 ทุกรอบ
+            # จน pending หมด 180 วิ แล้วถูก deauth เป็น auth_timeout = ลูกค้าหลุดทั้งที่อนุมัติแล้ว
+            # ใช้วิธีเดียวกับ sync_extended: deauth แล้ว auth ใหม่ทันที -> session_start ใหม่ ลูปยืนยันใน
+            # run() ปิดแถวเดิมเป็น reauth (log ต่อเนื่อง) แล้วเลื่อนแถวใหม่เป็น authenticated
+            log.warning("ndsctl auth %s: ออนไลน์อยู่แล้ว -- deauth แล้ว auth ใหม่", mac)
+            run_ndsctl(["ndsctl", "deauth", mac.lower()])
+            res = run_ndsctl(["ndsctl", "auth", mac.lower(), str(minutes)])
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.error("ndsctl auth %s ล้มเหลว: %s", mac, exc)
+        return False
+    if res.returncode != 0:
+        log.error("ndsctl auth %s ไม่สำเร็จ (exit %d): %s", mac, res.returncode,
+                  (res.stdout or b"").decode(errors="replace")[:200])
+        return False
+    return True
+
+
 def authorize_approved() -> int:
     """คำขอที่พนักงานอนุมัติแล้ว -> สั่ง openNDS เปิดสิทธิ์ให้ MAC นั้นโดยตรง (`ndsctl auth`)
 
@@ -93,7 +123,6 @@ def authorize_approved() -> int:
     เหลือ openNDS จึงตัดเองตรงเวลาแม้ cafe-enforce ยังไม่ถึงรอบ · ยืนยัน session ต่อด้วยลูปเดิมใน run()
     อ่านรายการก่อนแล้วค่อยเรียก ndsctl นอก transaction (ไม่ถือ lock ระหว่างรอ openNDS)
     """
-    from tools.enforce_voucher_expiry import run_ndsctl
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("SELECT ar.id, ar.mac, v.valid_until FROM access_request ar "
                     "JOIN portal_session ps ON ps.id = ar.portal_session_id "
@@ -102,25 +131,8 @@ def authorize_approved() -> int:
         todo = cur.fetchall()
     sent = 0
     for r in todo:
-        minutes = max(1, math.ceil((r["valid_until"] - datetime.now()).total_seconds() / 60))
-        try:
-            res = run_ndsctl(["ndsctl", "auth", r["mac"].lower(), str(minutes)])
-            if res.returncode != 0 and _gateway_authenticated(r["mac"]):
-                # B2 (ยืนยันบน Pi 2026-10-16): MAC ที่ออนไลน์อยู่แล้ว (ลูกค้าส่งคำขอซ้ำจากแท็บที่เปิดค้าง
-                # แล้วพนักงานอนุมัติทั้งคู่) -> openNDS ตอบ "Failed to authenticate client" exit 1 ทุกรอบ
-                # จน pending หมด 180 วิ แล้วถูก deauth เป็น auth_timeout = ลูกค้าหลุดทั้งที่อนุมัติแล้ว
-                # ใช้วิธีเดียวกับ sync_extended: deauth แล้ว auth ใหม่ทันที -> session_start ใหม่ ลูปยืนยันใน
-                # run() ปิดแถวเดิมเป็น reauth (log ต่อเนื่อง) แล้วเลื่อนแถวใหม่เป็น authenticated
-                log.warning("ndsctl auth %s: ออนไลน์อยู่แล้ว -- deauth แล้ว auth ใหม่", r["mac"])
-                run_ndsctl(["ndsctl", "deauth", r["mac"].lower()])
-                res = run_ndsctl(["ndsctl", "auth", r["mac"].lower(), str(minutes)])
-        except (OSError, subprocess.SubprocessError) as exc:
-            log.error("ndsctl auth %s ล้มเหลว: %s", r["mac"], exc)
-            continue
-        if res.returncode != 0:
-            # ยังไม่ทำเครื่องหมาย -> รอบถัดไป (5 วิ) ลองใหม่ จนกว่า pending จะหมดเวลา (auth_timeout)
-            log.error("ndsctl auth %s ไม่สำเร็จ (exit %d): %s", r["mac"], res.returncode,
-                      (res.stdout or b"").decode(errors="replace")[:200])
+        # ยังไม่ทำเครื่องหมายถ้าไม่สำเร็จ -> รอบถัดไป (5 วิ) ลองใหม่ จนกว่า pending จะหมดเวลา (auth_timeout)
+        if not _auth_mac(r["mac"], _minutes_left(r["valid_until"])):
             continue
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("UPDATE access_request SET auth_sent_at=NOW() WHERE id=%s", (r["id"],))
@@ -191,10 +203,102 @@ def sync_extended() -> int:
     return done
 
 
+# สถานะใน neighbor table ที่แปลว่าเครื่อง "อยู่ตรงนี้ตอนนี้" (เพิ่งคุยกับ Pi) -- STALE/FAILED คือเครื่องที่อาจ
+# ออกไปแล้ว ต้องไม่ถาม openNDS ทุก 5 วิให้เปลือง ndsctl
+_PRESENT_STATES = {"REACHABLE", "DELAY", "PROBE"}
+
+
+def present_clients() -> dict[str, str]:
+    """MAC (ตัวใหญ่) -> IP ของเครื่องในวงลูกค้าที่เพิ่งมีความเคลื่อนไหว อ่านจาก neighbor table ของเคอร์เนล
+    (ไม่ใช้ `ndsctl json` ทั้งก้อน -- ช้า ~1.1 วิต่อลูกค้าและยึด openNDS ไว้ ดู gateway_clients)"""
+    try:
+        net = ipaddress.ip_interface(os.environ.get("CLIENT_CIDR") or "10.10.0.1/24").network
+        r = subprocess.run(["ip", "-j", "-4", "neigh", "show"], capture_output=True, timeout=5)
+        entries = json.loads(r.stdout or b"[]") if r.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        log.warning("อ่าน neighbor table ไม่ได้: %s", exc)
+        return {}
+    found = {}
+    for e in entries:
+        mac, ip = e.get("lladdr"), e.get("dst")
+        if not mac or not ip or not _PRESENT_STATES & set(e.get("state") or []):
+            continue
+        try:
+            if ipaddress.ip_address(ip) in net:
+                found[mac.upper()] = ip
+        except ValueError:
+            continue
+    return found
+
+
+def resume_returning() -> int:
+    """เครื่องที่พนักงานอนุมัติแล้ว (ผูกใน `device`) กลับมาในวงลูกค้าขณะสิทธิ์ยังไม่หมด -> เปิดสิทธิ์เดิมให้เอง
+
+    พบบน Pi 2026-10-16: openNDS รีสตาร์ท (ติดตั้งทับ/รีบูต/ไฟดับ) คืนสิทธิ์ให้เฉพาะเครื่องที่มีทราฟฟิกตอนนั้น
+    Redmi ที่จอดับอยู่หลุดจากรายชื่อ -> cafe-enforce ปิด session เป็น disconnected -> ตื่นมาเจอหน้าลงทะเบียน
+    ทั้งที่สิทธิ์เหลืออีก 80 นาที (ลูกค้าต้องยื่นบัตรใหม่ พนักงานต้องอนุมัติซ้ำ) · กรณีเดียวกับลูกค้าที่ไม่ได้ใช้
+    เกิน authidletimeout หรือเดินออกไปแล้วกลับมา
+
+    เปิด session ใหม่ (pending) ภายใต้ voucher เดิม แล้ว `ndsctl auth` -- ลูปยืนยันใน run() เลื่อนเป็น
+    authenticated ด้วยเวลาจริงของ openNDS เหมือนการอนุมัติปกติ log ช่วงใหม่จึงโยงถึงลูกค้าคนเดิม
+    ไม่คืนสิทธิ์ถ้าสิทธิ์ถูกปิด/หมดเวลา/ครบโควตา (status != active) หรือลูกค้าถูกระงับ
+    """
+    present = present_clients()
+    if not present:
+        return 0
+    marks = ",".join(["%s"] * len(present))
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT d.mac, v.id, v.max_devices, v.valid_until, "
+            "(SELECT p.hostname FROM portal_session p WHERE p.mac=d.mac AND p.voucher_id=v.id "
+            " ORDER BY p.id DESC LIMIT 1) AS hostname, "
+            "(SELECT p.os_label FROM portal_session p WHERE p.mac=d.mac AND p.voucher_id=v.id "
+            " ORDER BY p.id DESC LIMIT 1) AS os_label "
+            "FROM device d JOIN voucher v ON v.id = d.voucher_id "
+            "JOIN customer c ON c.id = v.customer_id "
+            f"WHERE d.mac IN ({marks}) AND v.status='active' AND v.valid_until > NOW() "
+            "AND NOT c.is_blocked AND NOT EXISTS (SELECT 1 FROM portal_session ps WHERE ps.mac=d.mac "
+            "AND (ps.state='pending' OR (ps.state='authenticated' AND ps.ended_at IS NULL))) "
+            "ORDER BY v.valid_until DESC", tuple(present))
+        rows = cur.fetchall()
+    todo: dict = {}
+    for r in rows:  # MAC เดียวผูกหลายสิทธิ์ได้ (มาซ้ำคนละวัน) -- ใช้สิทธิ์ที่เหลือนานสุด
+        todo.setdefault(r["mac"].upper(), r)
+    if not todo:
+        return 0
+    clients = gateway_clients(todo)
+    if clients is None:
+        return 0
+    resumed = 0
+    for mac, r in todo.items():
+        client = clients.get(mac.lower())
+        ip = present[mac]
+        # openNDS ต้องเห็นเครื่องนี้ที่ IP เดียวกัน (ไม่งั้นลูปยืนยันจะไม่ผ่าน) -- ยังไม่เห็นก็รอรอบหน้า
+        if not client or str(client.get("ip") or client.get("clientip") or "") != ip:
+            continue
+        with get_conn() as conn, conn.cursor() as cur:
+            err, session_id = access.reserve_pending_session(
+                cur, {"id": r["id"], "max_devices": r["max_devices"]}, mac, ip,
+                r.get("hostname"), r.get("os_label"))
+            if err:
+                conn.rollback()
+                log.warning("คืนสิทธิ์ %s ไม่ได้: %s", mac, err)
+                continue
+        # auth ไม่สำเร็จ -> แถว pending หมดเวลาใน 180 วิ แล้วลูปยืนยันเก็บเป็น auth_timeout จากนั้นรอบถัดไปลองใหม่
+        if not _auth_mac(mac, _minutes_left(r["valid_until"])):
+            continue
+        resumed += 1
+        log.info("คืนสิทธิ์เดิมให้ %s (voucher %s, session %s)", mac, r["id"], session_id)
+        audit.log(audit.DEVICE_RESUME, target=mac, client_ip=ip,
+                  detail=f"voucher={r['id']} session={session_id}")
+    return resumed
+
+
 def run() -> tuple[int, int]:
     expire_requests()
     authorize_approved()
     sync_extended()
+    resume_returning()
     # ถาม openNDS เฉพาะเมื่อมี pending จริง (ส่วนใหญ่ของเวลาไม่มี) -- ไม่ยึด ndsctl ไว้ทุก 5 วิโดยเปล่า
     # ประโยชน์ และอ่านนอก transaction เพื่อไม่ถือ lock ของ portal_session ไว้ระหว่างรอ ndsctl
     with get_conn() as conn, conn.cursor() as cur:

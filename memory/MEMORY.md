@@ -31,7 +31,7 @@
 - [Admin sees everything](admin-sees-everything-unmasked.md) — admin dashboard unmasked by design (staff only masked); don't flag as leak, but wrong log→customer attribution is still a bug
 - [Ultrareview billing](ultrareview-billing.md) — 3 free runs used 2026-10-14; needs usage credits after (cloud session $100 credit doesn't pay for it); 8k-line diff cap + temp-branch trick
 - [Model routing preference](model-routing-preference.md) — Sonnet/Haiku subagents do simple/bulk work; Opus orchestrates, reviews, hard parts
-- [Core review 14 ต.ค.](core-review-2026-10-14.md) — แก้ในเครื่องแล้ว; ผลบน Pi 16 ต.ค. ส่วนใหญ่ปิดแล้ว; A8/H2 แก้แล้ว 16 ต.ค.; เหลือ T1/T2/T4/N1 (ต้อง AP+มือถือ)
+- [Core review 14 ต.ค.](core-review-2026-10-14.md) — แก้ในเครื่องแล้ว; ผลบน Pi 16 ต.ค. ส่วนใหญ่ปิดแล้ว; A8/H2, N1 แก้แล้ว; T1/T2/T4 ผ่านที่ 3–4 เครื่อง (16 ต.ค.); เหลือ N2, T5
 - [Pi image SSH access](pi-image-ssh-access.md) — lab Pi runs the image: cafeadmin + key only, ssh -p 39507 cafeadmin@10.10.0.1 from customer side; ras/1234 gone; 192.168.20.1 = switch SVI not internet
 - [Windows CRLF edit trap](windows-crlf-edit-trap.md) — python edits put CR in install.sh → bash fails on Pi; edit with newline='', deploy via git archive, check git ls-files --eol
 - [DB users + log seal (A8/H2)](db-users-and-log-seal.md) — per-service MariaDB users, triggers, daily row seal; CLI tools must also source db/ops.env
