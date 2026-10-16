@@ -7,7 +7,8 @@
 **แก้แล้ว (14 ต.ค.):** H1, H3, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12 (ดัชนี sql/016) และหมวดต่ำ: nonce ภาษาไทย,
 ขอบเวลา SESSION_MATCH (`<` ended_at ทุกจุด), flush backoff, offset หาย → log_gap, DB timeout, docker-compose 008–016, หมายเหตุ sql/008
 · เพิ่มเติม: DSR ปิดคำขอ pending ของลูกค้าเป็น expired · parse dnsmasq รับ CRLF
-**ยังเปิด:** M1, M2, H2 (ดูตารางข้างล่าง) · fas consent ไม่มีเวอร์ชันนโยบาย / double-tap deadlock / `/request` ซ่อนคำขอเก่า ·
+**ผลบน Pi 16 ต.ค.:** M1 ปิด (dnsmasq 2.91 พิมพ์ `query[HTTPS]`) · M2 ไม่เกิด (logrotate กลาง 10 query/วิ: 399/399) · M6 ผ่าน (ปิด DB 68 วิ ไม่หาย) · M12 ใช้ idx_ip_auth · H3 ไม่เกี่ยว (เครื่องนี้ไม่เปิด partition)
+**ยังเปิด:** H2 (ดูตารางข้างล่าง) · fas consent ไม่มีเวอร์ชันนโยบาย / double-tap deadlock / `/request` ซ่อนคำขอเก่า ·
 `common/traffic.py` ใช้ขอบเวลาคนละแบบ (นับโควตา — ตั้งใจยังไม่แตะ) · ทั้งหมดที่แก้ผ่านเทสต์ในเครื่อง แต่**ยังไม่ได้รันบน Pi/MariaDB จริง**
 
 ## ⏳ ต้องตรวจบน Pi ก่อนแก้ (ห้ามแก้จากการเดา)
