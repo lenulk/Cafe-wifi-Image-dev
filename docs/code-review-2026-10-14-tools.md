@@ -11,7 +11,7 @@ B = backup/restore_keys/reset_admin/export_evidence/check_router/lab) อ่า�
 **T8 (เจ้าของตัดสิน):** ไม่ลบอัตโนมัติ — เพิ่มปุ่ม `/audit/scrub` (แอดมิน + ยืนยันรหัสผ่าน + เหตุผล, cutoff ≥ 180 วัน) แทน MAC /
 เลขบัตร (ปิดบางหลักหรือเต็ม) / เลข 13 หลักด้วย `[ลบแล้ว]` **ไม่ลบแถว** (เก็บว่าใครทำอะไรเมื่อไหร่) ลง audit `audit_scrub` ก่อน+หลัง ·
 **ไม่แก้:** T10 (ย้ายการตั้ง `auth_sent_at` ไปก่อน ndsctl ทำให้ crash = ไม่ลองซ้ำเลย แย่กว่าเดิม; auth ซ้ำปัจจุบันไม่เสียหาย) ·
-**ยังเปิด (Pi):** T1, T2, T4, T5, T11 + **partition DROP** (event `cafewifi_partition_maintenance` ใน sql/003 ใช้ `CURDATE()`
+**ผลบน Pi 16 ต.ค.:** T1 ไม่เกิดที่ 3 เครื่อง (openNDS คืนสิทธิ์ครบใน ~32 วิ ก่อนรอบ enforce 45 วิ) · T2 ไม่เกิด · T4 คนใหม่ได้เน็ต 8.9 วิ คนที่ถูกปิด ~1 วิ (3–4 เครื่อง) · **ยังเปิด (Pi):** T1/T4 ที่ 10+ เครื่อง, T5, T11 + **partition DROP** (event `cafewifi_partition_maintenance` ใน sql/003 ใช้ `CURDATE()`
 — การตรวจนาฬิกาของ T7 ไม่ครอบคลุม ต้องแก้ใน stored procedure และลองกับ MariaDB จริง) ·
 หมายเหตุ: `app/setup/restore.py::write_keys` ยังไม่ fsync เหมือน U5 (ต่ำ)
 
@@ -19,7 +19,7 @@ B = backup/restore_keys/reset_admin/export_evidence/check_router/lab) อ่า�
 
 | # | ที่ | ปัญหา | สถานะ |
 |---|---|---|---|
-| T1 | `enforce_voucher_expiry.py:228`, `:386-403` | `ndsctl json` ตอบสำเร็จแต่รายชื่อยังไม่ครบ (openNDS เพิ่งรีสตาร์ทและกำลังคืนสิทธิ์ทีละเครื่อง) → session ของเครื่องที่ยังไม่ถูกคืนถูกปิดเป็น `gone` → openNDS คืนสิทธิ์ตามมา = ออนไลน์โดยไม่มี session (log โยงหาคนไม่ได้ ช่วงสั้น) → รอบถัดไปถูกตัดเป็น orphan = ลูกค้าที่จ่ายแล้วหลุดทั้งร้าน | Opus อ่านเส้นทางแล้ว · **ต้องวัดจังหวะคืนสิทธิ์บน Pi** ก่อนแก้ (เช่น ข้าม `gone` ถ้า openNDS uptime < N วิ) |
+| T1 | `enforce_voucher_expiry.py:228`, `:386-403` | `ndsctl json` ตอบสำเร็จแต่รายชื่อยังไม่ครบ (openNDS เพิ่งรีสตาร์ทและกำลังคืนสิทธิ์ทีละเครื่อง) → session ของเครื่องที่ยังไม่ถูกคืนถูกปิดเป็น `gone` → openNDS คืนสิทธิ์ตามมา = ออนไลน์โดยไม่มี session (log โยงหาคนไม่ได้ ช่วงสั้น) → รอบถัดไปถูกตัดเป็น orphan = ลูกค้าที่จ่ายแล้วหลุดทั้งร้าน | ทดสอบบน Pi 16 ต.ค. ด้วยมือถือ 3 เครื่อง: คืนสิทธิ์ครบใน ~32 วิ (< 45 วิ ของรอบ enforce) ไม่มี gone/orphan วิดีโอไม่สะดุด · **ร้านที่มีหลายสิบเครื่องยังไม่ได้วัด** (ข้อจำกัด) |
 
 ## กลาง
 
@@ -35,8 +35,8 @@ B = backup/restore_keys/reset_admin/export_evidence/check_router/lab) อ่า�
 | U5 | `restore_keys.py:55`, `:105-117` | `secrets.env` ว่าง/ไม่มี → `merge` คืนไฟล์สำรองทั้งก้อน (FAS_KEY/SECRET_KEY/DB_PASS ของเครื่องเก่า) ขัด allowlist · ไฟล์ใหม่ตาม umask + ไม่ fsync ก่อน replace | ยืนยัน (Opus) · ในเครื่อง |
 | U7 | `export_evidence.py:274` | `--natid <เลข 13 หลัก>` ทาง argv → เลขเต็มอยู่ใน `ps`, shell history, sudo log | ยืนยัน · ในเครื่อง |
 | U11 | `check_router.py:134-147` | RA ตัดสั้น → `struct.error` ไม่ถูกจับ → `/router/check` ของ wizard 500 (apply ถูกครอบด้วย `main()` แล้วตั้งแต่ 5dfece5) | ยืนยัน (Opus) · ในเครื่อง |
-| T2 | `enforce_voucher_expiry.py:344-401` | transaction ยาวทั้งรอบ + อ่าน openNDS หลัง snapshot → อนุมัติระหว่างรอบ = ถูกตัดเป็น orphan · ล็อก voucher ค้างระหว่างรอ ndsctl | ยืนยันเส้นทาง · **ต้อง MariaDB จริง/Pi** |
-| T4 | `reconcile_pending.py:144`, `:186` | revoke/block ทำให้ reconcile (5 วิ) รัน enforce เต็มรวม `ndsctl json` (~1.1 วิ/ลูกค้า) + ถือ FOR UPDATE ระหว่าง deauth | ยืนยัน · **ต้อง Pi** |
+| T2 | `enforce_voucher_expiry.py:344-401` | transaction ยาวทั้งรอบ + อ่าน openNDS หลัง snapshot → อนุมัติระหว่างรอบ = ถูกตัดเป็น orphan · ล็อก voucher ค้างระหว่างรอ ndsctl | ทดสอบบน Pi 16 ต.ค.: สั่ง enforce + อนุมัติ + ปิดสิทธิ์พร้อมกัน — คนใหม่ไม่ถูกตัดเป็น orphan ✅ |
+| T4 | `reconcile_pending.py:144`, `:186` | revoke/block ทำให้ reconcile (5 วิ) รัน enforce เต็มรวม `ndsctl json` (~1.1 วิ/ลูกค้า) + ถือ FOR UPDATE ระหว่าง deauth | ทดสอบบน Pi 16 ต.ค. (4 เครื่อง): คนใหม่ได้เน็ต 8.9 วิ (รวมรอบ timer 5 วิ) คนที่ถูกปิดหลุด ~1 วิ · 10+ เครื่องยังไม่ได้วัด |
 | T5 | `enforce_voucher_expiry.py:107`, `conn_collector.py:62` | นับโควตาตอน conntrack DESTROY เท่านั้น + ไม่ส่งโควตาให้ openNDS → ดาวน์โหลดก้อนเดียวเกินโควตาได้หลาย GB | ยืนยันกลไก · **ต้อง Pi** (ข้อจำกัดเชิงออกแบบ) |
 | U9 | `export_evidence.py:220` | CLI export ไม่มีเพดานช่วงเวลา/แถว ดึงเข้า RAM ทั้งก้อน (คู่กับ B4 ของ admin) | ✅ **วัดบน Pi 16 ต.ค. แล้วแก้** — 29k แถว 2.75 วิ RAM 60 MB · ร้านจริงคาด ~550k แถว/วัน → สตรีมด้วย `common.db.iter_rows` + `write_csv_stream` (hash ระหว่างเขียน, bytes ตรงแบบเดิม) → RAM 31 MB คงที่ · รายคน (--natid) ยังรวมในหน่วยความจำ (ปริมาณจำกัดตามคนเดียว) |
 

@@ -8,7 +8,7 @@
 **แก้แล้ว (14 ต.ค., ทดสอบในเครื่องด้วย `tests/test_install_sh.py` ที่ source ฟังก์ชันของ install.sh มาเรียกตรง):**
 N5 (กุญแจ CA 0600 root:root + ลดสิทธิ์เครื่องเดิมทุกรอบ + ลบกุญแจเก่า), N10 (clone tag ไม่ได้ = หยุด ไม่ fallback),
 N12, N13, N14, N15, N16, N20 · ยังต้องยืนยันบน Pi ตอนรัน install.sh ซ้ำ: nginx ยังเปิดได้หลังกุญแจเป็น 0600 root:root
-**ยังเปิด (ต้องทำบน Pi):** N1, N2, N3, N4, N6, N7, N8, N9 (meter ของ nft ตรวจไวยากรณ์ในเครื่องไม่ได้), N11, N17 · N18, N19 = ข้อจำกัดของการออกแบบ
+**ยังเปิด (ต้องทำบน Pi):** N2, N3, N4, N6, N7, N8, N9 (meter ของ nft ตรวจไวยากรณ์ในเครื่องไม่ได้), N11, N17 · N18, N19 = ข้อจำกัดของการออกแบบ
 
 **ข้อจำกัดสำคัญ:** ไม่มีชุดทดสอบของ install.sh ในเครื่อง (ตรวจได้แค่ `bash -n`) — ทุกข้อในรายงานนี้ต้องพิสูจน์/แก้บน Pi
 
@@ -16,7 +16,7 @@ N12, N13, N14, N15, N16, N20 · ยังต้องยืนยันบน Pi
 
 | # | ที่ | ปัญหา | สถานะ |
 |---|---|---|---|
-| N1 | `install.sh:1552` forward chain, `:1472` `flush ruleset`, `:2366` | **ด่านกันเน็ตมีแค่กฎของ openNDS เอง** — chain forward ของเราจบด้วย `ip saddr $CLIENT_NET accept` + masquerade ถ้ากฎของ openNDS ไม่อยู่ ลูกค้าที่ยังไม่อนุมัติออกเน็ตได้ทันที กรณีที่เกิดได้จริง: (a) **บูต/ไฟดับ**: nftables + dnsmasq ขึ้นก่อน openNDS ที่รอ `time-sync.target` (chrony-wait ได้ถึง 180 วิ) (b) openNDS ล่ม/ติด start-limit (c) **รัน install.sh ซ้ำ** หรือ `systemctl reload/restart nftables` → `flush ruleset` ลบตารางของ openNDS และ start_services ตั้งใจไม่ restart openNDS | ยืนยันจากโค้ด (Sonnet 2 ตัวเจอตรงกัน) · ต้องลองบน Pi ว่า openNDS 10.1.3 สร้าง chain/mark แบบไหน |
+| N1 | `install.sh:1552` forward chain, `:1472` `flush ruleset`, `:2366` | **ด่านกันเน็ตมีแค่กฎของ openNDS เอง** — chain forward ของเราจบด้วย `ip saddr $CLIENT_NET accept` + masquerade ถ้ากฎของ openNDS ไม่อยู่ ลูกค้าที่ยังไม่อนุมัติออกเน็ตได้ทันที กรณีที่เกิดได้จริง: (a) **บูต/ไฟดับ**: nftables + dnsmasq ขึ้นก่อน openNDS ที่รอ `time-sync.target` (chrony-wait ได้ถึง 180 วิ) (b) openNDS ล่ม/ติด start-limit (c) **รัน install.sh ซ้ำ** หรือ `systemctl reload/restart nftables` → `flush ruleset` ลบตารางของ openNDS และ start_services ตั้งใจไม่ restart openNDS | ✅ **ยืนยันบน Pi 16 ต.ค. แล้วแก้** — ลูกค้าจำลองที่ยังไม่อนุมัติ: หยุด openNDS = ping ออกได้, `nft -f` = เปิด HTTPS ภายนอกได้ · แก้: forward ปล่อยเฉพาะ mark ของ openNDS (bit 0x20000 = trusted/auth) + ชุด `cafe_walledgarden` (dnsmasq nftset) · โหลดกฎใหม่ (install.sh, drop-in reload/start ของ nftables) = try-restart openNDS · ทดสอบซ้ำ: ทุกกรณีออกไม่ได้, `systemctl reload nftables` แล้ว openNDS สร้างตารางคืนใน 40 วิ ลูกค้าเดิมไม่หลุด, เครื่องใหม่ยังเด้งหน้าลงทะเบียน · กรณีบูต (a) ไม่ได้ลองรีบูต แต่ไม่มี mark ก่อน openNDS ขึ้น = ปิดไว้ก่อนโดยโครงสร้าง |
 | N2 | ทั้งระบบ | เราเตอร์กลับมาเปิด IPv6 RA ภายหลัง (อัปเดต firmware/รีเซ็ต/ISP) → ลูกค้าทุกคนออก IPv6 ตรงที่เราเตอร์ ไม่ผ่าน portal ไม่มี log — ตรวจแค่ตอนติดตั้ง (`check_router`) และ bypass_detector ดูแค่ ARP IPv4 | ยืนยันจากโค้ด · ตรวจจับได้อย่างเดียว (ต้องเพิ่มตัวฟัง RA เป็นระยะ) |
 
 ## กลาง
@@ -57,7 +57,7 @@ admin ใช้ TLS อย่างเดียว · ชื่อร้าน/M
 
 | ข้อ | ทดสอบ | ผลที่ต้องได้ / แนวแก้ |
 |---|---|---|
-| N1 | `nft list ruleset` ดูตาราง/mark ของ openNDS → `systemctl stop opennds` แล้วลองเน็ตจากมือถือที่ยังไม่อนุมัติ · รัน `nft -f /etc/nftables.conf` ขณะ openNDS ทำงาน แล้วลองซ้ำ · รีบูตแล้วลองเน็ตทันทีก่อน openNDS ขึ้น | ถ้าออกเน็ตได้ = ยืนยัน → แก้ forward ให้ accept เฉพาะ mark ที่ openNDS ใส่ให้ผู้ที่ auth แล้ว (deny เป็นค่าตั้งต้น) + nftables reload แล้ว try-restart openNDS |
+| ~~N1~~ | ✅ 16 ต.ค. — ยืนยันแล้วแก้ (ดูตารางบน) | — |
 | N2 | เปิด IPv6 ที่เราเตอร์ แล้วดูว่ามือถือได้ IPv6 + ออกเน็ตได้ไหม | ได้ = ต้องมีตัวฟัง RA เป็นระยะ + แจ้งเตือนใน audit |
 | N7 | `sysctl -a \| grep -E 'rp_filter\|send_redirects'` | ดูค่าจริงของ macvlan ก่อนตัดสินใจ |
 | N8 | `apt-get install --reinstall dnsmasq` แล้วดูว่า DHCP ฝั่งลูกค้ายังทำงาน | ไม่ทำงาน = เปลี่ยนเป็น drop-in/dpkg-divert |
