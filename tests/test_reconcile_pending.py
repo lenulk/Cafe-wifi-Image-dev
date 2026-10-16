@@ -261,6 +261,48 @@ def test_authorize_failure_is_retried_next_round(monkeypatch):
     assert not any("auth_sent_at" in sql.lower() for sql, _ in cur.executed if "update" in sql.lower())
 
 
+def _b2_env(monkeypatch, state, second_auth_rc=0):
+    import tools.enforce_voucher_expiry as enforce
+    rows = [dict(id=7, mac="00:E0:4C:36:04:06", valid_until=datetime.now() + timedelta(minutes=59, seconds=30))]
+    cur = _AuthCursor(rows)
+    calls = []
+
+    class R:
+        def __init__(self, rc, out=b""):
+            self.returncode, self.stdout = rc, out
+
+    def fake(cmd, timeout=10):
+        calls.append(cmd)
+        if cmd[1] == "json":
+            return R(0, ('{"ip":"10.10.0.209","state":"%s"}' % state).encode())
+        if cmd[1] == "auth":
+            n = sum(1 for c in calls if c[1] == "auth")
+            return R(1, b"Failed to authenticate client") if n == 1 else R(second_auth_rc)
+        return R(0)
+
+    monkeypatch.setattr(rp, "get_conn", lambda: _FakeConn(cur))
+    monkeypatch.setattr(enforce, "run_ndsctl", fake)
+    return cur, calls
+
+
+def test_authorize_already_online_mac_deauths_then_auths(monkeypatch):
+    """B2 (Pi 2026-10-16): auth ซ้ำ MAC ที่ออนไลน์อยู่ = exit 1 -> ต้อง deauth แล้ว auth ใหม่ ไม่ใช่รอจน auth_timeout"""
+    cur, calls = _b2_env(monkeypatch, "Authenticated")
+    assert ORIG_AUTHORIZE() == 1
+    mac = "00:e0:4c:36:04:06"
+    assert calls == [["ndsctl", "auth", mac, "60"], ["ndsctl", "json", mac],
+                     ["ndsctl", "deauth", mac], ["ndsctl", "auth", mac, "60"]]
+    assert any("set auth_sent_at=now()" in sql.lower() and args == (7,) for sql, args in cur.executed)
+
+
+def test_authorize_failure_on_offline_mac_does_not_deauth(monkeypatch):
+    """auth ล้มด้วยเหตุอื่น (เครื่องไม่ได้ออนไลน์) -> ห้าม deauth ใคร รอรอบถัดไปตามเดิม"""
+    cur, calls = _b2_env(monkeypatch, "Preauthenticated")
+    assert ORIG_AUTHORIZE() == 0
+    assert not any(c[1] == "deauth" for c in calls)
+    assert not any("auth_sent_at" in sql.lower() for sql, _ in cur.executed if "update" in sql.lower())
+
+
 def test_authorize_query_targets_only_unsent_pending(monkeypatch):
     cur, calls = _auth_env(monkeypatch, [])
     ORIG_AUTHORIZE()

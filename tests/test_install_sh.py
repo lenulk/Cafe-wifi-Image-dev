@@ -156,6 +156,16 @@ def test_install_app_files_excludes_lab_and_bench_tools(tmp_path):
     assert left == ["backup_db.py", "check_disk.py"]
 
 
+def test_install_app_files_strips_group_write_after_chown(tmp_path):
+    """Pi 2026-10-16: ต้นฉบับจาก git archive เป็น 664 + cp -a + chown root:cafewifi = เว็บแอปแก้โค้ดที่ root รันได้"""
+    r = call(tmp_path, "INIT_SYS=systemd; DRY_RUN=0; install_app_files")
+    assert r.returncode == 0, r.stderr
+    cmds = (tmp_path / "cmds.log").read_text(encoding="utf-8").splitlines()
+    chown = next(i for i, c in enumerate(cmds) if "chown -R root:" in c)
+    strip = [i for i, c in enumerate(cmds) if "-type f" in c and "chmod go-w" in c]
+    assert strip and strip[0] > chown, "ต้องถอดสิทธิ์เขียนของกลุ่ม/คนอื่นหลัง chown"
+
+
 def test_nothing_installed_references_lab_or_bench_tools():
     """ไฟล์ที่ติดตั้งลงเครื่อง (install.sh/image/app) ต้องไม่เรียก lab_*/bench_* -- กันตัดแล้วของพัง"""
     import re

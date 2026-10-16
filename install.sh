@@ -891,6 +891,9 @@ install_app_files() {
   fi
   run_sh "chown -R root:'${APP_USER}' '${OPT_DIR}'"
   run_sh "find '${OPT_DIR}' -type d -exec chmod 0755 {} + 2>/dev/null || true"
+  # cp -a ติดสิทธิ์ของต้นฉบับมาด้วย -- ต้นฉบับจาก git archive/zip/umask 002 เป็น 664 = กลุ่ม ${APP_USER}
+  # (user ของเว็บแอป) แก้โค้ดที่ cafe-reconcile/enforce/maintenance รันด้วย root ได้ (พบบน Pi 2026-10-16)
+  run_sh "find '${OPT_DIR}' -type f -perm /022 -exec chmod go-w {} + 2>/dev/null || true"
   return 0
 }
 

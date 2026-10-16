@@ -79,6 +79,12 @@ def expire_requests() -> int:
         return cur.rowcount
 
 
+def _gateway_authenticated(mac: str) -> bool:
+    clients = gateway_clients([mac])
+    client = (clients or {}).get(mac.lower())
+    return bool(client) and str(client.get("state", "")).lower().startswith("auth")
+
+
 def authorize_approved() -> int:
     """คำขอที่พนักงานอนุมัติแล้ว -> สั่ง openNDS เปิดสิทธิ์ให้ MAC นั้นโดยตรง (`ndsctl auth`)
 
@@ -99,6 +105,15 @@ def authorize_approved() -> int:
         minutes = max(1, math.ceil((r["valid_until"] - datetime.now()).total_seconds() / 60))
         try:
             res = run_ndsctl(["ndsctl", "auth", r["mac"].lower(), str(minutes)])
+            if res.returncode != 0 and _gateway_authenticated(r["mac"]):
+                # B2 (ยืนยันบน Pi 2026-10-16): MAC ที่ออนไลน์อยู่แล้ว (ลูกค้าส่งคำขอซ้ำจากแท็บที่เปิดค้าง
+                # แล้วพนักงานอนุมัติทั้งคู่) -> openNDS ตอบ "Failed to authenticate client" exit 1 ทุกรอบ
+                # จน pending หมด 180 วิ แล้วถูก deauth เป็น auth_timeout = ลูกค้าหลุดทั้งที่อนุมัติแล้ว
+                # ใช้วิธีเดียวกับ sync_extended: deauth แล้ว auth ใหม่ทันที -> session_start ใหม่ ลูปยืนยันใน
+                # run() ปิดแถวเดิมเป็น reauth (log ต่อเนื่อง) แล้วเลื่อนแถวใหม่เป็น authenticated
+                log.warning("ndsctl auth %s: ออนไลน์อยู่แล้ว -- deauth แล้ว auth ใหม่", r["mac"])
+                run_ndsctl(["ndsctl", "deauth", r["mac"].lower()])
+                res = run_ndsctl(["ndsctl", "auth", r["mac"].lower(), str(minutes)])
         except (OSError, subprocess.SubprocessError) as exc:
             log.error("ndsctl auth %s ล้มเหลว: %s", r["mac"], exc)
             continue

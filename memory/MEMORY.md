@@ -32,3 +32,4 @@
 - [Ultrareview billing](ultrareview-billing.md) — 3 free runs used 2026-10-14; needs usage credits after (cloud session $100 credit doesn't pay for it); 8k-line diff cap + temp-branch trick
 - [Model routing preference](model-routing-preference.md) — Sonnet/Haiku subagents do simple/bulk work; Opus orchestrates, reviews, hard parts
 - [Core review 14 ต.ค.](core-review-2026-10-14.md) — แก้ที่แก้ได้แล้ว; M1/M2/H2 + ขั้นตรวจหลังแก้ ต้องทำบน Pi ก่อน (ตารางในรายงาน)
+- [Pi image SSH access](pi-image-ssh-access.md) — lab Pi runs the image: cafeadmin + key only, ssh -p 39507 cafeadmin@10.10.0.1 from customer side; ras/1234 gone; 192.168.20.1 = switch SVI not internet

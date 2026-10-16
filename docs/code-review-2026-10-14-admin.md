@@ -6,7 +6,7 @@
 
 **แก้แล้ว (14 ต.ค., มีเทสต์ทุกข้อ, 782 ผ่าน / 6 ล้มเดิมของ Windows):** B1, A1 (เพดาน 12 ชม.), A2, A3 (cookie
 อุปกรณ์ที่รู้จัก `cw_kd`), A4, A5, A6 (รหัสชั่วคราว 24 ชม.), B5, B6 (+ แก้ `sync_extended` ที่เคย auth ใหม่ให้ลูกค้าที่ถูกระงับ),
-B8 (เตือนใน README ไม่แก้เนื้อหา), B9, B11 · **ยังเปิด (ต้องทำบน Pi):** B2, B3, B4, B7, A7, A8, B12 · B10 = เรื่องการใช้งาน
+B8 (เตือนใน README ไม่แก้เนื้อหา), B9, B11 · **ยังเปิด (ต้องทำบน Pi):** B3, B4, B7, A7, A8, B12 · B10 = เรื่องการใช้งาน
 หมายเหตุ deploy: แอดมินที่ล็อกอินค้างอยู่จะถูกพาไปหน้า login หนึ่งครั้ง (cookie เก่าไม่มี `login_at`)
 
 **ภาพรวม:** ไม่พบช่องที่ staff ขึ้นเป็น admin, ไม่มี route ขาด guard, CSRF ครบทุก POST, SQL parameterized ทั้งหมด,
@@ -26,7 +26,7 @@ B8 (เตือนใน README ไม่แก้เนื้อหา), B9, B
 | A2 | `app.py:195`, `:311` | คนไม่ล็อกอินเขียน `audit_log` ได้ไม่จำกัด (POST ไม่มี token → CSRF_REJECT, /login ที่ถูก rate limit ยังเขียน LOGIN_FAIL ทุกครั้ง) · audit ไม่ถูก purge → SD เต็มได้ และแถวจริงจมหาย | ยืนยัน · ทดสอบในเครื่องได้ |
 | B5 | `views/access.py:238`, `common/customer.py:375` | คำขอที่ reject/expire เหลือ `natid_masked`, hostname, user_agent จนถึง purge 180 วัน และ `anonymize_customer` หาแถวพวกนี้ไม่เจอ (natid_hash = NULL, ไม่มี voucher) | ยืนยัน · ทดสอบในเครื่องได้ |
 | B6 | `views/customers.py:87-102` | block/unblock: audit แบบกลืน error และอยู่นอก transaction · เป็น toggle (แอดมิน 2 คนกดสวนกัน = พลิกกลับ) · ไม่ตั้ง `auth_sync_needed` (หลุดช้าสูงสุด 5 นาที) · ต่อเวลาให้ลูกค้าที่ถูกระงับได้ | ยืนยัน · ทดสอบในเครื่องได้ |
-| B2 | `views/access.py:138` | อนุมัติ MAC ที่ auth อยู่แล้วใน openNDS → `ndsctl auth` ซ้ำไม่ได้ → หมด 180 วิแล้ว deauth = voucher ออกแล้ว นาฬิกาเดิน แต่ลูกค้าไม่มีเน็ต และเครื่องเดิมถูกตัด | น่าจะจริง · **ต้องลองบน Pi** |
+| B2 | `views/access.py:138` | อนุมัติ MAC ที่ auth อยู่แล้วใน openNDS → `ndsctl auth` ซ้ำไม่ได้ → หมด 180 วิแล้ว deauth = voucher ออกแล้ว นาฬิกาเดิน แต่ลูกค้าไม่มีเน็ต และเครื่องเดิมถูกตัด | ✅ **ยืนยันบน Pi 16 ต.ค. แล้วแก้** — `ndsctl auth` ซ้ำ = exit 1 "Failed to authenticate client" ทุกรอบ → 180 วิ auth_timeout → ลูกค้าหลุด · แก้ที่ `reconcile_pending.authorize_approved`: auth ล้ม + openNDS บอกว่าออนไลน์ → deauth แล้ว auth ใหม่ · ทดสอบซ้ำบน Pi: แถวเดิมปิดเป็น `reauth` แถวใหม่ authenticated ภายใน 20 วิ เน็ตไม่หลุด 4 นาที |
 | B3 | `views/access.py:156` | ndsctl ล้ม/reconcile ค้าง/IP เปลี่ยน → จบที่ `auth_timeout` แต่หน้า /requests ยังแสดง "อนุมัติ" พนักงานไม่รู้ | ยืนยันเส้นทาง · **ต้องลองบน Pi** (การแสดงผลแก้ในเครื่องได้) |
 | B4 | `views/customers.py:214-247` | /evidence ดึง conn+dns ทั้งช่วงเข้า RAM (สูงสุด 186 วันต่อคน) ไม่มี LIMIT/สตรีม · gunicorn `--workers 1 --timeout 60` เกิน = Admin ล่มทั้งตัว | ยืนยัน · **ต้องวัดปริมาณจริงบน Pi** |
 | B7 | `views/overview.py:74` | `/status/live` เรียก `getaddrinfo` ไม่มี timeout + HTTP 3 วิ · เน็ตล่ม + เปิดหลายแท็บ = กิน thread ครบ 4 ตัว หน้าอนุมัติค้าง | น่าจะจริง · **ต้องลองบน Pi** (ถอดสาย WAN) |
@@ -57,8 +57,19 @@ extend whitelist 30/60/120 · ทุก SQL parameterized · ไม่มี sub
 
 | ข้อ | ทดสอบ | ผลที่ต้องได้ |
 |---|---|---|
-| B2 | มือถือที่ออนไลน์อยู่ ขอใหม่แล้วให้พนักงานอนุมัติ | ถ้าเน็ตหลุด = ยืนยัน → approve ต้องตรวจ/deauth ก่อน หรือเลี่ยงการ auth ซ้ำ |
+| ~~B2~~ | ✅ 16 ต.ค. — เปิดหน้าลงทะเบียน 2 แท็บ ส่ง/อนุมัติทีละแท็บ (ยืนยันบั๊ก → แก้ → ผ่าน) | — |
 | B3 | `systemctl stop opennds` แล้วอนุมัติ รอ 3 นาที ดูหน้า /requests | ต้องเห็นว่าเปิดเน็ตไม่สำเร็จ |
 | B4 | export หลักฐานทุกเครื่อง 7 วัน และรายคน 186 วัน จับ RAM/เวลา | เกิน 60 วิหรือ RAM พุ่ง = ต้องสตรีม/จำกัดแถว |
 | B7 | ถอดสาย WAN เปิด /status 4 แท็บ แล้วลองอนุมัติ | หน้าอนุมัติต้องไม่ค้าง |
 | A7, A8, B12 | กดพร้อมกันจาก 2 เครื่อง · `SHOW GRANTS` ของ user แอป | ไม่ 500 · user แอปไม่มี DELETE/UPDATE บน audit_log |
+
+## พบเพิ่มระหว่างทดสอบบน Pi (16 ต.ค.)
+
+- **สิทธิ์ไฟล์โค้ด (สูง, แก้แล้ว):** `install_app_files` ใช้ `cp -a` ติดสิทธิ์ต้นฉบับ — ต้นฉบับจาก `git archive` เป็น 664 →
+  หลัง `chown root:cafewifi` user เว็บแอปแก้ `/opt/cafe-wifi/tools/*.py` ที่ cafe-reconcile/enforce/maintenance รันด้วย root ได้
+  · แก้: `find -type f -perm /022 -exec chmod go-w` หลัง chown + เทสต์ · แก้สิทธิ์บน Pi แล้ว
+- **deadlock ใน reconcile (ต่ำ, ยังไม่แก้):** อนุมัติชนจังหวะ `expire_requests()` → MySQL 1213 รอบนั้นล้มทั้งรอบ (unit Failed)
+  รอบถัดไป 5 วิทำงานปกติ ไม่มีข้อมูลเสีย
+- **นาฬิกากระโดด (ไม่ใช่บั๊กโค้ด):** chrony ปรับเวลา +7 วัน → dnsmasq ทิ้ง lease ทุกเครื่อง → openNDS ตอบ 403
+  `IP not allocated by dhcp` จนกว่าเครื่องลูกค้าจะต่อ DHCP ใหม่
+
