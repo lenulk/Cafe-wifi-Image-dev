@@ -273,8 +273,10 @@ def resume_returning() -> int:
     for mac, r in todo.items():
         client = clients.get(mac.lower())
         ip = present[mac]
-        # openNDS ต้องเห็นเครื่องนี้ที่ IP เดียวกัน (ไม่งั้นลูปยืนยันจะไม่ผ่าน) -- ยังไม่เห็นก็รอรอบหน้า
-        if not client or str(client.get("ip") or client.get("clientip") or "") != ip:
+        # openNDS ไม่รู้จักเครื่องนี้ก็ได้ (มือถือที่จอดับไม่เปิดหน้า portal เอง -- เจอบน Pi) เพราะ `ndsctl auth`
+        # เปิดสิทธิ์ล่วงหน้าโดยหา IP จาก ARP เอง (Pre-emptive Authentication) · แต่ถ้ารู้จักแล้วต้องเป็น IP เดียวกัน
+        # ไม่งั้นลูปยืนยันจะไม่ผ่านแล้วกลายเป็น auth_timeout
+        if client and str(client.get("ip") or client.get("clientip") or "") != ip:
             continue
         with get_conn() as conn, conn.cursor() as cur:
             err, session_id = access.reserve_pending_session(

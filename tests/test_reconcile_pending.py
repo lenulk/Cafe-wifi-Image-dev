@@ -516,10 +516,15 @@ def test_resume_returning_reauths_bound_device_under_same_voucher(monkeypatch):
     assert args == ("9E:31:8B:2F:68:A8",)
 
 
-def test_resume_waits_until_opennds_sees_device_at_same_ip(monkeypatch):
-    for client in (None, {"ip": "10.10.0.199", "state": "Preauthenticated"}):
-        _, reserved, authed, _, _ = _resume_env(monkeypatch, [_bound()], client)
-        assert ORIG_RESUME() == 0 and reserved == [] and authed == []
+def test_resume_skips_device_opennds_knows_at_another_ip(monkeypatch):
+    _, reserved, authed, _, _ = _resume_env(monkeypatch, [_bound()], {"ip": "10.10.0.199", "state": "Preauthenticated"})
+    assert ORIG_RESUME() == 0 and reserved == [] and authed == []
+
+
+def test_resume_device_unknown_to_opennds_is_preemptively_authed(monkeypatch):
+    """Pi: มือถือจอดับไม่เปิดหน้า portal -> `ndsctl json <mac>` = {} แต่ ndsctl auth เปิดสิทธิ์ล่วงหน้าได้"""
+    _, reserved, authed, _, _ = _resume_env(monkeypatch, [_bound()], None)
+    assert ORIG_RESUME() == 1 and len(reserved) == 1 and len(authed) == 1
 
 
 def test_resume_no_bound_device_does_not_touch_ndsctl(monkeypatch):
