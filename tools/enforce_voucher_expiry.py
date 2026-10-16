@@ -100,8 +100,11 @@ TERMINATE_CAUSE_BY_STATUS = {
 }
 
 # N30: เผื่อเวลาให้ลูกค้าที่เพิ่งกดเข้าใช้งานได้ทำ redirect ไป openNDS จนเสร็จก่อน ไม่งั้นจะไปปิด
-# session ที่กำลังจะ auth สำเร็จอยู่พอดี
-GONE_GRACE_SECONDS = 180
+# session ที่กำลังจะ auth สำเร็จอยู่พอดี -- 2026-10-16: session เป็น authenticated ได้ก็ต่อเมื่อ cafe-reconcile
+# เห็น openNDS เปิดสิทธิ์แล้วเท่านั้น (ไม่ใช่ตอน FAS รับรหัสแบบเดิม) จึงนับจาก authenticated_at และเหลือแค่กัน
+# จังหวะอ่าน ndsctl json ก่อน openNDS เขียนรายชื่อเสร็จ · เดิม 180 วิจาก started_at ทำให้เครื่องที่เพิ่งอนุมัติ
+# ไม่ถึง 3 นาทีแล้ว openNDS รีสตาร์ท ไม่ถูกปิด -> resume_returning ข้าม (ยังมี session เปิด) -> ไม่มีเน็ตถึง 5 นาที
+GONE_GRACE_SECONDS = 30
 
 
 def find_quota_exceeded_vouchers(query_all_fn, query_one_fn) -> list[dict]:
@@ -202,8 +205,14 @@ def _running_as_root() -> bool:
 
 
 def authenticated_macs(ndsctl_bin: str = "ndsctl") -> set[str] | None:
+    """N30: MAC ทั้งหมด (ตัวพิมพ์ใหญ่) ที่ openNDS ถือว่า Authenticated อยู่จริง ณ ตอนนี้ (ดู authenticated_clients)"""
+    clients = authenticated_clients(ndsctl_bin)
+    return None if clients is None else set(clients)
+
+
+def authenticated_clients(ndsctl_bin: str = "ndsctl") -> dict[str, dict] | None:
     """
-    N30: MAC ทั้งหมด (ตัวพิมพ์ใหญ่) ที่ openNDS ถือว่า Authenticated อยู่จริง ณ ตอนนี้
+    MAC (ตัวพิมพ์ใหญ่) -> ข้อมูลของ openNDS (มี session_end) ของเครื่องที่ Authenticated อยู่จริง ณ ตอนนี้
 
     คืน `None` ถ้าอ่านไม่ได้ (ไม่มี ndsctl / openNDS ล่ม / JSON เพี้ยน) -- ผู้เรียก**ต้องไม่ปิด
     session ใด ๆ** ในกรณีนั้น เพราะแปลว่าเราไม่รู้ความจริง ไม่ใช่แปลว่าไม่มีใครออนไลน์
@@ -225,8 +234,44 @@ def authenticated_macs(ndsctl_bin: str = "ndsctl") -> set[str] | None:
     except Exception as exc:  # noqa: BLE001
         log.warning("อ่าน ndsctl json ไม่ได้: %s -- ข้ามการตรวจ session ที่หลุดไปแล้วรอบนี้", exc)
         return None
-    return {mac.upper() for mac, c in (data.get("clients") or {}).items()
+    return {mac.upper(): c for mac, c in (data.get("clients") or {}).items()
             if str(c.get("state", "")).lower().startswith("auth")}
+
+
+# openNDS ตัดก่อนสิทธิ์หมดเกินนี้ = ตั้งเวลาผิด (ปัดนาทีขึ้นตอน ndsctl auth ทำให้ปกติต่างกันไม่เกิน 1 นาที)
+SHORT_SESSION_SLACK_SECONDS = 120
+
+
+def flag_short_gateway_sessions(query_all_fn, execute_fn, clients: dict[str, dict]) -> int:
+    """
+    พบบน Pi 2026-10-16: openNDS คืนสิทธิ์ให้เครื่องเดิมเองตอนรีสตาร์ท (N44) แต่ตั้ง session_end ผิด -- โน้ตบุ๊กที่สิทธิ์
+    หมด 16:13 ได้ 16:09 หลังรีสตาร์ทครั้งแรก และ 16:08 (เหลือ 5 นาที) หลังครั้งที่สอง แล้วถูกตัด "Session end time
+    reached" ก่อนเวลาที่ลูกค้าได้รับอนุมัติ
+
+    ตั้ง auth_sync_needed ให้ voucher ที่ openNDS จะตัดเร็วกว่า valid_until -> cafe-reconcile (ทุก 5 วิ) deauth+auth
+    ด้วยนาทีที่เหลือจริง (sync_extended -- เส้นทางเดียวกับปุ่มต่อเวลา) · รันหลัง openNDS start 45 วิอยู่แล้ว (N44)
+    """
+    if not clients:
+        return 0
+    rows = query_all_fn(
+        "SELECT ps.mac, v.id AS voucher_id, v.valid_until FROM portal_session ps "
+        "JOIN voucher v ON v.id = ps.voucher_id "
+        "WHERE ps.state='authenticated' AND ps.ended_at IS NULL AND v.status='active' "
+        "AND v.auth_sync_needed = 0")
+    short = set()
+    for r in rows:
+        c = clients.get(r["mac"].upper())
+        try:
+            end = datetime.fromtimestamp(int(c["session_end"])) if c else None
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            continue  # ไม่มี session_end = openNDS ไม่ตัดตามเวลา
+        if end and (r["valid_until"] - end).total_seconds() > SHORT_SESSION_SLACK_SECONDS:
+            short.add(r["voucher_id"])
+            log.warning("openNDS จะตัด %s ตอน %s ก่อนสิทธิ์หมด (%s) -- ตั้งเวลาใหม่",
+                        r["mac"], end, r["valid_until"])
+    for vid in sorted(short):
+        execute_fn("UPDATE voucher SET auth_sync_needed=1 WHERE id=%s", (vid,))
+    return len(short)
 
 
 def find_orphan_macs(query_all_fn, macs: set[str]) -> list[str]:
@@ -268,7 +313,7 @@ def find_sessions_gone(query_all_fn, macs: set[str],
     rows = query_all_fn(
         "SELECT id, mac, voucher_id, started_at, authenticated_at FROM portal_session "
         "WHERE state='authenticated' AND ended_at IS NULL "
-        "AND started_at < (NOW() - INTERVAL %s SECOND)",
+        "AND COALESCE(authenticated_at, started_at) < (NOW() - INTERVAL %s SECOND)",
         (grace_seconds,))
     return [r for r in rows if r["mac"].upper() not in macs]
 
@@ -383,7 +428,8 @@ def run(deauth: bool = True) -> EnforceSummary:
 
         # N30: ปิด session ที่ openNDS ไม่มีเครื่องนั้นแล้ว (ทำหลังปิดตาม voucher เพื่อไม่ให้ชนกัน)
         n_gone = 0
-        macs = authenticated_macs() if deauth else None
+        clients = authenticated_clients() if deauth else None
+        macs = None if clients is None else set(clients)
         if macs is not None:
             for row in find_sessions_gone(_query_all, macs):
                 ended_at = datetime.now().replace(microsecond=0)
@@ -404,6 +450,9 @@ def run(deauth: bool = True) -> EnforceSummary:
                     from common import audit
                     audit.log("orphan_deauth", target=mac,
                               detail="openNDS ให้ใช้เน็ตแต่ไม่มี session ในฐานข้อมูล (เช่น คืนสิทธิ์เองหลังรีสตาร์ท)")
+
+        if clients:
+            flag_short_gateway_sessions(_query_all, _exec, clients)
 
     summary = EnforceSummary(expired_vouchers=n_expired, used_up_vouchers=n_used_up,
                              sessions_gone=n_gone, orphans_deauthed=n_orphans,

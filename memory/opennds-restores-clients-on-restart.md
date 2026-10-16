@@ -20,3 +20,8 @@ It does not consult our database. A device whose voucher was revoked or expired 
 - Pending sessions must not be cut: openNDS opens a device before reconcile confirms it.
 
 Related: [[admin-access-from-customer-lan]]
+
+**2026-10-16 follow-ups (commits e33a0a4, 1d1d28c + session_end fix):**
+- openNDS restore only covers clients with traffic at that moment; a sleeping phone gets dropped → enforce closes it `disconnected` → it hit the register page with 80 min left. Fix: `reconcile_pending.resume_returning()` (every 5 s) re-auths any MAC in `device` bound to an active voucher (customer not blocked, no open/pending session) when it is REACHABLE/DELAY/PROBE in `ip neigh`; `ndsctl auth` works even when openNDS doesn't know the MAC (pre-emptive auth). Audit `device_resume`. Verified: Redmi 14 + Samsung came back with no re-registration.
+- `GONE_GRACE_SECONDS` 180 → 30, measured from `authenticated_at` (authenticated now always means openNDS-confirmed).
+- openNDS restore also sets a WRONG, shorter session_end (laptop: voucher 16:13 → restored 16:09, then 16:08 after 2nd restart → cut early). Fix: `enforce.flag_short_gateway_sessions()` sets `voucher.auth_sync_needed=1` when openNDS session_end < valid_until − 120 s → sync_extended deauth+auth with real minutes. Verified on Pi: Redmi 12 17:01:29 → 17:06:15.

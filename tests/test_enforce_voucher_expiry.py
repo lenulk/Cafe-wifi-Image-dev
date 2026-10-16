@@ -544,6 +544,8 @@ def test_find_sessions_gone_picks_only_macs_not_in_opennds():
     assert [g["id"] for g in gone] == [2]
     assert "ended_at IS NULL" in seen[0][0]
     assert seen[0][1] == (ev.GONE_GRACE_SECONDS,), "ต้องเว้นช่วงผ่อนผันให้คนที่เพิ่งกด login"
+    assert "COALESCE(authenticated_at, started_at)" in seen[0][0],         "นับจากเวลาที่ openNDS ยืนยัน -- เครื่องที่เพิ่งอนุมัติแล้ว openNDS รีสตาร์ทต้องถูกปิดให้คืนสิทธิ์ได้"
+    assert ev.GONE_GRACE_SECONDS <= 60
 
 
 def test_find_sessions_gone_is_case_insensitive():
@@ -601,3 +603,42 @@ def test_find_orphan_macs_flags_online_devices_without_db_session():
 
 def test_find_orphan_macs_nothing_online():
     assert ev.find_orphan_macs(lambda *a: pytest.fail("ไม่ต้องคิวรี่"), set()) == []
+
+
+def _short_env(valid_in_min, end_in_min, flagged=0):
+    now = datetime.now().replace(microsecond=0)
+    rows = [{"mac": "00:E0:4C:36:04:06", "voucher_id": 9, "valid_until": now + timedelta(minutes=valid_in_min)}]
+    clients = {"00:E0:4C:36:04:06": {"state": "Authenticated",
+                                     "session_end": str(int((now + timedelta(minutes=end_in_min)).timestamp()))}}
+    seen, done = [], []
+    q = lambda sql, args=(): seen.append(sql) or rows
+    ex = lambda sql, args=(): done.append((sql, args)) or 1
+    return q, ex, clients, seen, done
+
+
+def test_short_gateway_session_after_opennds_restart_is_flagged_for_resync():
+    """Pi 2026-10-16: openNDS คืนสิทธิ์โน้ตบุ๊กหลังรีสตาร์ทด้วย session_end 16:08 ทั้งที่สิทธิ์หมด 16:13 -> ถูกตัดก่อนเวลา"""
+    q, ex, clients, seen, done = _short_env(valid_in_min=9, end_in_min=4)
+    assert ev.flag_short_gateway_sessions(q, ex, clients) == 1
+    assert done == [("UPDATE voucher SET auth_sync_needed=1 WHERE id=%s", (9,))]
+    assert "v.auth_sync_needed = 0" in seen[0], "ไม่ตั้งธงซ้ำระหว่างที่ cafe-reconcile ยังทำไม่เสร็จ"
+
+
+def test_gateway_session_matching_voucher_is_left_alone():
+    q, ex, clients, _, done = _short_env(valid_in_min=60, end_in_min=60)
+    assert ev.flag_short_gateway_sessions(q, ex, clients) == 0 and done == []
+
+
+def test_gateway_session_without_session_end_is_left_alone():
+    q, ex, clients, _, done = _short_env(valid_in_min=60, end_in_min=1)
+    clients["00:E0:4C:36:04:06"].pop("session_end")
+    assert ev.flag_short_gateway_sessions(q, ex, clients) == 0 and done == []
+
+
+def test_authenticated_clients_keeps_session_end(monkeypatch):
+    monkeypatch.setattr(ev.shutil, "which", lambda _: "/usr/bin/ndsctl")
+    monkeypatch.setattr(ev, "_running_as_root", lambda: True)
+    monkeypatch.setattr(ev.subprocess, "run", _json_run(
+        '{"clients":{"aa:bb:cc:dd:ee:01":{"state":"Authenticated","session_end":"1792141728"},'
+        '"aa:bb:cc:dd:ee:02":{"state":"Preauthenticated"}}}'))
+    assert ev.authenticated_clients() == {"AA:BB:CC:DD:EE:01": {"state": "Authenticated", "session_end": "1792141728"}}
