@@ -296,9 +296,60 @@ def resume_returning() -> int:
     return resumed
 
 
+def _kb(value) -> int:
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def enforce_live_quota() -> int:
+    """voucher ที่มีโควตา: รวมยอดสดจากตัวนับของ openNDS (download/upload_this_session หน่วย kB) -> ครบแล้วตัดทันที
+
+    T5 บน Pi 2026-10-16 (Redmi, โควตา 500 MB): ใช้จริง 1,058 MB ใน ~2 นาทีโดยยังไม่ถูกตัด -- ยอดใน conn_log
+    ถูกบันทึกเมื่อการเชื่อมต่อปิด (speedtest/ดาวน์โหลดเปิดค้างยาว ฐานข้อมูลเห็นแค่ 126 MB) และ cafe-enforce รันทุก
+    5 นาที · ที่ 270 Mbit/s ช่วงช้านั้นใช้เกินได้หลาย GB
+    ตั้ง used_up + auth_sync_needed -> sync_extended() รอบเดียวกันเรียก cafe-enforce ตัด + ปิด session เป็น
+    quota_exceeded ตามเส้นทางปกติ · ถาม openNDS เฉพาะเครื่องของ voucher ที่มีโควตา (~1.4 วิ/เครื่อง)
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT v.id, v.quota_mb, v.used_mb, ps.mac FROM portal_session ps "
+                    "JOIN voucher v ON v.id = ps.voucher_id "
+                    "WHERE ps.state='authenticated' AND ps.ended_at IS NULL "
+                    "AND v.status='active' AND v.quota_mb IS NOT NULL")
+        rows = cur.fetchall()
+    if not rows:
+        return 0
+    clients = gateway_clients({r["mac"] for r in rows})
+    if clients is None:
+        return 0
+    from common.traffic import BYTES_PER_MB
+    live: dict[int, int] = {}
+    info: dict[int, dict] = {}
+    for r in rows:
+        c = clients.get(r["mac"].lower()) or {}
+        live[r["id"]] = live.get(r["id"], 0) + (
+            _kb(c.get("download_this_session")) + _kb(c.get("upload_this_session"))) * 1024
+        info[r["id"]] = r
+    hit = 0
+    for vid, live_bytes in sorted(live.items()):
+        v = info[vid]
+        used = int(v["used_mb"] or 0) * BYTES_PER_MB + live_bytes
+        if used < int(v["quota_mb"]) * BYTES_PER_MB:
+            continue
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE voucher SET status='used_up', auth_sync_needed=1 "
+                        "WHERE id=%s AND status='active'", (vid,))
+            hit += cur.rowcount
+        log.warning("voucher %s ใช้ครบโควตาแล้ว (%d/%s MB นับสดจาก openNDS) -- ตัดทันที",
+                    vid, used // BYTES_PER_MB, v["quota_mb"])
+    return hit
+
+
 def run() -> tuple[int, int]:
     expire_requests()
     authorize_approved()
+    enforce_live_quota()   # ก่อน sync_extended: ตัดในรอบเดียวกันได้เลย
     sync_extended()
     resume_returning()
     # ถาม openNDS เฉพาะเมื่อมี pending จริง (ส่วนใหญ่ของเวลาไม่มี) -- ไม่ยึด ndsctl ไว้ทุก 5 วิโดยเปล่า

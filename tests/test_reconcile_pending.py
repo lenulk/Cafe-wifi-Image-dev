@@ -45,6 +45,7 @@ class _FakeCursor:
 ORIG_AUTHORIZE = rp.authorize_approved
 ORIG_EXPIRE = rp.expire_requests
 ORIG_RESUME = rp.resume_returning
+ORIG_QUOTA = rp.enforce_live_quota
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +55,7 @@ def _no_request_steps(monkeypatch):
     monkeypatch.setattr(rp, "expire_requests", lambda: 0)
     monkeypatch.setattr(rp, "sync_extended", lambda: 0)
     monkeypatch.setattr(rp, "resume_returning", lambda: 0)
+    monkeypatch.setattr(rp, "enforce_live_quota", lambda: 0)
 
 
 class _FakeConn:
@@ -548,3 +550,48 @@ def test_resume_uses_longest_remaining_voucher_when_mac_bound_twice(monkeypatch)
     rows = [_bound(120), {**_bound(30), "id": 3}]
     _, reserved, authed, _, _ = _resume_env(monkeypatch, rows, {"ip": "10.10.0.105"})
     assert ORIG_RESUME() == 1 and reserved[0][0]["id"] == 6 and authed == [("9E:31:8B:2F:68:A8", 120)]
+
+
+# ---------------------------------------------------------------- โควตานับสดจาก openNDS (T5)
+def _quota_env(monkeypatch, rows, clients):
+    cur = _AuthCursor(rows)
+    monkeypatch.setattr(rp, "get_conn", lambda: _FakeConn(cur))
+    monkeypatch.setattr(rp, "gateway_clients", lambda macs: clients)
+    return cur
+
+
+def _quota_row(mac="9E:31:8B:2F:68:A8", used_mb=0):
+    return dict(id=24, quota_mb=500, used_mb=used_mb, mac=mac)
+
+
+def test_live_quota_cuts_when_opennds_counters_reach_quota(monkeypatch):
+    """T5 Pi 2026-10-16: ใช้จริง 1,058 MB ฐานข้อมูลเห็น 126 MB (conn_log นับเมื่อการเชื่อมต่อปิด) -> ต้องดูตัวนับสด"""
+    clients = {"9e:31:8b:2f:68:a8": {"download_this_session": "480000", "upload_this_session": "10000"}}
+    cur = _quota_env(monkeypatch, [_quota_row(used_mb=10)], clients)   # 10 MB + ~501.8 MB สด
+    assert ORIG_QUOTA() == 2   # _AuthCursor.rowcount คงที่ 2 -- ดูแค่ว่าสั่ง UPDATE
+    assert any("status='used_up', auth_sync_needed=1" in s and a == (24,) for s, a in cur.executed)
+
+
+def test_live_quota_below_quota_is_left_alone(monkeypatch):
+    clients = {"9e:31:8b:2f:68:a8": {"download_this_session": "300000", "upload_this_session": "1000"}}
+    cur = _quota_env(monkeypatch, [_quota_row()], clients)
+    assert ORIG_QUOTA() == 0 and not any("used_up" in s for s, _ in cur.executed if s.startswith("UPDATE"))
+
+
+def test_live_quota_sums_every_device_of_the_voucher(monkeypatch):
+    rows = [_quota_row("AA:BB:CC:DD:EE:01"), _quota_row("AA:BB:CC:DD:EE:02")]
+    clients = {"aa:bb:cc:dd:ee:01": {"download_this_session": "250000"},
+               "aa:bb:cc:dd:ee:02": {"download_this_session": "250000"}}
+    cur = _quota_env(monkeypatch, rows, clients)
+    assert ORIG_QUOTA() == 2, "โควตาผูกกับสิทธิ์ ไม่ใช่เครื่อง: 2 x 256 MB = เกิน 500"
+
+
+def test_live_quota_unreadable_gateway_does_nothing(monkeypatch):
+    cur = _quota_env(monkeypatch, [_quota_row()], None)
+    assert ORIG_QUOTA() == 0 and len(cur.executed) == 1
+
+
+def test_live_quota_no_quota_sessions_does_not_touch_ndsctl(monkeypatch):
+    _quota_env(monkeypatch, [], {})
+    monkeypatch.setattr(rp, "gateway_clients", lambda macs: pytest.fail("ไม่มีสิทธิ์ที่มีโควตา ไม่ต้องถาม openNDS"))
+    assert ORIG_QUOTA() == 0
