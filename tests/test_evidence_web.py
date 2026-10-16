@@ -52,12 +52,16 @@ def client(monkeypatch):
         return real_all(sql, args)
 
     def q_one(sql, args=()):
+        if sql.startswith(("SELECT COUNT(*) AS n FROM conn_log", "SELECT COUNT(*) AS n FROM dns_log")):
+            seen.setdefault("count", []).append((sql, args))
+            return {"n": seen.get("rows_per_table", 1)}
         if sql.startswith("SELECT id, natid_masked FROM customer WHERE natid_hash"):
             return next(({"id": c["id"], "natid_masked": c["natid_masked"]}
                          for c in base.CUSTOMERS if c["natid_hash"] == args[0]), None)
         return real_one(sql, args)
     monkeypatch.setattr(admin_app, "query_all", q_all)
     monkeypatch.setattr(admin_app, "query_one", q_one)
+    monkeypatch.setattr(admin_app, "iter_rows", lambda sql, args=(): iter(q_all(sql, args)))
     c.seen = seen
     return c
 
@@ -170,3 +174,28 @@ def test_timezone_aware_range_is_rejected_with_400_not_500(client, field, value)
     r = _post(client, **{field: value})
     assert r.status_code == 400
     assert "timezone" in r.get_data(as_text=True)
+
+
+def test_export_all_over_row_cap_is_refused_before_reading_rows(client):
+    """B4 (Pi 2026-10-16): ทุกเครื่องหลายวันของร้านจริง = หลายล้านแถว เกิน timeout/RAM -> ปฏิเสธพร้อมทางเลือก"""
+    from admin.views import customers as cv
+    base._login_as(client, "admin")
+    client.seen["rows_per_table"] = cv.EVIDENCE_MAX_ROWS // 2 + 1
+    r = _post(client, who="all", end="2026-08-02")
+    assert r.status_code == 400 and "tools/export_evidence" in r.get_data(as_text=True)
+    assert "conn" not in client.seen, "ไม่ดึงแถวเลยเมื่อเกินเพดาน"
+    assert not [a for a in base.AUDIT if a[1] == "export_log"]
+
+
+def test_export_by_mac_counts_only_that_mac(client):
+    base._login_as(client, "admin")
+    assert _post(client, who="mac", mac="AA:BB:CC:DD:EE:01").status_code == 200
+    sqls = client.seen["count"]
+    assert {s.split(" FROM ")[1].split()[0] for s, _ in sqls} == {"conn_log", "dns_log"}
+    assert all("mac = %s" in s and a[-1] == "AA:BB:CC:DD:EE:01" for s, a in sqls)
+
+
+def test_export_by_natid_skips_row_count(client):
+    base._login_as(client, "admin")
+    assert _post(client).status_code == 200
+    assert "count" not in client.seen

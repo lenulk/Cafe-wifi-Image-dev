@@ -464,3 +464,27 @@ def test_exported_files_are_private(tmp_path, monkeypatch):
     for path in (result["conn_file"].path, result["dns_file"].path, result["manifest_path"]):
         assert stat.S_IMODE(path.stat().st_mode) == 0o600, path.name
     assert stat.S_IMODE((tmp_path / "exports").stat().st_mode) == 0o700
+
+
+# ---------------------------------------------------------------- U9/B4 สตรีม (วัดบน Pi 2026-10-16)
+def test_write_csv_stream_is_byte_identical_to_buffered_csv_across_flushes():
+    import hashlib
+    import io as _io
+    from tools import export_evidence as ev
+    rows = [dict(ts=f"2026-08-01 10:{i // 60:02d}:{i % 60:02d}", event_kind="query", client_ip="10.10.0.5",
+                 mac="AA:BB:CC:DD:EE:01", qname=f"x{i}.ไทย.example", qtype="A", answer=None)
+            for i in range(ev.STREAM_FLUSH_ROWS * 2 + 7)]
+    want = ev.rows_to_csv_text(rows, ev.DNS_FIELDS).encode("utf-8")
+    for bom, prefix in ((False, b""), (True, b"\xef\xbb\xbf")):
+        out = _io.BytesIO()
+        sha, n = ev.write_csv_stream(iter(rows), ev.DNS_FIELDS, out, bom=bom)
+        assert out.getvalue() == prefix + want and n == len(rows)
+        assert sha == hashlib.sha256(prefix + want).hexdigest()
+
+
+def test_write_export_file_consumes_a_generator(tmp_path):
+    from tools import export_evidence as ev
+    gen = (dict(ts=i, mac="AA:BB:CC:DD:EE:01") for i in range(5))
+    f = ev.write_export_file(gen, ["ts", "mac"], tmp_path / "x.csv")
+    assert f.row_count == 5
+    assert (tmp_path / "x.csv").read_bytes().count(b"\r\n") == 6

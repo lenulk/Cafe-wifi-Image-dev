@@ -113,11 +113,49 @@ def _write_private(path: Path, text: str) -> None:
         f.write(text)
 
 
-def write_export_file(rows: list[dict], fieldnames: list[str], out_path: Path) -> ExportedFile:
-    text = rows_to_csv_text(rows, fieldnames)
+STREAM_FLUSH_ROWS = 2000
+
+
+def write_csv_stream(rows, fieldnames: list[str], out, bom: bool = False) -> tuple[str, int]:
+    """
+    U9/B4: เขียน CSV ลง binary file object ทีละชุด แล้วคิด SHA-256 จาก bytes ที่เขียนจริงไปพร้อมกัน
+    rows = iterable ใดก็ได้ (iter_rows จากฐานข้อมูล) -- RAM คงที่ไม่ขึ้นกับจำนวนแถว
+    ผลลัพธ์ (bytes + hash) เท่ากับ rows_to_csv_text(...) แบบเดิมทุกไบต์ (+ BOM ถ้า bom=True)
+    คืน (sha256, จำนวนแถว)
+    """
+    h = hashlib.sha256()
+
+    def emit(data: bytes) -> None:
+        h.update(data)
+        out.write(data)
+
+    if bom:
+        emit(codecs.BOM_UTF8)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    count = 0
+    for row in rows:
+        writer.writerow(row)
+        count += 1
+        if count % STREAM_FLUSH_ROWS == 0:
+            emit(buf.getvalue().encode("utf-8"))
+            buf.seek(0)
+            buf.truncate()
+    emit(buf.getvalue().encode("utf-8"))
+    return h.hexdigest(), count
+
+
+def write_export_file(rows, fieldnames: list[str], out_path: Path) -> ExportedFile:
+    """rows = list หรือ iterable (สตรีม) -- เขียนแบบสตรีมลงไฟล์ 0600 ที่สร้างใหม่เท่านั้น (O_EXCL)"""
     out_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _write_private(out_path, text)
-    return ExportedFile(path=out_path, sha256=sha256_text(text), row_count=len(rows))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(out_path, flags, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        if hasattr(os, "fchmod"):
+            os.fchmod(f.fileno(), 0o600)
+        sha, count = write_csv_stream(rows, fieldnames, f)
+    return ExportedFile(path=out_path, sha256=sha, row_count=count)
 
 
 def build_manifest(files: list[ExportedFile], criteria: dict) -> dict:
@@ -346,7 +384,7 @@ def cli_actor() -> str:
 
 
 def _cli() -> int:  # pragma: no cover
-    from common.db import query_all, query_one
+    from common.db import iter_rows, query_all, query_one
 
     p = build_parser()
     args = p.parse_args()
@@ -374,12 +412,12 @@ def _cli() -> int:  # pragma: no cover
     def q_conn(mac, s, e):
         if customer is not None:
             return query_customer_rows(build_conn_query, customer["id"], s, e, query_all)
-        return query_all(*build_conn_query(s, e, mac=mac))
+        return iter_rows(*build_conn_query(s, e, mac=mac))  # U9: สตรีม ไม่ดึงทั้งช่วงเข้า RAM
 
     def q_dns(mac, s, e):
         if customer is not None:
             return query_customer_rows(build_dns_query, customer["id"], s, e, query_all)
-        return query_all(*build_dns_query(s, e, mac=mac))
+        return iter_rows(*build_dns_query(s, e, mac=mac))
 
     logging.basicConfig(level=logging.INFO)
     try:

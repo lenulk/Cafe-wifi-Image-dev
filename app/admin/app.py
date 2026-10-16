@@ -29,7 +29,7 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
 
 from common import access, audit, crypto, device_info, ratelimit, sysinfo, traffic
 from common.customer import PURGED_MARK, anonymize_customer, retention_hold_until
-from common.db import execute, get_conn, query_all, query_one
+from common.db import execute, get_conn, iter_rows, query_all, query_one
 from common.log_mapping import conn_mapping_join, dns_mapping_join
 from logger.integrity import SqlManifestStore, verify_chain
 

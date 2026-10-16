@@ -11,7 +11,7 @@ B = backup/restore_keys/reset_admin/export_evidence/check_router/lab) อ่า�
 **T8 (เจ้าของตัดสิน):** ไม่ลบอัตโนมัติ — เพิ่มปุ่ม `/audit/scrub` (แอดมิน + ยืนยันรหัสผ่าน + เหตุผล, cutoff ≥ 180 วัน) แทน MAC /
 เลขบัตร (ปิดบางหลักหรือเต็ม) / เลข 13 หลักด้วย `[ลบแล้ว]` **ไม่ลบแถว** (เก็บว่าใครทำอะไรเมื่อไหร่) ลง audit `audit_scrub` ก่อน+หลัง ·
 **ไม่แก้:** T10 (ย้ายการตั้ง `auth_sent_at` ไปก่อน ndsctl ทำให้ crash = ไม่ลองซ้ำเลย แย่กว่าเดิม; auth ซ้ำปัจจุบันไม่เสียหาย) ·
-**ยังเปิด (Pi):** T1, T2, T4, T5, T11, U9 + **partition DROP** (event `cafewifi_partition_maintenance` ใน sql/003 ใช้ `CURDATE()`
+**ยังเปิด (Pi):** T1, T2, T4, T5, T11 + **partition DROP** (event `cafewifi_partition_maintenance` ใน sql/003 ใช้ `CURDATE()`
 — การตรวจนาฬิกาของ T7 ไม่ครอบคลุม ต้องแก้ใน stored procedure และลองกับ MariaDB จริง) ·
 หมายเหตุ: `app/setup/restore.py::write_keys` ยังไม่ fsync เหมือน U5 (ต่ำ)
 
@@ -38,7 +38,7 @@ B = backup/restore_keys/reset_admin/export_evidence/check_router/lab) อ่า�
 | T2 | `enforce_voucher_expiry.py:344-401` | transaction ยาวทั้งรอบ + อ่าน openNDS หลัง snapshot → อนุมัติระหว่างรอบ = ถูกตัดเป็น orphan · ล็อก voucher ค้างระหว่างรอ ndsctl | ยืนยันเส้นทาง · **ต้อง MariaDB จริง/Pi** |
 | T4 | `reconcile_pending.py:144`, `:186` | revoke/block ทำให้ reconcile (5 วิ) รัน enforce เต็มรวม `ndsctl json` (~1.1 วิ/ลูกค้า) + ถือ FOR UPDATE ระหว่าง deauth | ยืนยัน · **ต้อง Pi** |
 | T5 | `enforce_voucher_expiry.py:107`, `conn_collector.py:62` | นับโควตาตอน conntrack DESTROY เท่านั้น + ไม่ส่งโควตาให้ openNDS → ดาวน์โหลดก้อนเดียวเกินโควตาได้หลาย GB | ยืนยันกลไก · **ต้อง Pi** (ข้อจำกัดเชิงออกแบบ) |
-| U9 | `export_evidence.py:220` | CLI export ไม่มีเพดานช่วงเวลา/แถว ดึงเข้า RAM ทั้งก้อน (คู่กับ B4 ของ admin) | น่าจะจริง · **วัดบน Pi** |
+| U9 | `export_evidence.py:220` | CLI export ไม่มีเพดานช่วงเวลา/แถว ดึงเข้า RAM ทั้งก้อน (คู่กับ B4 ของ admin) | ✅ **วัดบน Pi 16 ต.ค. แล้วแก้** — 29k แถว 2.75 วิ RAM 60 MB · ร้านจริงคาด ~550k แถว/วัน → สตรีมด้วย `common.db.iter_rows` + `write_csv_stream` (hash ระหว่างเขียน, bytes ตรงแบบเดิม) → RAM 31 MB คงที่ · รายคน (--natid) ยังรวมในหน่วยความจำ (ปริมาณจำกัดตามคนเดียว) |
 
 ## ต่ำ
 
@@ -68,4 +68,4 @@ check_router ไม่มี subprocess + ชื่อ NIC ผ่าน regex ·
 | T2 | อนุมัติระหว่าง cafe-enforce กำลังรัน (`journalctl -fu cafe-enforce`) | ลูกค้าต้องไม่ถูกตัดเป็น orphan |
 | T4 | ลูกค้า 10+ เครื่อง กดปิดสิทธิ์ 1 คน แล้วอนุมัติคนใหม่ทันที | คนใหม่ได้เน็ตภายในไม่กี่วินาที |
 | T5 | voucher 100 MB ดาวน์โหลดไฟล์ 1 GB ทางเดียว | บันทึกว่าเกินได้เท่าไร → เขียนเป็นข้อจำกัดในเล่ม หรือส่งโควตาให้ openNDS |
-| T6/U9 | `SELECT COUNT(*)` conn_log/dns_log แล้วจับเวลา purge/export | ไม่เกิน timeout |
+| ~~T6/U9~~ | ✅ 16 ต.ค. — purge < 1 วิ (ไม่มีข้อมูลเกิน 180 วัน) · export แก้เป็นสตรีม | — |

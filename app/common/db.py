@@ -61,6 +61,18 @@ def query_all(sql: str, args: tuple = (), **conn_overrides) -> list[dict]:
         return list(cur.fetchall())
 
 
+def iter_rows(sql: str, args: tuple = (), **conn_overrides):
+    """
+    U9/B4: ทีละแถวแบบ unbuffered (SSDictCursor) -- query_all ดึงทั้งผลลัพธ์เข้า RAM (วัดบน Pi 2026-10-16:
+    ~1.2 KB/แถว ส่งออกทุกเครื่อง 7 วันของร้านจริงหลายล้านแถว = เกิน RAM 4 GB) · ถือ connection ไว้จนอ่านครบ
+    ห้ามเรียกคิวรี่อื่นบน connection เดียวกันระหว่างวน (ใช้ connection แยกของตัวเองอยู่แล้ว)
+    """
+    from pymysql.cursors import SSDictCursor
+    with get_conn(cursorclass=SSDictCursor, **conn_overrides) as c, c.cursor() as cur:
+        cur.execute(sql, args)
+        yield from cur
+
+
 def execute(sql: str, args: tuple = (), **conn_overrides) -> int:
     """
     รันคำสั่งที่ไม่คืนแถว (INSERT/UPDATE/DELETE) คืนค่า rowcount (จำนวนแถวที่ถูกกระทบ)

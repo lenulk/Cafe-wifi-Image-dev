@@ -171,6 +171,9 @@ EVIDENCE_MAX_DAYS_PERSON = 186   # รายคน/รายเครื่อ�
 
 
 EVIDENCE_MAX_DAYS_ALL = 7        # ทุกเครื่อง: ข้อมูลเยอะมาก จำกัดไว้กันเครื่องค้าง
+# B4 (วัดบน Pi 2026-10-16): ~10,000 แถว/วินาที · gunicorn --timeout 60 -- ร้านจริง ~550k แถว/วัน ทุกเครื่อง 7 วัน
+# = หลายล้านแถว เกินทั้งเวลาและ RAM · เกินเพดานนี้ให้แบ่งช่วงหรือให้ช่างใช้ tools/export_evidence (สตรีม ไม่มี timeout)
+EVIDENCE_MAX_ROWS = 300_000
 
 
 @routes.route("/evidence", methods=["GET", "POST"])
@@ -227,25 +230,42 @@ def evidence():
     if end - start > timedelta(days=limit):
         return fail(f"ส่งออกได้ครั้งละไม่เกิน {limit} วันสำหรับแบบที่เลือก — แบ่งเป็นหลายครั้ง")
 
+    if customer is None:
+        # รายคนตามเลขบัตรมีขอบเขตตามการใช้งานของคนเดียว -- เครื่อง/ทุกเครื่อง นับก่อนจากตารางหลัก (ใช้ index ts/mac)
+        where, args = " WHERE ts BETWEEN %s AND %s", [start, end]
+        if mac:
+            where += " AND mac = %s"; args.append(mac)
+        total = sum(int((core.query_one(f"SELECT COUNT(*) AS n FROM {t}{where}", tuple(args)) or {}).get("n", 0))
+                    for t in ("conn_log", "dns_log"))
+        if total > EVIDENCE_MAX_ROWS:
+            return fail(f"ช่วงนี้มีข้อมูล {total:,} แถว เกินที่หน้าเว็บส่งออกได้ครั้งละ {EVIDENCE_MAX_ROWS:,} แถว — "
+                        "แบ่งช่วงเวลาให้สั้นลง หรือให้ผู้ดูแลระบบใช้ tools/export_evidence บนเครื่อง")
+
     def rows(build):
         if customer is not None:
             return ev.query_customer_rows(build, customer["id"], start, end, core.query_all)
-        return core.query_all(*build(start, end, mac=mac))
+        return core.iter_rows(*build(start, end, mac=mac))  # U9/B4: สตรีม ไม่ดึงทั้งช่วงเข้า RAM
 
-    conn_rows, dns_rows = rows(ev.build_conn_query), rows(ev.build_dns_query)
     tag = f"customer{customer['id']}" if customer else (mac.replace(":", "") if mac else "all")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    # B1: encode ครั้งเดียว (BOM + UTF-8) แล้วคิด hash จาก bytes ที่เขียนลงซิปจริง
-    conn_bytes = ev.csv_bytes_with_bom(ev.rows_to_csv_text(conn_rows, ev.CONN_FIELDS))
-    dns_bytes = ev.csv_bytes_with_bom(ev.rows_to_csv_text(dns_rows, ev.DNS_FIELDS))
     conn_name, dns_name = f"conn_log_{tag}_{stamp}.csv", f"dns_log_{tag}_{stamp}.csv"
+    import tempfile
+    import zipfile
+    # ซิปลงไฟล์ชั่วคราว (เกิน 16 MB ค่อยลงดิสก์) แทน BytesIO -- RAM ไม่โตตามจำนวนแถว
+    spool = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
+    z = zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED)
+    # B1: hash คิดจาก bytes ชุดเดียวกับที่เขียนลงซิปจริง (BOM + UTF-8) ระหว่างสตรีม
+    with z.open(conn_name, "w", force_zip64=True) as f:
+        conn_sha, conn_n = ev.write_csv_stream(rows(ev.build_conn_query), ev.CONN_FIELDS, f, bom=True)
+    with z.open(dns_name, "w", force_zip64=True) as f:
+        dns_sha, dns_n = ev.write_csv_stream(rows(ev.build_dns_query), ev.DNS_FIELDS, f, bom=True)
     criteria = dict(mac=mac, start=start.isoformat(), end=end.isoformat(), reason=reason,
                     exported_by=session.get("username"))
     if customer:
         criteria.update(customer_id=customer["id"], natid_masked=customer["natid_masked"])
     manifest = ev.build_manifest(
-        [ev.ExportedFile(path=Path(conn_name), sha256=ev.sha256_bytes(conn_bytes), row_count=len(conn_rows)),
-         ev.ExportedFile(path=Path(dns_name), sha256=ev.sha256_bytes(dns_bytes), row_count=len(dns_rows))],
+        [ev.ExportedFile(path=Path(conn_name), sha256=conn_sha, row_count=conn_n),
+         ev.ExportedFile(path=Path(dns_name), sha256=dns_sha, row_count=dns_n)],
         criteria)
     readme = ("ไฟล์หลักฐานข้อมูลจราจรทางคอมพิวเตอร์ (พ.ร.บ.คอมพิวเตอร์ มาตรา 26)\n"
               f"ส่งออกเมื่อ {manifest['generated_at']} โดย {session.get('username')}\n"
@@ -256,23 +276,23 @@ def evidence():
               f"{ev.CSV_FORMULA_NOTE}\n"
               "เลขบัตรประชาชนแสดงแบบปิดบางหลัก (natid_masked) ขอเลขเต็มได้จากผู้ดูแลระบบตามขั้นตอน\n")
 
-    import zipfile
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(conn_name, conn_bytes)  # bytes ชุดเดียวกับที่คิด hash ใน manifest (มี BOM ให้ Excel อ่านไทยถูก)
-        z.writestr(dns_name, dns_bytes)
-        z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-        z.writestr("README.txt", readme)
-    data = buf.getvalue()
-    zip_sha = hashlib.sha256(data).hexdigest()
+    z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    z.writestr("README.txt", readme)
+    z.close()
+    spool.seek(0)
+    h = hashlib.sha256()
+    for chunk in iter(lambda: spool.read(1 << 20), b""):
+        h.update(chunk)
+    zip_sha = h.hexdigest()
+    spool.seek(0)
     target = f"evidence:customer:{customer['id']}" if customer else f"evidence:{mac or 'ALL'}"
     audit.log_required(audit.EXPORT_LOG, staff_id=session["staff_id"], client_ip=g.client_ip,
                        target=target,
-                       detail=(f"range={start:%Y-%m-%d %H:%M}..{end:%Y-%m-%d %H:%M} conn={len(conn_rows)} "
-                               f"dns={len(dns_rows)} zip_sha256={zip_sha} reason={reason[:200]}"))
-    resp = core.app.make_response(data)
-    resp.headers["Content-Type"] = "application/zip"
-    resp.headers["Content-Disposition"] = f"attachment; filename=evidence_{tag}_{stamp}.zip"
+                       detail=(f"range={start:%Y-%m-%d %H:%M}..{end:%Y-%m-%d %H:%M} conn={conn_n} "
+                               f"dns={dns_n} zip_sha256={zip_sha} reason={reason[:200]}"))
+    from flask import send_file
+    resp = send_file(spool, mimetype="application/zip", as_attachment=True,
+                     download_name=f"evidence_{tag}_{stamp}.zip", conditional=False, etag=False)
     resp.headers["X-Evidence-SHA256"] = zip_sha
     resp.headers["Cache-Control"] = "no-store"
     return resp
