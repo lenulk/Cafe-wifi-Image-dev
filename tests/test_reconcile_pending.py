@@ -438,3 +438,15 @@ def test_sync_blocked_customer_active_voucher_is_cut_not_reauthed(monkeypatch):
     assert ORIG_SYNC() == 1
     assert ran == [True] and calls == [], "ห้ามเรียก ndsctl auth ซ้ำให้ลูกค้าที่ถูกระงับ"
     assert any("auth_sync_needed=0" in s and a == (9,) for s, a in cur.executed)
+
+
+def test_main_treats_lock_conflict_as_retry_next_round(monkeypatch):
+    """Pi 2026-10-16: อนุมัติชน expire_requests() -> 1213 · ต้องไม่ทำให้ unit Failed แต่ error อื่นยังต้องดัง"""
+    import pymysql
+    monkeypatch.setattr(rp, "run", lambda: (_ for _ in ()).throw(
+        pymysql.err.OperationalError(1213, "Deadlock found")))
+    assert rp.main() == 0
+    monkeypatch.setattr(rp, "run", lambda: (_ for _ in ()).throw(
+        pymysql.err.OperationalError(2003, "Can't connect")))
+    with pytest.raises(pymysql.err.OperationalError):
+        rp.main()

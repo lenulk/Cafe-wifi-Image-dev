@@ -285,7 +285,15 @@ def run() -> tuple[int, int]:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO)
-    run()
+    try:
+        run()
+    except Exception as exc:  # noqa: BLE001
+        # พบบน Pi 2026-10-16: กดอนุมัติชนจังหวะ expire_requests() -> MySQL 1213 deadlock ทั้งรอบ unit ขึ้น Failed
+        # transaction ของรอบนี้ rollback หมดแล้ว timer รอบถัดไป (5 วิ) ทำต่อเอง -- ไม่ใช่ความผิดพลาดที่ต้องปลุกใคร
+        if getattr(exc, "args", None) and exc.args[0] in (1213, 1205):
+            log.warning("ฐานข้อมูลชนล็อก (MySQL %s) -- รอบถัดไปทำต่อ", exc.args[0])
+            return 0
+        raise
     return 0
 
 
