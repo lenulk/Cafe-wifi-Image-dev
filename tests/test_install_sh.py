@@ -195,3 +195,19 @@ def test_start_services_enables_check_disk_timer(tmp_path):
     r = call(tmp_path, "start_services", pre="INIT_SYS=systemd; DRY_RUN=0; SKIP_NETWORK=1")
     assert r.returncode == 0, r.stderr
     assert "cafe-check-disk.timer" in (tmp_path / "cmds.log").read_text(encoding="utf-8")
+
+
+def test_maintenance_seals_db_logs_after_purge_and_before_backup(services):
+    """A8/H2: ผนึกแถว log หลัง purge (ไม่ผนึกแถวที่กำลังจะถูกลบ) และก่อน backup (ไฟล์สำรองมี head ล่าสุด)"""
+    lines = [l for l in unit(services, "cafe-maintenance.service").splitlines() if l.startswith("ExecStart=")]
+    mods = [l.split(" -m ")[1] for l in lines if " -m " in l]
+    assert mods.index("tools.purge_old_data") < mods.index("logger.db_seal") < mods.index("tools.backup_db")
+
+
+def test_setup_database_applies_018_log_guards():
+    src = (REPO / "install.sh").read_text(encoding="utf-8")
+    assert "sql/018_log_seal_and_guards.sql" in src
+    sql = (REPO / "sql" / "018_log_seal_and_guards.sql").read_text(encoding="utf-8")
+    for trig in ("conn_log_no_update", "dns_log_no_update", "audit_log_no_delete", "audit_log_scrub_only",
+                 "log_seal_no_update", "log_seal_no_delete"):
+        assert f"DROP TRIGGER IF EXISTS {trig}" in sql, "รันซ้ำได้"

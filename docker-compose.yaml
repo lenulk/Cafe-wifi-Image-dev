@@ -32,6 +32,8 @@ services:
       - ./sql/015_conn_dst_name.sql:/docker-entrypoint-initdb.d/106_015_conn_dst_name.sql:ro
       - ./sql/014_dns_qname_rev.sql:/docker-entrypoint-initdb.d/107_014_dns_qname_rev.sql:ro
       - ./sql/016_portal_session_ip_idx.sql:/docker-entrypoint-initdb.d/108_016_portal_session_ip_idx.sql:ro
+      - ./sql/017_consent_policy_version.sql:/docker-entrypoint-initdb.d/109_017_consent_policy_version.sql:ro
+      - ./sql/018_log_seal_and_guards.sql:/docker-entrypoint-initdb.d/110_018_log_seal_and_guards.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s

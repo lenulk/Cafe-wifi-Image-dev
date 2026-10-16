@@ -1072,6 +1072,15 @@ SQL
     die "ไม่พบ sql/017_consent_policy_version.sql — portal จะบันทึกคำขอไม่ได้ถ้าไม่มีคอลัมน์นี้"
   fi
 
+  # A8/H2: ตารางผนึกแถว log รายวัน + trigger กันแก้/ลบหลักฐาน -- รันซ้ำได้ (DROP TRIGGER IF EXISTS)
+  local seal="${SCRIPT_DIR}/sql/018_log_seal_and_guards.sql"
+  if [[ -f "$seal" ]]; then
+    run_sh "mysql '${DB_NAME}' < '${seal}'"
+    ok "ตาราง log_seal + trigger กันแก้ไข/ลบ log หลักฐาน พร้อมแล้ว"
+  else
+    die "ไม่พบ sql/018_log_seal_and_guards.sql — ไม่มีการป้องกัน log หลักฐานในฐานข้อมูล"
+  fi
+
 
   # แก้บั๊ก (พบตอนตรวจทานรอบ 2): sql/003_partitions.sql มีอยู่ในโปรเจกต์และ Task Board
   # ติ๊กว่าเขียนแล้ว แต่ install.sh ไม่เคยเรียกใช้ไฟล์นี้เลยสักบรรทัด -- เป็น optional
@@ -2038,6 +2047,8 @@ EnvironmentFile=${ETC_DIR}/secrets.env
 Environment=PYTHONPATH=${OPT_DIR}
 WorkingDirectory=${OPT_DIR}
 ExecStart=-${VENV_DIR}/bin/python -m tools.purge_old_data
+# A8/H2: ผนึกแถว log ของเมื่อวานซืน + ตรวจย้อนหลัง -- ก่อน backup_db ให้ไฟล์สำรองคืนนี้มี head ล่าสุดไปด้วย
+ExecStart=-${VENV_DIR}/bin/python -m logger.db_seal
 ExecStart=-${VENV_DIR}/bin/python -m tools.backup_db
 ExecStart=-${VENV_DIR}/bin/python -m tools.check_disk
 ExecStart=-${VENV_DIR}/bin/python -m logger.integrity
