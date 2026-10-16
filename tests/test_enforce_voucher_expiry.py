@@ -370,6 +370,22 @@ def test_run_closes_session_when_deauth_succeeds(monkeypatch):
     assert len(state["closed"]) == 1
 
 
+def test_run_records_opennds_counters_when_conn_log_lags(monkeypatch):
+    """T5 Pi 2026-10-16: ตัดเพราะครบโควตากลางดาวน์โหลด -> conn_log ยังว่าง voucher ได้ used_mb=0 ทั้งที่ใช้ 502 MB
+    และเครื่องที่ตัดรอบนี้ต้องไม่ถูกนับเป็น orphan (N44) ต่อในรอบเดียวกัน"""
+    counters = {"AA:BB:CC:DD:EE:01": {"state": "Authenticated",
+                                      "download_this_session": "485586", "upload_this_session": "4767"}}
+    monkeypatch.setattr(ev, "authenticated_clients", lambda *a: dict(counters))
+    orphans = []
+    monkeypatch.setattr(ev, "find_sessions_gone", lambda q, macs: [])
+    monkeypatch.setattr(ev, "find_orphan_macs", lambda q, macs: orphans.append(set(macs)) or [])
+    summary, state = _run_with_fake_db(monkeypatch, deauth_succeeds=True)
+    assert summary.sessions_closed == 1
+    args = state["closed"][0]
+    assert args[2] == 4767 * 1024 and args[3] == 485586 * 1024, "bytes_out/bytes_in จากตัวนับของ openNDS"
+    assert orphans == [set()], "เครื่องที่เพิ่งตัดออกจากรายชื่อแล้ว"
+
+
 # ============== N28: ลูกค้าไม่อยู่ใน openNDS แล้ว (เดินออกไป / idle timeout) ต้องนับว่าตัดสำเร็จ
 def test_deauth_counts_client_already_gone_as_success(monkeypatch):
     """ยืนยันบน Pi จริง: `ndsctl deauth <mac>` ของเครื่องที่ไม่อยู่แล้วได้ stdout

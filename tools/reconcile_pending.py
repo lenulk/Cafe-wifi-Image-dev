@@ -296,13 +296,6 @@ def resume_returning() -> int:
     return resumed
 
 
-def _kb(value) -> int:
-    try:
-        return max(int(value), 0)
-    except (TypeError, ValueError):
-        return 0
-
-
 def enforce_live_quota() -> int:
     """voucher ที่มีโควตา: รวมยอดสดจากตัวนับของ openNDS (download/upload_this_session หน่วย kB) -> ครบแล้วตัดทันที
 
@@ -324,6 +317,7 @@ def enforce_live_quota() -> int:
     if clients is None:
         return 0
     from common.traffic import BYTES_PER_MB
+    from tools.enforce_voucher_expiry import _kb
     live: dict[int, int] = {}
     info: dict[int, dict] = {}
     for r in rows:

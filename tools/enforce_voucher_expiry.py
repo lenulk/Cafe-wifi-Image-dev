@@ -362,6 +362,14 @@ def deauth_mac(mac: str, ndsctl_bin: str = "ndsctl") -> bool:
         return False
 
 
+def _kb(value) -> int:
+    """ตัวนับของ openNDS (download/upload_this_session) เป็นสตริงหน่วย kB"""
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def close_session(execute_fn, session_id: int, voucher_id: int,
                   bytes_out: int, bytes_in: int, voucher_status: str = "expired",
                   ended_at=None) -> bool:
@@ -403,6 +411,9 @@ def run(deauth: bool = True) -> EnforceSummary:
         # N29: ต้องเช็คโควตาก่อนหา session ที่ต้องปิด ไม่งั้นรอบนี้จะไม่เห็น voucher ที่เพิ่งเกิน
         n_quota = mark_quota_exceeded(_exec, find_quota_exceeded_vouchers(_query_all, _query_one))
         to_close = find_sessions_to_close(_query_all)
+        # อ่านตัวนับของ openNDS ก่อน deauth (หลัง deauth ตัวนับหาย) -- ใช้ทั้งเป็นยอดของ session ที่ปิดรอบนี้
+        # และเป็นรายชื่อเครื่องที่ออนไลน์สำหรับตรวจ N30/N44 ด้านล่าง (ไม่ถาม ndsctl json ทั้งก้อนซ้ำ)
+        clients = authenticated_clients() if deauth else None
 
         deauth_ok = deauth_failed = 0
         closed = 0
@@ -421,6 +432,13 @@ def run(deauth: bool = True) -> EnforceSummary:
             ended_at = datetime.now().replace(microsecond=0)
             bo, bi = sum_session_traffic_bytes(
                 _query_one, row["mac"], row["authenticated_at"] or row["started_at"], ended_at)
+            # T5 บน Pi 2026-10-16: ตัดเพราะครบโควตาระหว่างดาวน์โหลด -> conn_log ยังไม่มีการเชื่อมต่อที่เปิดค้าง
+            # (บันทึกเมื่อปิด) voucher ได้ used_mb=0 ทั้งที่ใช้ไป 502 MB · ตัวนับของ openNDS นับสดทั้ง session
+            # เครื่องที่ถูกตัดแล้วต้องออกจากรายชื่อด้วย ไม่งั้น N44 ด้านล่างนับเป็นเครื่องไม่มีสิทธิ์ (orphan) ผิด ๆ
+            c = clients.pop(row["mac"].upper(), None) if clients is not None else None
+            if c:
+                bo = max(bo, _kb(c.get("upload_this_session")) * 1024)
+                bi = max(bi, _kb(c.get("download_this_session")) * 1024)
             closed += int(close_session(_exec, row["id"], row["voucher_id"], bo, bi,
                                         row["voucher_status"], ended_at=ended_at))
 
@@ -428,7 +446,6 @@ def run(deauth: bool = True) -> EnforceSummary:
 
         # N30: ปิด session ที่ openNDS ไม่มีเครื่องนั้นแล้ว (ทำหลังปิดตาม voucher เพื่อไม่ให้ชนกัน)
         n_gone = 0
-        clients = authenticated_clients() if deauth else None
         macs = None if clients is None else set(clients)
         if macs is not None:
             for row in find_sessions_gone(_query_all, macs):
