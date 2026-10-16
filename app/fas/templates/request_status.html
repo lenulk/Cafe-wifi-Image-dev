@@ -15,9 +15,13 @@
               font-weight:700;margin:1rem 0">{{ row.code }}</div>
   <p class="hint">หน้านี้จะเปลี่ยนเองเมื่อพนักงานอนุมัติ — ไม่ต้องปิดหรือกดอะไร<br>
     คำขอหมดอายุเวลา {{ row.expires_at.strftime('%H:%M') }} น.</p>
+  {# พบบนมือถือจริง 2026-10-16: พอได้เน็ต Android/iOS ปิดหน้าต่าง portal เองทันที ลูกค้าไม่ทันเห็นที่อยู่หน้าดูเวลา/โควตา
+     ที่อยู่ในสถานะ online -- ต้องบอกตั้งแต่ตอนรอ #}
+  {% include "_usage_link.html" %}
 
 {% elif state == "opening" %}
   <p class="sub">อนุมัติแล้ว กำลังเปิดอินเทอร์เน็ตให้เครื่องนี้…</p>
+  {% include "_usage_link.html" %}
 
 {% elif state == "online" %}
   <div class="msg ok" style="text-align:center">ใช้อินเทอร์เน็ตได้แล้ว</div>
@@ -42,7 +46,8 @@
     <div class="hint" style="margin-top:.3rem;text-align:right">เหลือ {{ [usage.quota - usage.used, 0]|max|human_bytes }}</div>
     {% endif %}
   </div>
-  <p class="hint">ปิดหน้านี้แล้วใช้งานได้ตามปกติ · ดูอีกครั้งได้ที่ <b>http://cafe.wifi:8080</b><br>
+  {% include "_usage_link.html" %}
+  <p class="hint">ปิดหน้านี้แล้วใช้งานได้ตามปกติ ·
     นับรวมทุกเครื่องที่ใช้สิทธิ์เดียวกัน (ออนไลน์อยู่ {{ usage.devices }} เครื่อง) · ตัวเลขอัปเดตทุกนาที</p>
 
 {% elif state == "ended" %}
@@ -56,8 +61,9 @@
   {% elif still_valid %}
     {# disconnected/reauth/gone: เครื่องหลุดเพราะไม่ได้ใช้งานนาน แต่สิทธิ์ยังเหลือ #}
     <div class="msg warn">เครื่องนี้หลุดการเชื่อมต่อ (ไม่ได้ใช้งานนาน)</div>
-    <p class="hint">สิทธิ์ยังใช้ได้ถึง {{ row.valid_until.strftime('%H:%M') }} น. — เปิดเว็บใดก็ได้แล้วขอใช้งานอีกครั้ง
-      พนักงานจะอนุมัติเข้าสิทธิ์เดิม (เวลา/โควตาเดิม)</p>
+    {# 2026-10-16: cafe-reconcile คืนสิทธิ์เดิมให้เองเมื่อเครื่องกลับมา (resume_returning) ไม่ต้องขอใหม่ #}
+    <p class="hint">สิทธิ์ยังใช้ได้ถึง {{ row.valid_until.strftime('%H:%M') }} น. — เปิดเว็บใดก็ได้
+      ระบบจะเปิดอินเทอร์เน็ตให้เครื่องนี้เองภายในไม่กี่วินาที (ไม่ต้องลงทะเบียนใหม่)</p>
   {% else %}
     <div class="msg warn">หมดเวลาใช้งานแล้ว</div>
     <p class="hint">ต้องการใช้ต่อ แจ้งพนักงานเพื่อต่อเวลา หรือเปิดเว็บใดก็ได้เพื่อขอใช้งานใหม่</p>
