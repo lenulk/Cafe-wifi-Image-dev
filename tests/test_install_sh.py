@@ -272,3 +272,8 @@ def test_setup_database_no_longer_grants_whole_database_to_app_user():
     body = body[:body.index("\n}\n")]
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON" not in body
     assert "setup_db_users" in body
+
+
+def test_install_sh_has_no_carriage_returns():
+    """6372a8a: สคริปต์แก้ไฟล์บน Windows ใส่ CR ติดมา -> bash บน Pi `syntax error near unexpected token $'{\r'`"""
+    assert b"\r" not in (REPO / "install.sh").read_bytes()
