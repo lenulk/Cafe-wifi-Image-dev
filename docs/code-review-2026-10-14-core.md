@@ -8,7 +8,7 @@
 ขอบเวลา SESSION_MATCH (`<` ended_at ทุกจุด), flush backoff, offset หาย → log_gap, DB timeout, docker-compose 008–016, หมายเหตุ sql/008
 · เพิ่มเติม: DSR ปิดคำขอ pending ของลูกค้าเป็น expired · parse dnsmasq รับ CRLF
 **ผลบน Pi 16 ต.ค.:** M1 ปิด (dnsmasq 2.91 พิมพ์ `query[HTTPS]`) · M2 ไม่เกิด (logrotate กลาง 10 query/วิ: 399/399) · M6 ผ่าน (ปิด DB 68 วิ ไม่หาย) · M12 ใช้ idx_ip_auth · H3 ไม่เกี่ยว (เครื่องนี้ไม่เปิด partition)
-**ยังเปิด:** H2 (ดูตารางข้างล่าง) · fas consent ไม่มีเวอร์ชันนโยบาย / double-tap deadlock / `/request` ซ่อนคำขอเก่า ·
+**H2 แก้แล้ว 16 ต.ค.** (ดูตาราง) · fas consent ไม่มีเวอร์ชันนโยบาย / double-tap deadlock / `/request` ซ่อนคำขอเก่า ·
 `common/traffic.py` ใช้ขอบเวลาคนละแบบ (นับโควตา — ตั้งใจยังไม่แตะ) · ทั้งหมดที่แก้ผ่านเทสต์ในเครื่อง แต่**ยังไม่ได้รันบน Pi/MariaDB จริง**
 
 ## ⏳ ต้องตรวจบน Pi ก่อนแก้ (ห้ามแก้จากการเดา)
@@ -27,7 +27,7 @@
 | # | ที่ | ปัญหา | สถานะ |
 |---|---|---|---|
 | H1 | `app/logger/conn_collector.py:152-159` | ICMP: `id=` ตัวแรกคือ echo id ของ ping ไม่ใช่ conntrack id → ping สองเครื่องที่ใช้ echo id เดียวกัน (Windows ใช้ 1) ทับกันใน `_open` → **traffic ของเครื่อง A ถูกบันทึกเป็น MAC ของเครื่อง B** · DESTROY ไม่เคยเทียบ 5-tuple กับ NEW | ยืนยัน (โค้ด `kv_first.setdefault`) |
-| H2 | `install.sh:924`, `app/logger/integrity.py` | user DB เดียวมี UPDATE/DELETE ทุกตาราง ใช้ร่วมทุก service · hash chain ไม่มีกุญแจ/ไม่มีจุดยึดนอกเครื่อง และ **ไม่ครอบ `conn_log`/`dns_log` ในฐานข้อมูลเลย** (ผนึกเฉพาะไฟล์ archive) → ใครได้รหัส DB แก้/ลบหลักฐานได้โดยไม่มีอะไรจับ | ยืนยัน (GRANT) · เชิงออกแบบ |
+| H2 | `install.sh:924`, `app/logger/integrity.py` | user DB เดียวมี UPDATE/DELETE ทุกตาราง ใช้ร่วมทุก service · hash chain ไม่มีกุญแจ/ไม่มีจุดยึดนอกเครื่อง และ **ไม่ครอบ `conn_log`/`dns_log` ในฐานข้อมูลเลย** (ผนึกเฉพาะไฟล์ archive) → ใครได้รหัส DB แก้/ลบหลักฐานได้โดยไม่มีอะไรจับ | ✅ **แก้แล้ว 16 ต.ค.** — (1) `sql/018`: `log_seal` + trigger (ห้าม UPDATE conn/dns_log, ห้าม DELETE audit_log, UPDATE audit_log ได้เฉพาะ target/detail ของแถว > 180 วัน) (2) `logger/db_seal.py`: hash แถวทุกคอลัมน์ต่อ (ตาราง, วัน) ต่อเป็นสาย ผนึกช้า 2 วัน ตรวจทุกคืน (9 วันล่าสุด + หมุนเวียน 14 คืน) (3) `install.sh setup_db_users`: cafe_fas / cafe_admin / cafe_logger สิทธิ์รายตาราง ไม่มีใครแก้/ลบ log ได้ · cafe_ops (root) ลบตามอายุ · รหัสใน /etc/cafe-wifi/db (root 0600) (4) ยึด head: USB `log-seal-anchor.txt` ทุกคืน + หน้า /status ให้จดและตรวจรหัสย้อนหลัง · **ทดสอบบน Pi:** แทรกแถวปลอม → `rows_mismatch` · รหัสของ fas/admin/logger ลอง DELETE/UPDATE/TRUNCATE/DROP TRIGGER → ERROR 1142 ทุกคำสั่ง · ทุกหน้า Admin + งานบำรุงรักษาทำงานปกติ · **ยังกันไม่ได้:** INSERT แถวปลอมในวันที่ยังไม่ผนึก (≤ 2 วัน), อ่านข้อมูล, root ของเครื่องสร้างสายใหม่ทั้งเส้น (จับได้ด้วย head ที่จดไว้นอกเครื่อง) |
 | H3 | `install.sh:1087-1091`, `:2371` | รัน install.sh ซ้ำโดยไม่ใส่ `--enable-partitions` → เขียน cnf ใหม่ไม่มี `event_scheduler = ON` → งานสร้าง partition หยุดเงียบ (`install.state` ถูกเขียนแต่ไม่เคยอ่านกลับ) · purge ยังทำงานเพราะใช้ DELETE | ยืนยัน |
 
 ## กลาง

@@ -709,6 +709,31 @@ sql/017 ลงแล้ว (`consent_version` = 2026-10-14 ในคำขอจ
 → install.sh ถอด group-write แล้ว (2) reconcile ชน deadlock 1213 ตอนอนุมัติพอดี → ถือเป็นลองรอบถัดไป
 (3) นาฬิกากระโดด +7 วัน (chrony) → dnsmasq ทิ้ง lease ทุกเครื่อง → openNDS ตอบ 403 `IP not allocated by dhcp` จนลูกค้าต่อ DHCP ใหม่
 
+## 3.17 ป้องกันการแก้/ลบ log หลักฐานในฐานข้อมูล (A8/H2, 16 ต.ค. 2026)
+
+ก่อนแก้: user ฐานข้อมูลตัวเดียว (`cafewifi`, รหัสอยู่ใน secrets.env ที่กลุ่ม cafewifi อ่านได้) มี SELECT/INSERT/UPDATE/DELETE ทุกตาราง
+และ hash chain ผนึกแค่ไฟล์ log ที่หมุนแล้ว ไม่ครอบแถวใน `conn_log`/`dns_log`/`audit_log`
+
+สิ่งที่ทำ: (1) user แยกต่อ service — `cafe_fas`, `cafe_admin`, `cafe_logger` สิทธิ์รายตารางตามที่โค้ดใช้จริง (ไม่มีตัวไหน
+UPDATE/DELETE log ได้) · `cafe_ops` (งานของ root) ลบตามอายุได้ · รหัสใน `/etc/cafe-wifi/db/*.env` root 0600
+(2) trigger: ห้าม UPDATE `conn_log`/`dns_log`, ห้าม DELETE `audit_log`, แก้ `audit_log` ได้เฉพาะแถวเก่ากว่า 180 วัน
+(3) `logger/db_seal.py` ผนึกแถวทุกวัน (SHA-256 ต่อ ตาราง×วัน ต่อเป็นสาย) ตรวจย้อนหลังทุกคืน
+(4) รหัสผนึกล่าสุดเขียนลง USB ทุกคืน + แสดงในหน้า /status ให้จดเก็บและตรวจย้อนหลัง
+
+| ทดสอบ | ผล |
+|---|---|
+| ผนึกครั้งแรก (25k แถว, 6 วัน × 3 ตาราง) + ตรวจซ้ำ | 5.6 วิ · ไม่พบปัญหา ✅ |
+| แทรกแถว DNS ปลอมในวันที่ผนึกแล้ว | ตรวจเจอ `rows_mismatch dns_log:2026-10-12` + audit `integrity_failed` · ลบแถวปลอม → ผ่าน ✅ |
+| รหัสของ fas / admin / logger สั่ง `DELETE conn_log`, `DELETE dns_log`, `UPDATE dns_log`, `DELETE audit_log`, `DELETE log_seal`, `DROP TRIGGER`, `TRUNCATE conn_log` | ERROR 1142 ทุกคำสั่ง (21/21) ✅ |
+| user เดิมแก้ log ผ่าน trigger (ก่อนแยก user) | `UPDATE dns_log`, `DELETE audit_log`, แก้ audit ล่าสุด → ERROR 1644 ✅ |
+| ทุกหน้า Admin (ค้น log, CSV, สรุป, audit, evidence, status) ด้วย `cafe_admin` | 200 ไม่มี error สิทธิ์ ✅ |
+| งานตี 3:30 ด้วย `cafe_ops` (purge → ผนึก → backup `--skip-triggers` → check_disk → integrity) | สำเร็จทุกขั้น ✅ |
+| อัปเกรดทั้งระบบ (`install.sh --stage all`) ขณะยิง DNS 4 ครั้ง/วิ นาน 13 นาที | รอบแรก: ถอดสิทธิ์ user เดิมก่อน restart → logger ทิ้ง 19 รายการ (log_gap) → แก้ลำดับ · รอบสอง: ตอบ 2,397 = ไฟล์ 2,397 = ฐานข้อมูล 2,397 ไม่หาย ✅ |
+
+**ข้อจำกัดที่ยังเหลือ (เขียนในบทที่ 5):** แถวปลอมที่ INSERT ในวันที่ยังไม่ผนึก (≤ 2 วัน) จับไม่ได้ · ผู้ได้รหัสยังอ่านข้อมูลได้ ·
+root ของเครื่องสร้างสายผนึกใหม่ทั้งเส้นได้ แต่จะไม่ตรงกับรหัสที่จดไว้นอกเครื่อง/บน USB · บริการที่รันเป็น user `cafewifi`
+เดียวกันอ่านรหัสของกันและกันได้ (/proc) จึงนับรวมกันเป็นชุดเดียว — ชุดนั้นก็ยังแก้/ลบ log ไม่ได้
+
 ## 4. ตัวเลขที่วัดได้ (ใช้ในบทที่ 4)
 
 | รายการ | ค่าที่วัดได้ |

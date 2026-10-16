@@ -6,7 +6,7 @@
 
 **แก้แล้ว (14 ต.ค., มีเทสต์ทุกข้อ, 782 ผ่าน / 6 ล้มเดิมของ Windows):** B1, A1 (เพดาน 12 ชม.), A2, A3 (cookie
 อุปกรณ์ที่รู้จัก `cw_kd`), A4, A5, A6 (รหัสชั่วคราว 24 ชม.), B5, B6 (+ แก้ `sync_extended` ที่เคย auth ใหม่ให้ลูกค้าที่ถูกระงับ),
-B8 (เตือนใน README ไม่แก้เนื้อหา), B9, B11 · **ยังเปิด (ต้องทำบน Pi):** B7, A7, A8, B12 · B10 = เรื่องการใช้งาน
+B8 (เตือนใน README ไม่แก้เนื้อหา), B9, B11 · **ยังเปิด (ต้องทำบน Pi):** B7, A7, B12 · B10 = เรื่องการใช้งาน
 หมายเหตุ deploy: แอดมินที่ล็อกอินค้างอยู่จะถูกพาไปหน้า login หนึ่งครั้ง (cookie เก่าไม่มี `login_at`)
 
 **ภาพรวม:** ไม่พบช่องที่ staff ขึ้นเป็น admin, ไม่มี route ขาด guard, CSRF ครบทุก POST, SQL parameterized ทั้งหมด,
@@ -38,7 +38,7 @@ B8 (เตือนใน README ไม่แก้เนื้อหา), B9, B
 - A5 `/setup` ไม่ตรวจ `isascii()` ชื่อผู้ใช้, ไม่ตัด display_name 128 ตัว, หน้า 503 บอก path ไฟล์ token · ในเครื่องได้
 - A6 รหัสชั่วคราวไม่หมดอายุ (แอดมินที่เห็นรหัสล็อกอินแทนพนักงานได้ก่อนเจ้าตัว) · reset-password ใส่บัญชีที่ปิดได้ · ในเครื่องได้
 - A7 แอดมิน 2 คนปิด/ลด role กันพร้อมกัน → deadlock 500 (ปลอดภัย ไม่เหลือ admin 0) · สร้างชื่อซ้ำพร้อมกัน → IntegrityError 500 · ต้อง MariaDB จริง
-- A8 `audit_log` ไม่มี hash chain และ user ของแอปลบ/แก้ได้ · ต้องดู GRANT บน Pi
+- ~~A8~~ `audit_log` ไม่มี hash chain และ user ของแอปลบ/แก้ได้ · ✅ **แก้แล้ว 16 ต.ค. (ทางเลือก 3 ตามที่เจ้าของเลือก)** — user ฐานข้อมูลแยกต่อ service + trigger + ผนึกแถว log รายวัน (ดู H2 ในรายงาน core)
 - B8 CSV ไม่กัน formula injection (qname/hostname ขึ้นต้น `=`) — ไม่ควรแก้เนื้อหาหลักฐาน ให้เขียนเตือนใน README · ในเครื่องได้
 - B9 `start` แบบมี timezone → naive/aware TypeError 500 · ในเครื่องได้
 - B10 ลูกค้าที่มี voucher เหลือ 2 นาที เครื่องใหม่ได้แค่ 2 นาที ต้องกดต่อเวลาเอง · เรื่องการใช้งาน
@@ -71,7 +71,7 @@ extend whitelist 30/60/120 · ทุก SQL parameterized · ไม่มี sub
 - **deadlock ใน reconcile (ต่ำ, แก้แล้ว 4428a10 — 1213/1205 = รอรอบถัดไป ไม่ Failed):** อนุมัติชนจังหวะ `expire_requests()` → MySQL 1213 รอบนั้นล้มทั้งรอบ (unit Failed)
   รอบถัดไป 5 วิทำงานปกติ ไม่มีข้อมูลเสีย
 - **B5 ยืนยันบน Pi:** ปฏิเสธคำขอ → natid_masked=PURGED, hash/enc = NULL ✅ · **U8:** export จาก CLI ลง audit ผู้ทำ + แถว + sha256 ✅
-- **A8 ยืนยัน:** user `cafewifi` มี SELECT/INSERT/UPDATE/DELETE ทั้งฐาน (รวม audit_log/conn_log/dns_log) — รอเจ้าของตัดสินใจ (เสนอ trigger กัน DELETE/UPDATE audit_log)
+- **A8 ยืนยันแล้วแก้:** user `cafewifi` มี SELECT/INSERT/UPDATE/DELETE ทั้งฐาน → แยก user ต่อ service (ดู H2 ในรายงาน core)
 - **U9/B4 วัดบน Pi:** 29k แถว = 2.75 วิ, RAM 60 MB · แล็บ ≈ 2,000 แถว DNS/เครื่อง/ชม. → ร้าน 15 เครื่อง 12 ชม. ≈ 550k แถว/วัน → ทุกเครื่อง 7 วัน ≈ 3.9M แถว เกิน RAM/timeout
 - **นาฬิกากระโดด (ไม่ใช่บั๊กโค้ด):** chrony ปรับเวลา +7 วัน → dnsmasq ทิ้ง lease ทุกเครื่อง → openNDS ตอบ 403
   `IP not allocated by dhcp` จนกว่าเครื่องลูกค้าจะต่อ DHCP ใหม่
