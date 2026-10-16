@@ -143,6 +143,12 @@ class Store:
                          "prev_chain, chain_sha256 FROM log_seal ORDER BY id")
         return [Seal(**r) for r in rows]
 
+    def last(self) -> Seal | None:
+        from common.db import query_one
+        r = query_one("SELECT table_name, seal_date, row_count, min_id, max_id, columns, rows_sha256, "
+                      "prev_chain, chain_sha256 FROM log_seal ORDER BY id DESC LIMIT 1")
+        return Seal(**r) if r else None
+
     def add(self, s: Seal) -> None:
         from common.db import execute
         execute("INSERT INTO log_seal (table_name, seal_date, row_count, min_id, max_id, columns, rows_sha256, "
@@ -205,8 +211,26 @@ def verify(store, today: date, retention_days: int, everything: bool = False) ->
 
 
 def head(store) -> Seal | None:
-    seals = store.seals()
-    return seals[-1] if seals else None
+    return store.last()
+
+
+ANCHOR_FILE = "log-seal-anchor.txt"
+
+
+def write_anchor(directory, store=None, now: datetime | None = None) -> str | None:
+    """เขียน head ของสายผนึกต่อท้ายไฟล์บน USB สำรอง (เรียกจาก backup_db หลังคัดลอกสำเร็จ) คืนบรรทัดที่เขียน
+    ไฟล์นี้เพิ่มอย่างเดียว ไม่ถูก prune -- ถ้าวันหนึ่งสายในเครื่องถูกสร้างใหม่ทั้งเส้น head เก่าบน USB จะหาไม่เจอ"""
+    from pathlib import Path
+    h = head(store or Store())
+    if h is None:
+        return None
+    line = (f"{(now or datetime.now()).isoformat(timespec='minutes')} head={h.table_name}:{h.seal_date} "
+            f"chain={h.chain_sha256}")
+    with open(Path(directory) / ANCHOR_FILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    return line
 
 
 def main() -> int:  # pragma: no cover

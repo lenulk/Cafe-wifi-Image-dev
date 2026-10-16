@@ -7,6 +7,7 @@ admin/views/overview.py — แดชบอร์ด, สถานะระบ�
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import datetime, timedelta
 from flask import g, jsonify, render_template, request, session
@@ -31,9 +32,32 @@ def status_page():
     backup = backup_db.read_status(backup_db.status_path()) or {}
     backup["usb_present"] = os.path.exists("/dev/disk/by-label/CAFEBACKUP")
     return render_template("status.html", res=sysinfo.resources(), inet=sysinfo.internet_status(),
-                           speed=sysinfo.last_speed_test(), backup=backup,
+                           speed=sysinfo.last_speed_test(), backup=backup, seal=seal_info(request.args.get("seal")),
                            ssh_port=os.environ.get("SSH_ALT_PORT", ""), ssh_users=ssh_users(),
                            ssh_host=os.environ.get("GATEWAY_IP") or "10.10.0.1", ca=ca_info(), **data)
+
+
+def seal_info(check: str | None) -> dict:
+    """A8/H2: head ของสายผนึกแถว log (ให้เจ้าของจด/ถ่ายรูปเก็บนอกเครื่อง) + ตรวจว่ารหัสที่จดไว้ยังอยู่ในสายไหม
+    ถ้าวันหนึ่งมีคนสร้างสายผนึกใหม่ทั้งเส้นเพื่อกลบการแก้ log รหัสเก่าที่จดไว้จะหาไม่เจอ"""
+    out: dict = {"head": None, "problems": [], "check": None}
+    try:
+        out["head"] = core.query_one("SELECT table_name, seal_date, chain_sha256, sealed_at FROM log_seal "
+                                     "ORDER BY id DESC LIMIT 1")
+        out["problems"] = core.query_all(
+            "SELECT ts, target, detail FROM audit_log WHERE action = %s AND ts > NOW() - INTERVAL 30 DAY "
+            "AND (target = 'log_seal' OR target LIKE 'conn_log:%%' OR target LIKE 'dns_log:%%' "
+            "OR target LIKE 'audit_log:%%') ORDER BY id DESC LIMIT 5", (audit.INTEGRITY_FAILED,))
+        if check is not None:
+            code = check.strip().lower()
+            row = None
+            if re.fullmatch(r"[0-9a-f]{64}", code):
+                row = core.query_one("SELECT table_name, seal_date, sealed_at FROM log_seal WHERE chain_sha256 = %s",
+                                     (code,))
+            out["check"] = {"code": code[:64], "valid": bool(re.fullmatch(r"[0-9a-f]{64}", code)), "row": row}
+    except Exception as exc:  # noqa: BLE001 -- ฐานข้อมูลเก่าที่ยังไม่มี sql/018 -- หน้า /status ต้องเปิดได้
+        out["error"] = str(exc)[:200]
+    return out
 
 
 def ca_info() -> dict | None:

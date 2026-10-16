@@ -150,6 +150,32 @@
 </div>
 
 <div class="card">
+  <h2>ผนึกหลักฐาน log ในฐานข้อมูล</h2>
+  {% if seal.error %}
+    <p><span class="badge warn">ยังไม่พร้อม</span> <span class="hint">ฐานข้อมูลยังไม่มีตาราง log_seal — รัน install.sh ใหม่</span></p>
+  {% elif not seal.head %}
+    <p><span class="badge warn">ยังไม่เคยผนึก</span> <span class="hint">ระบบผนึกอัตโนมัติทุกคืนตี 3:30 (ข้อมูลของ 2 วันก่อน)</span></p>
+  {% else %}
+    <p>{% if seal.problems %}<span class="badge err">⚠ พบข้อมูลไม่ตรงกับที่ผนึก</span>{% else %}<span class="badge ok">ตรวจล่าสุดไม่พบการแก้ไข</span>{% endif %}
+      ผนึกถึงวันที่ {{ seal.head.seal_date }} (เมื่อ {{ seal.head.sealed_at.strftime('%d/%m %H:%M') if seal.head.sealed_at else '-' }})</p>
+    {% for p in seal.problems %}<p class="hint" style="color:var(--err)">{{ p.ts.strftime('%d/%m %H:%M') }} · {{ p.target }} — {{ p.detail }}</p>{% endfor %}
+    <p>รหัสผนึกล่าสุด: <code class="mono" style="word-break:break-all">{{ seal.head.chain_sha256 }}</code></p>
+    <p class="hint">จดหรือถ่ายรูปรหัสนี้เก็บไว้นอกเครื่องเดือนละครั้ง (ระบบเขียนลง USB สำรองให้ทุกคืนด้วย) — ถ้าวันหนึ่งมีคนแก้ log
+      แล้วสร้างการผนึกใหม่ทั้งชุดเพื่อกลบร่องรอย รหัสเก่าที่จดไว้จะตรวจไม่พบในเครื่อง</p>
+  {% endif %}
+  <form method="get" action="/status" style="margin-top:.5rem">
+    <label for="seal-check">ตรวจรหัสผนึกที่จดไว้</label>
+    <input id="seal-check" name="seal" class="mono" maxlength="80" placeholder="รหัส 64 ตัวอักษร" value="{{ seal.check.code if seal.check else '' }}">
+    <button class="ghost" type="submit">ตรวจ</button>
+  </form>
+  {% if seal.check %}
+    {% if not seal.check.valid %}<p><span class="badge warn">รูปแบบไม่ถูกต้อง</span> <span class="hint">ต้องเป็นตัวเลข/ตัวอักษร a-f 64 ตัว</span></p>
+    {% elif seal.check.row %}<p><span class="badge ok">✓ พบในสายผนึก</span> {{ seal.check.row.table_name }} วันที่ {{ seal.check.row.seal_date }}</p>
+    {% else %}<p><span class="badge err">✗ ไม่พบรหัสนี้ในเครื่อง</span> <span class="hint">ถ้าเคยเห็นรหัสนี้ในหน้านี้จริง แปลว่าการผนึกถูกสร้างใหม่ — แจ้งผู้ดูแลระบบ เก็บ USB สำรองไว้เป็นหลักฐาน</span></p>{% endif %}
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>พื้นที่ดิสก์</h2>
   <table>
     <tr><th>ไดเรกทอรี</th><th>ใช้ไป</th><th>เหลือ</th><th>สถานะ</th></tr>

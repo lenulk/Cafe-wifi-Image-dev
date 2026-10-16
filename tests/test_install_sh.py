@@ -211,3 +211,64 @@ def test_setup_database_applies_018_log_guards():
     for trig in ("conn_log_no_update", "dns_log_no_update", "audit_log_no_delete", "audit_log_scrub_only",
                  "log_seal_no_update", "log_seal_no_delete"):
         assert f"DROP TRIGGER IF EXISTS {trig}" in sql, "รันซ้ำได้"
+
+
+# ---------------------------------------------------------------- A8/H2 user ฐานข้อมูลแยกต่อ service
+def _grants(tmp_path):
+    r = call(tmp_path, "db_grants_sql")
+    assert r.returncode == 0, r.stderr
+    return r.stdout.splitlines()
+
+
+def test_no_web_or_logger_user_can_change_or_delete_evidence(tmp_path):
+    lines = _grants(tmp_path)
+    for user in ("cafe_fas", "cafe_admin", "cafe_logger", "cafewifi"):
+        mine = [l for l in lines if l.startswith("GRANT") and f"'{user}'@" in l]
+        assert mine, user
+        assert not any(".* TO" in l for l in mine), f"{user} ต้องได้สิทธิ์รายตาราง ไม่ใช่ทั้งฐาน"
+        for l in mine:
+            privs, table = l[6:l.index(" ON ")], l.split("`.`")[-1].split("`")[0] if "`.`" in l else "*"
+            if table in ("conn_log", "dns_log", "log_seal"):
+                assert "UPDATE" not in privs and "DELETE" not in privs, l
+            if table == "audit_log":
+                assert "DELETE" not in privs, l
+                if "UPDATE" in privs:
+                    assert user == "cafe_admin", "แก้ audit ได้เฉพาะปุ่มล้างข้อมูลของแอดมิน (trigger จำกัดแถว > 180 วัน)"
+
+
+def test_only_ops_can_purge_logs_and_every_user_is_revoked_first(tmp_path):
+    lines = _grants(tmp_path)
+    ops = [l for l in lines if l.startswith("GRANT") and "'cafe_ops'@" in l]
+    assert ops and all("DELETE" in l and ".* TO" in l for l in ops)
+    users = {l.split("'")[1] for l in lines if l.startswith("GRANT")}
+    for u in users:
+        first_grant = next(i for i, l in enumerate(lines) if l.startswith("GRANT") and f"'{u}'@" in l)
+        revoke = next(i for i, l in enumerate(lines) if l.startswith("REVOKE ALL") and f"'{u}'@" in l)
+        assert revoke < first_grant, f"{u}: REVOKE ก่อน GRANT (รันซ้ำแล้วสิทธิ์ที่เอาออกต้องหายจริง)"
+    assert lines[-1] == "FLUSH PRIVILEGES;"
+
+
+def test_logger_can_only_insert_traffic_logs(tmp_path):
+    lines = _grants(tmp_path)
+    conn = [l for l in lines if "'cafe_logger'@" in l and "`conn_log`" in l]
+    assert conn and all(l.startswith("GRANT INSERT ON") for l in conn)
+
+
+@pytest.mark.parametrize("unit_name,env", [
+    ("cafe-fas.service", "fas"), ("cafe-admin.service", "admin"), ("cafe-logger.service", "logger"),
+    ("cafe-bypass-detect.service", "logger"), ("cafe-maintenance.service", "ops"),
+    ("cafe-check-disk.service", "ops"), ("cafe-enforce.service", "ops"), ("cafe-reconcile.service", "ops"),
+])
+def test_each_service_loads_its_own_db_credentials_after_secrets(services, unit_name, env):
+    u = unit(services, unit_name)
+    sec = u.index("EnvironmentFile=/etc/cafe-wifi/secrets.env")
+    own = u.index(f"EnvironmentFile=/etc/cafe-wifi/db/{env}.env")
+    assert own > sec, "ไฟล์ของ service ต้องมาทีหลัง จะได้ทับ DB_USER/DB_PASS ของ secrets.env"
+
+
+def test_setup_database_no_longer_grants_whole_database_to_app_user():
+    src = (REPO / "install.sh").read_text(encoding="utf-8")
+    body = src[src.index("setup_database() {"):]
+    body = body[:body.index("\n}\n")]
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON" not in body
+    assert "setup_db_users" in body

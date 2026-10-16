@@ -40,7 +40,7 @@
 (env ของผู้ใช้ช่างไม่มี `DB_PASS`) ใช้รูปแบบนี้:
 
 ```bash
-sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; \
+sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; \
   cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.<ชื่อ> <args>'
 ```
 (รูปแบบนี้ตรงกับ docstring ของ `tools/reset_admin.py`; ถ้าใช้บ่อย ให้ทำเป็น alias/ฟังก์ชันในเชลล์ช่าง)
@@ -288,7 +288,7 @@ voucher **หมดอายุตามเวลา** ตัดช้ากว�
 ### 8.1 ลืมรหัสแอดมิน — `tools/reset_admin.py`
 ต้อง root บนเครื่อง; จะถามรหัสใหม่สองครั้ง (ผ่านเกณฑ์ `crypto.check_admin_password`):
 ```bash
-sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; \
+sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; \
   cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.reset_admin <username>'
 ```
 - ถ้าโดนล็อกหลังใส่รหัสผิด (ตัวนับเก็บในหน่วยความจำ ~10 นาที): `sudo systemctl restart cafe-admin` ล้างได้

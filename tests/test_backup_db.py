@@ -235,3 +235,54 @@ def test_status_file_round_trip(tmp_path):
     bdb.write_status(st, None, "mysqldump exit code 2")
     assert bdb.read_status(st)["ok"] is False
     assert bdb.read_status(tmp_path / "missing.json") is None
+
+
+# ---------------------------------------------------------------- A8/H2
+def test_dump_skips_triggers(tmp_path, monkeypatch):
+    """trigger กันแก้หลักฐานลงใหม่จาก sql/018 ตอนกู้ -- ไม่ dump (ไม่งั้น user สำรองต้องมีสิทธิ์ TRIGGER)"""
+    import tools.backup_db as b
+    seen = {}
+    monkeypatch.setattr(b.shutil, "which", lambda name: name)
+
+    def popen(cmd, **kw):
+        seen.setdefault("cmds", []).append(cmd)
+        raise OSError("stop here")
+    monkeypatch.setattr(b.subprocess, "Popen", popen)
+    with pytest.raises((OSError, BackupError)):
+        dump_database("cafewifi", "127.0.0.1", 3306, "cafe_ops", "x", tmp_path / "d.sql.gz")
+    assert "--skip-triggers" in seen["cmds"][0]
+
+
+def test_run_writes_seal_anchor_to_usb_only_when_copied(tmp_path, monkeypatch):
+    import logger.db_seal as ds
+    import tools.backup_db as b
+    calls = []
+    monkeypatch.setattr(ds, "write_anchor", lambda d: calls.append(Path(d)))
+    (tmp_path / "local").mkdir()
+    monkeypatch.setattr(b, "dump_database", lambda **kw: kw["out_path"].write_bytes(b"x"))
+    usb = tmp_path / "usb"
+    usb.mkdir()
+    monkeypatch.setattr(b, "copy_offsite", lambda src, d, **kw: usb / src.name)
+    run(backup_dir=tmp_path / "local", keep_days=14, offsite_dir=str(usb))
+    assert calls == [usb]
+    calls.clear()
+    monkeypatch.setattr(b, "copy_offsite", lambda src, d, **kw: None)
+    run(backup_dir=tmp_path / "local", keep_days=14, offsite_dir=str(usb))
+    assert calls == [], "คัดลอกลง USB ไม่สำเร็จ = ไม่เขียน anchor"
+
+
+def test_write_anchor_appends_head_line(tmp_path):
+    from datetime import date, datetime
+    import logger.db_seal as ds
+
+    class S:
+        def __init__(self, h):
+            self.h = h
+
+        def last(self):
+            return ds.Seal("dns_log", date(2026, 10, 14), 1, 1, 1, "id", "a" * 64, None, self.h)
+    ds.write_anchor(tmp_path, S("1" * 64), now=datetime(2026, 10, 16, 3, 31))
+    ds.write_anchor(tmp_path, S("2" * 64), now=datetime(2026, 10, 17, 3, 31))
+    lines = (tmp_path / ds.ANCHOR_FILE).read_text(encoding="utf-8").splitlines()
+    assert lines == [f"2026-10-16T03:31 head=dns_log:2026-10-14 chain={'1' * 64}",
+                     f"2026-10-17T03:31 head=dns_log:2026-10-14 chain={'2' * 64}"]

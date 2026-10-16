@@ -369,3 +369,65 @@ def test_status_shows_ca_download_and_fingerprint(client, monkeypatch, tmp_path)
     html = client.get("/status").get_data(as_text=True)
     fp = cert.fingerprint(hashes.SHA256()).hex().upper()
     assert "http://10.20.0.1:8080/cafe-wifi.crt" in html and fp[:2] + ":" + fp[2:4] in html
+
+
+# ---------------------------------------------------------------- A8/H2 ผนึกแถว log + ตรวจรหัสที่จดไว้นอกเครื่อง
+HEAD = "9585144a8b547f0851cecf3624c84200977f1c955180442f0710f58162c75d7b"
+
+
+def _seal_db(monkeypatch, problems=()):
+    import admin.app as admin_app
+    real_one, real_all = admin_app.query_one, admin_app.query_all
+
+    def one(sql, args=()):
+        if "FROM log_seal ORDER BY id DESC" in sql:
+            return dict(table_name="dns_log", seal_date=datetime(2026, 10, 14).date(), chain_sha256=HEAD,
+                        sealed_at=datetime(2026, 10, 16, 3, 30))
+        if "FROM log_seal WHERE chain_sha256" in sql:
+            return dict(table_name="dns_log", seal_date=datetime(2026, 10, 14).date(),
+                        sealed_at=datetime(2026, 10, 16, 3, 30)) if args[0] == HEAD else None
+        return real_one(sql, args)
+
+    def all_(sql, args=()):
+        if "action = %s AND ts > NOW() - INTERVAL 30 DAY" in sql:
+            return list(problems)
+        return real_all(sql, args)
+    monkeypatch.setattr(admin_app, "query_one", one)
+    monkeypatch.setattr(admin_app, "query_all", all_)
+
+
+def test_status_shows_seal_head_for_offsite_record(client, monkeypatch):
+    _login(client)
+    _seal_db(monkeypatch)
+    html = client.get("/status").get_data(as_text=True)
+    assert HEAD in html and "ตรวจล่าสุดไม่พบการแก้ไข" in html and "2026-10-14" in html
+
+
+def test_status_flags_seal_mismatch(client, monkeypatch):
+    _login(client)
+    _seal_db(monkeypatch, problems=[dict(ts=datetime(2026, 10, 16, 3, 31), target="dns_log:2026-10-12",
+                                         detail="kind=rows_mismatch ...")])
+    html = client.get("/status").get_data(as_text=True)
+    assert "พบข้อมูลไม่ตรงกับที่ผนึก" in html and "dns_log:2026-10-12" in html
+
+
+@pytest.mark.parametrize("code,expect", [
+    (HEAD, "พบในสายผนึก"), (HEAD.upper(), "พบในสายผนึก"),
+    ("0" * 64, "ไม่พบรหัสนี้ในเครื่อง"), ("nothex", "รูปแบบไม่ถูกต้อง"),
+])
+def test_status_checks_a_recorded_seal_code(client, monkeypatch, code, expect):
+    _login(client)
+    _seal_db(monkeypatch)
+    assert expect in client.get(f"/status?seal={code}").get_data(as_text=True)
+
+
+def test_status_still_renders_before_migration_018(client, monkeypatch):
+    import admin.app as admin_app
+    _login(client)
+
+    def boom(sql, args=()):
+        raise RuntimeError("Table 'cafewifi.log_seal' doesn't exist")
+    real_one = admin_app.query_one
+    monkeypatch.setattr(admin_app, "query_one", lambda s, a=(): boom(s) if "log_seal" in s else real_one(s, a))
+    r = client.get("/status")
+    assert r.status_code == 200 and "ยังไม่พร้อม" in r.get_data(as_text=True)

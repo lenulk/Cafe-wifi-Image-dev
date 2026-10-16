@@ -216,3 +216,29 @@ def test_root_write_keys_failure_resets_db(root, monkeypatch):
     assert root.main() == 1
     assert _status(root)["state"] == "failed"
     assert any("DROP DATABASE" in (s or "") for s in root.calls["sql"])
+
+
+# ------------------------------------------------------------------ A8/H2
+def test_migrations_reapply_per_service_grants_after_restore(tmp_path, monkeypatch):
+    """DROP/CREATE DATABASE แล้วลงตารางใหม่ -> ต้องลงสิทธิ์รายตารางของ user แต่ละ service ซ้ำ (grants.sql ของ install.sh)"""
+    from setup import restore
+    (tmp_path / "sql").mkdir()
+    (tmp_path / "sql" / "001_schema.sql").write_text("SELECT 1;", encoding="utf-8")
+    (tmp_path / "etc" / "db").mkdir(parents=True)
+    (tmp_path / "etc" / "db" / "grants.sql").write_text("GRANT SELECT ON x TO y;", encoding="utf-8")
+    monkeypatch.setattr(restore, "OPT_DIR", tmp_path)
+    monkeypatch.setattr(restore, "ETC_DIR", tmp_path / "etc")
+    fed = []
+
+    def run(cmd, stdin=None, **kw):
+        fed.append((cmd, stdin.read().decode()))
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+    monkeypatch.setattr(restore.subprocess, "run", run)
+    restore.apply_migrations("cafewifi")
+    assert [s for _, s in fed] == ["SELECT 1;", "GRANT SELECT ON x TO y;"], "สิทธิ์ลงหลัง migration ทุกไฟล์"
+
+
+def test_restore_without_grants_file_still_works(tmp_path, monkeypatch):
+    from setup import restore
+    monkeypatch.setattr(restore, "ETC_DIR", tmp_path)
+    restore.reapply_grants()   # เครื่องที่ยังไม่ผ่าน install.sh รุ่นนี้ -- ไม่มีไฟล์ = ข้ามเงียบ ๆ

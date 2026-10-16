@@ -2,7 +2,7 @@
 
 ใช้ Flask test client + session ของ staff_id=1 (ข้ามแค่ขั้นพิมพ์รหัสพนักงาน ส่วนตรวจเลขบัตร, CSRF,
 บันทึก audit และหน้าแสดงรหัสครั้งเดียวทำงานจริงทั้งหมด) · ต้องรันบน Pi เป็น root:
-    set -a; . /etc/cafe-wifi/secrets.env; set +a
+    set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a
     cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python tools/lab_issue_voucher.py 1101700000010 1 1 20
 ใช้เลขบัตรทดสอบที่ checksum ถูกแต่ไม่ใช่ของคนจริง (เช่น 1101700000010)
 """

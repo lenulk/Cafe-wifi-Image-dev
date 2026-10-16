@@ -92,6 +92,19 @@ def apply_migrations(db: str) -> None:
         if r.returncode != 0:
             raise RuntimeError(f"ปรับฐานข้อมูลเป็นรุ่นปัจจุบันไม่สำเร็จ ({f.name}): "
                                f"{r.stderr.decode('utf-8', 'replace').strip()[:300]}")
+    reapply_grants()
+
+
+def reapply_grants() -> None:
+    """A8/H2: สิทธิ์รายตารางของ user แต่ละ service (install.sh setup_db_users เขียนไว้ที่ /etc/cafe-wifi/db/grants.sql)
+    -- กู้ด้วย DROP/CREATE DATABASE แล้วลงซ้ำให้ตรงกับตารางชุดใหม่ ไม่มีไฟล์ (เครื่องที่ยังไม่ผ่าน install.sh รุ่นนี้) = ข้าม"""
+    f = ETC_DIR / "db" / "grants.sql"
+    if not f.exists():
+        return
+    with open(f, "rb") as fh:
+        r = subprocess.run(["mysql"], stdin=fh, capture_output=True, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(f"ตั้งสิทธิ์ฐานข้อมูลต่อ service ไม่สำเร็จ: {r.stderr.decode('utf-8', 'replace').strip()[:300]}")
 
 
 def ensure_partition_maintenance(db: str, retention_days: int) -> bool:

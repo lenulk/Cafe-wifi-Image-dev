@@ -785,7 +785,7 @@ mysql cafewifi -e "SELECT ts, detail FROM audit_log WHERE action='log_gap' ORDER
 ทดสอบ flow ลูกค้าครบวงจรโดยไม่ต้องใช้มือถือ (ลูกค้าจำลองบน Pi เอง — ดู §3.5):
 
 ```bash
-sudo -i; set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi
+sudo -i; set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi
 read CODE PW < <(PYTHONPATH=/opt/cafe-wifi venv/bin/python tools/lab_issue_voucher.py 1101700000010 1 1 20)
 bash tools/lab_client.sh up cta 02:ca:fe:00:00:0a && bash tools/lab_client.sh login cta "$CODE" "$PW"
 bash tools/lab_client.sh down cta; ndsctl deauth 02:ca:fe:00:00:0a
@@ -795,6 +795,6 @@ bash tools/lab_client.sh down cta; ndsctl deauth 02:ca:fe:00:00:0a
 
 ```bash
 sudo -i
-set -a; . /etc/cafe-wifi/secrets.env; set +a
+set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a
 cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.export_evidence --mac <MAC> --from 2026-09-20 --to 2026-09-20
 ```

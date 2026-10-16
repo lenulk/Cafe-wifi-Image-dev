@@ -118,7 +118,9 @@ def dump_database(db_name: str, host: str, port: int, user: str, password: str,
     # ไม่ใส่ --routines/--triggers/--events ตั้งใจ -- ต้องการสิทธิ์ที่ DB_USER ไม่มีแล้ว
     # (ดู docstring ด้านบน) โครงสร้าง schema/procedure/event อยู่ใน sql/*.sql (คุมด้วย
     # DROP...IF EXISTS/CREATE...IF NOT EXISTS อยู่แล้ว) ให้รันไฟล์เหล่านั้นตอน restore แทน
-    dump_cmd = [mysqldump_bin, "--single-transaction", "--no-tablespaces",
+    # --skip-triggers: trigger กันแก้หลักฐาน (sql/018) ลงใหม่จากไฟล์ .sql ตอนกู้เหมือน procedure/event -- ไม่งั้น
+    # mysqldump ต้องการสิทธิ์ TRIGGER (user ที่ถอด trigger ได้) และ dump ที่กู้ก่อนลง 018 จะชนชื่อ trigger
+    dump_cmd = [mysqldump_bin, "--single-transaction", "--no-tablespaces", "--skip-triggers",
                "-h", host, "-P", str(port), "-u", user, db_name]
     env = dict(os.environ, MYSQL_PWD=password)  # ไม่ใส่รหัสผ่านใน argv (โผล่ใน `ps` ได้)
 
@@ -320,6 +322,13 @@ def run(backup_dir: Path | None = None, keep_days: int | None = None,
     size = out_path.stat().st_size
     offsite_path = copy_offsite(out_path, offsite_dir,  # N4
                                 require_separate_device=os.environ.get("OFFSITE_REQUIRE_SEPARATE_DEVICE") == "1")
+    if offsite_path is not None:
+        # A8/H2: ยึด head ของสายผนึกแถว log ไว้บน USB ด้วย (ไฟล์เล็ก เพิ่มอย่างเดียว ไม่ถูก prune)
+        try:
+            from logger.db_seal import write_anchor
+            write_anchor(offsite_path.parent)
+        except Exception as exc:  # noqa: BLE001 -- backup สำเร็จไปแล้ว ไม่ให้เรื่องนี้ทำ status เป็นล้ม
+            log.error("เขียน head ของสายผนึกลง USB ไม่สำเร็จ: %s", exc)
     pruned = prune_old_backups(backup_dir, keep_days)
     prune_stale_tmp(backup_dir)
     if offsite_dir:

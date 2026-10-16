@@ -42,7 +42,7 @@
 - **รันด้วยมือ** ต้องโหลดไฟล์นี้ให้ตัวแปรถูก export ก่อน และรันเป็นโมดูลจาก `/opt/cafe-wifi` ตามรูปแบบนี้ (เป็นรูปแบบที่ docstring ของ `tools/reset_admin.py` และ `tools/lab_issue_voucher.py` ใช้)
 
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.<module> <args>'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.<module> <args>'
   ```
 
 - `sudo -E` **ใช้ไม่ได้** เพราะ environment ของผู้ใช้ทั่วไปไม่มี `DB_PASS` (ระบุใน docstring ของ `tools/reset_admin.py`)
@@ -59,7 +59,7 @@
 - **หน้าที่:** ลบแถว `conn_log` และ `dns_log` ที่เก่ากว่า `LOG_RETENTION_DAYS` ล้างข้อมูลระบุตัวตนของลูกค้า (ไม่ลบแถว customer) ที่ไม่มี voucher ค้างอยู่และไม่ได้มาร้านนานเกิน `CUSTOMER_RETENTION_DAYS` ลบ `voucher_reveal` ที่หมดอายุ ลบ `access_request` ที่เก่ากว่า log cutoff และลบ `rate_attempt` ที่เก่ากว่า 1 วัน (`tools/purge_old_data.py`, ฟังก์ชัน `run`)
 - **รันอย่างไร:**
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.purge_old_data'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.purge_old_data'
   ```
 - **อาร์กิวเมนต์:** ไม่มี (ไม่ได้ใช้ `argparse` และ `main()` ไม่อ่าน `sys.argv`)
 - **ตัวแปรสภาพแวดล้อม:**
@@ -77,7 +77,7 @@
 - **หน้าที่:** สำรองฐาน `DB_NAME` ด้วย `mysqldump --single-transaction --no-tablespaces` ต่อ pipe เข้า `gzip` ไฟล์ทำชื่อ `.tmp` ก่อนแล้วจึง rename เมื่อสำเร็จ (atomic) ถ้าตั้ง `OFFSITE_BACKUP_DIR` จะคัดลอกไฟล์ไปที่นั้น ลบไฟล์ backup เก่าตาม retention และเขียนสถานะให้หน้า `/status` (`tools/backup_db.py` ส่วนต้นไฟล์และฟังก์ชัน `run`)
 - **รันอย่างไร:**
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.backup_db'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.backup_db'
   ```
 - **อาร์กิวเมนต์:** ไม่มี (`main()` เรียก `run()` โดยไม่รับค่า)
 - **ตัวแปรสภาพแวดล้อม:**
@@ -106,7 +106,7 @@
 - **หน้าที่:** ตรวจการใช้พื้นที่ของ `LOG_DIR` และ `/` ถ้าเกิน `DISK_WARN_PCT` (ค่าปริยาย 80) เขียนบรรทัดลง `alert.log` และบันทึก audit `DISK_ALERT` ถ้าเกิน `DISK_CRIT_PCT` (ค่าปริยาย 90) จะระดับ critical (`tools/check_disk.py`, ค่าคงที่ `DEFAULT_WARN_PCT`, `DEFAULT_CRIT_PCT`)
 - **รันอย่างไร:**
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.check_disk'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.check_disk'
   ```
 - **อาร์กิวเมนต์:** ไม่มี
 - **ตัวแปรสภาพแวดล้อม:** `LOG_DIR`, `DISK_WARN_PCT`, `DISK_CRIT_PCT`
@@ -127,7 +127,7 @@
   (`tools/enforce_voucher_expiry.py` docstring และฟังก์ชัน `run`)
 - **รันอย่างไร:**
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.enforce_voucher_expiry'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.enforce_voucher_expiry'
   ```
 - **อาร์กิวเมนต์:** ไม่มี `main()` เรียก `run()` โดยใช้ `deauth=True` เสมอ ไม่มีโหมด dry-run
 - **อ่าน/เขียน:** DB ตาราง `voucher`, `portal_session`, `conn_log` (รวม bytes ผ่าน `common/traffic.py`), `audit_log` และเรียกคำสั่ง `ndsctl json` และ `ndsctl deauth` (สร้าง MAC เป็นตัวพิมพ์เล็ก)
@@ -144,7 +144,7 @@
 - **หน้าที่:** สำหรับ pending session ที่รอการยืนยัน ถาม openNDS ด้วย `ndsctl json <mac>` ทีละ MAC ถ้า openNDS ยืนยันว่าเปิดสิทธิ์แล้วจริง (state `auth*`, IP ตรง, เวลาเริ่มหลัง pending) จะเปลี่ยน `portal_session.state` เป็น `authenticated` ปิด session เก่าของ MAC นั้นเป็น `reauth` เพิ่มแถว `device` และลบ `pending_mac_claim` ที่เกี่ยวข้อง ยังมี `purge_orphan_claims()` ลบ claim ที่ไม่มี session และนับ pending ที่หมดเวลา (`tools/reconcile_pending.py`)
 - **รันอย่างไร:** โดยปกติให้ timer ทำ หากต้องรันด้วยมือ:
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.reconcile_pending'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.reconcile_pending'
   ```
 - **อาร์กิวเมนต์:** ไม่มี
 - **อ่าน/เขียน:** DB ตาราง `portal_session`, `pending_mac_claim`, `device`, `voucher`, `conn_log`, `audit_log` (action `LOGIN_OK` เมื่อมีการยืนยันอย่างน้อย 1 รายการ) และเรียก `ndsctl json`
@@ -157,7 +157,7 @@
 - **หน้าที่:** ตั้งรหัสผ่านใหม่ให้ผู้ใช้ใน `staff` ที่ระบุ เมื่อลืมรหัสผ่านผู้ดูแลระบบ (`tools/reset_admin.py`)
 - **รันอย่างไร:**
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.reset_admin <username>'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.reset_admin <username>'
   ```
 - **อาร์กิวเมนต์:** `<username>` ตัวเดียวเท่านั้น ถ้าจำนวนอาร์กิวเมนต์ไม่ใช่ 1 จะพิมพ์ docstring แล้วคืน `2`
 - **การโต้ตอบ:** ถามรหัสผ่านใหม่และยืนยันด้วย `getpass` (ไม่แสดงบนหน้าจอ) ต้องผ่าน `crypto.check_admin_password`
@@ -176,12 +176,12 @@
 - **เส้นทางอื่นที่เรียกโมดูลนี้:** หน้าเว็บ `/evidence` ใน `app/admin/views/customers.py` (บรรทัด ~161) ใช้ฟังก์ชัน `export()` เดียวกัน
 - **รันอย่างไร:**
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.export_evidence --mac <mac-address> --from <YYYY-MM-DD> --to <YYYY-MM-DD>'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.export_evidence --mac <mac-address> --from <YYYY-MM-DD> --to <YYYY-MM-DD>'
   ```
   ค้นด้วยเลขบัตร **แนะนำให้ไม่ใส่เลขในบรรทัดคำสั่ง** (เลขจะค้างใน shell history / `ps` / sudo log) ใช้แบบใดแบบหนึ่งนี้แทน:
   ```bash
   # พิมพ์ตอนถาม (ไม่แสดงเลขบนจอ)
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.export_evidence --natid --from <YYYY-MM-DD> --to <YYYY-MM-DD>'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python -m tools.export_evidence --natid --from <YYYY-MM-DD> --to <YYYY-MM-DD>'
   # หรืออ่านจาก stdin หนึ่งบรรทัด
   read -rs NID; echo "$NID" | sudo bash -c '... -m tools.export_evidence --natid-stdin --from <YYYY-MM-DD> --to <YYYY-MM-DD>'; unset NID
   ```
@@ -349,7 +349,7 @@
 - **หน้าที่:** ออก voucher ทดสอบผ่านเส้นทาง `/issue` ตัวจริงของ Admin โดยใช้ Flask test client และตั้ง session เป็น `staff_id = 1` (ข้ามเฉพาะขั้นพิมพ์รหัสพนักงาน) พิมพ์ `code password` (`tools/lab_issue_voucher.py`)
 - **รันอย่างไร:**
   ```bash
-  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python tools/lab_issue_voucher.py <เลขบัตรทดสอบ 13 หลัก> <ชั่วโมง> <จำนวนเครื่อง> [โควตา MB]'
+  sudo bash -c 'set -a; . /etc/cafe-wifi/secrets.env; . /etc/cafe-wifi/db/ops.env; set +a; cd /opt/cafe-wifi && PYTHONPATH=/opt/cafe-wifi venv/bin/python tools/lab_issue_voucher.py <เลขบัตรทดสอบ 13 หลัก> <ชั่วโมง> <จำนวนเครื่อง> [โควตา MB]'
   ```
 - **อาร์กิวเมนต์ (ตำแหน่ง):** `natid` (ควรใช้เลขที่ checksum ถูกแต่ไม่ใช่ของคนจริง), `hours`, `devices`, `quota_mb` (ไม่บังคับ ค่าว่างคือไม่จำกัด)
 - **อ่าน/เขียน:** เขียนแถว voucher และ audit จริงลงฐานข้อมูลผ่านเส้นทาง `/issue`
