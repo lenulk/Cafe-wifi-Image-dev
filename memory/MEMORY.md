@@ -33,3 +33,4 @@
 - [Model routing preference](model-routing-preference.md) — Sonnet/Haiku subagents do simple/bulk work; Opus orchestrates, reviews, hard parts
 - [Core review 14 ต.ค.](core-review-2026-10-14.md) — แก้ในเครื่องแล้ว; ผลบน Pi 16 ต.ค. ส่วนใหญ่ปิดแล้ว; เหลือ A8/H2 (รอตัดสินใจ) + T1/T2/T4 (ต้อง AP+มือถือ)
 - [Pi image SSH access](pi-image-ssh-access.md) — lab Pi runs the image: cafeadmin + key only, ssh -p 39507 cafeadmin@10.10.0.1 from customer side; ras/1234 gone; 192.168.20.1 = switch SVI not internet
+- [Windows CRLF edit trap](windows-crlf-edit-trap.md) — python edits put CR in install.sh → bash fails on Pi; edit with newline='', deploy via git archive, check git ls-files --eol

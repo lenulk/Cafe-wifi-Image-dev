@@ -277,3 +277,16 @@ def test_setup_database_no_longer_grants_whole_database_to_app_user():
 def test_install_sh_has_no_carriage_returns():
     """6372a8a: สคริปต์แก้ไฟล์บน Windows ใส่ CR ติดมา -> bash บน Pi `syntax error near unexpected token $'{\r'`"""
     assert b"\r" not in (REPO / "install.sh").read_bytes()
+
+
+def test_legacy_user_is_restricted_only_after_services_restart(tmp_path):
+    """Pi 2026-10-16: ถอดสิทธิ์ user เดิมก่อน restart = logger เขียนไม่ได้ ~45 วิ ทิ้ง 19 รายการ"""
+    svc = call(tmp_path, "db_grants_sql svc").stdout
+    assert "'cafewifi'@" not in svc and "'cafe_logger'@" in svc
+    src = (REPO / "install.sh").read_text(encoding="utf-8")
+    start = src[src.index("start_services() {"):]
+    start = start[:start.index("\n}\n")]
+    assert start.index("restart cafe-logger") < start.index("db_restrict_legacy_user")
+    setup = src[src.index("setup_db_users() {"):]
+    setup = setup[:setup.index("\n}\n")]
+    assert "db_grants_sql svc | mysql" in setup and 'mysql < "${DB_SVC_ENV_DIR}/grants.sql"' not in setup

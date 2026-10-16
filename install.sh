@@ -943,16 +943,19 @@ EOF
 DB_SVC_USERS="fas:cafe_fas admin:cafe_admin logger:cafe_logger ops:cafe_ops"
 
 # SQL สิทธิ์ทั้งหมด (ไม่มีรหัสผ่าน) -- REVOKE ก่อนทุกครั้ง: รันซ้ำได้ และสิทธิ์ที่ถอดออกจาก matrix ถูกถอดจริง
+# $1 = "svc" -> เฉพาะ user ของ service (ไม่แตะ DB_USER เดิม -- ดู db_restrict_legacy_user)
 db_grants_sql() {
-  local u h t p users
+  local only="${1:-}" u h t p users
   users="$(db_grant_matrix | cut -d'|' -f1 | sort -u)"
   for u in $users; do
+    [[ "$only" == "svc" && "$u" == "$DB_USER" ]] && continue
     for h in 127.0.0.1 localhost; do
       echo "REVOKE ALL PRIVILEGES, GRANT OPTION FROM '${u}'@'${h}';"
     done
   done
   while IFS='|' read -r u t p; do
     [[ -n "$u" ]] || continue
+    [[ "$only" == "svc" && "$u" == "$DB_USER" ]] && continue
     for h in 127.0.0.1 localhost; do
       if [[ "$t" == "*" ]]; then
         echo "GRANT ${p} ON \`${DB_NAME}\`.* TO '${u}'@'${h}';"
@@ -988,8 +991,19 @@ SQL
   done
   # เก็บไว้ให้ setup/restore.py ใช้ซ้ำหลังกู้ฐานข้อมูล (DROP/CREATE DATABASE) -- ไม่มีรหัสผ่านในไฟล์นี้
   ( umask 077; db_grants_sql > "${DB_SVC_ENV_DIR}/grants.sql" )
-  mysql < "${DB_SVC_ENV_DIR}/grants.sql" || die "ตั้งสิทธิ์รายตารางไม่สำเร็จ (ดู ${DB_SVC_ENV_DIR}/grants.sql)"
-  ok "user ฐานข้อมูล: fas/admin/logger (ไม่มีสิทธิ์ลบ/แก้ log) · ops (root เท่านั้น) · ${DB_USER} (เฉพาะ setup wizard)"
+  # ยังไม่ถอดสิทธิ์ของ DB_USER เดิมตรงนี้: service ที่รันอยู่ยังใช้รหัสเดิมจนกว่า start_services จะ restart ด้วยไฟล์ใหม่
+  # (พบบน Pi 2026-10-16: ถอดก่อน = logger เขียนไม่ได้ ~45 วิ ทิ้ง 19 รายการ) -- ถอดใน db_restrict_legacy_user
+  db_grants_sql svc | mysql || die "ตั้งสิทธิ์รายตารางไม่สำเร็จ (ดู ${DB_SVC_ENV_DIR}/grants.sql)"
+  ok "user ฐานข้อมูล: fas/admin/logger (ไม่มีสิทธิ์ลบ/แก้ log) · ops (root เท่านั้น)"
+}
+
+# หลัง restart service ด้วยรหัสของตัวเองแล้ว -- DB_USER ใน secrets.env (กลุ่ม cafewifi อ่านได้) เหลือเฉพาะที่ setup wizard ใช้
+db_restrict_legacy_user() {
+  local f="${DB_SVC_ENV_DIR}/grants.sql"
+  (( DRY_RUN )) && return 0
+  [[ -f "$f" ]] || return 0
+  mysql < "$f" || { warn "ถอดสิทธิ์ user ${DB_USER} เดิมไม่สำเร็จ — รันซ้ำ: mysql < ${f}"; return 0; }
+  ok "user ${DB_USER} ใน secrets.env เหลือเฉพาะสิทธิ์ของ setup wizard"
 }
 
 setup_database() {
@@ -2554,6 +2568,7 @@ start_services() {
     run systemctl enable --now cafe-bypass-detect.timer 2>/dev/null || warn "เปิด cafe-bypass-detect.timer ไม่สำเร็จ"
     run systemctl enable --now cafe-reconcile.timer 2>/dev/null || warn "เปิด cafe-reconcile.timer ไม่สำเร็จ"
   fi
+  db_restrict_legacy_user
   ok "เปิด service เรียบร้อย"
 }
 
