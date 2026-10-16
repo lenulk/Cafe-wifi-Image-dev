@@ -35,3 +35,4 @@
 - [Pi image SSH access](pi-image-ssh-access.md) — lab Pi runs the image: cafeadmin + key only, ssh -p 39507 cafeadmin@10.10.0.1 from customer side; ras/1234 gone; 192.168.20.1 = switch SVI not internet
 - [Windows CRLF edit trap](windows-crlf-edit-trap.md) — python edits put CR in install.sh → bash fails on Pi; edit with newline='', deploy via git archive, check git ls-files --eol
 - [DB users + log seal (A8/H2)](db-users-and-log-seal.md) — per-service MariaDB users, triggers, daily row seal; CLI tools must also source db/ops.env
+- [⏸ N2 IPv6 L2 bypass (pending)](n2-ipv6-l2-bypass-pending.md) — customers see uplink router RA directly; router IPv6 would bypass Pi; user deferred 16 ต.ค.; also laptop stale gw 10.4.1.254

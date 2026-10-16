@@ -7,6 +7,7 @@
 #
 #   lab_client.sh up cta 02:ca:fe:00:00:0a        # สร้างลูกค้า + ขอ DHCP
 #   lab_client.sh login cta CAFE-XXXXX <password>  # เล่น portal ครบ: redirect -> login -> openNDS -> เน็ต
+#   lab_client.sh register cta 1111111111119       # ระบบปัจจุบัน: กรอกเลขบัตร + ยินยอม -> รหัสคำขอ (รอพนักงานอนุมัติ)
 #   lab_client.sh run cta curl -s http://example.com/
 #   lab_client.sh down cta                         # ลบทิ้ง (อย่าลืม: ndsctl deauth <mac>)
 #
@@ -55,4 +56,17 @@ login)
   echo "4 openNDS auth -> $($X -o /dev/null -w '%{http_code}' "$auth")"
   sleep 1
   echo "5 internet -> $($X -o /dev/null -w '%{http_code}' http://example.com/)" ;;
+register)
+  # ลงทะเบียนแบบลูกค้าจริง (2026-10-16): redirect -> หน้าลงทะเบียน -> POST เลขบัตร + ยินยอม -> /request
+  natid=$3; cj=/tmp/cj-$ns; rm -f $cj
+  X="ip netns exec $ns curl -s -m 15 -b $cj -c $cj"
+  loc=$($X -o /dev/null -w '%{redirect_url}' http://example.com/)
+  [ -n "$loc" ] || { echo "$ns: ไม่ถูกพาไปหน้า portal (ออนไลน์อยู่แล้ว?)" >&2; exit 1; }
+  page=$($X -L "$loc")
+  nonce=$(echo "$page" | grep -o 'name="nonce" value="[^"]*"' | sed 's/.*value="//;s/"//')
+  base=$(echo "$loc" | sed 's#\(http://[^/]*\)/.*#\1#')
+  st=$($X -o /tmp/resp-$ns -w '%{http_code}' --data-urlencode "nonce=$nonce" -d consent=on \
+       --data-urlencode "natid=$natid" "$base/login")
+  [ "$st" = 303 ] || { echo "$ns: ลงทะเบียนไม่สำเร็จ HTTP $st" >&2; exit 1; }
+  echo "$ns registered" ;;
 esac
