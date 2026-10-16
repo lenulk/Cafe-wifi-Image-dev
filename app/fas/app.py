@@ -122,7 +122,7 @@ def _valid_gateway(ctx: ClientContext) -> bool:
 
 @app.context_processor
 def inject_globals():
-    return {"gateway_name": GATEWAY_NAME}
+    return {"gateway_name": GATEWAY_NAME, "gateway_ip": GATEWAY_IP}
 
 
 @app.get("/health")
