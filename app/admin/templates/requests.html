@@ -108,7 +108,8 @@
       <td class="mono">{{ r.code }}</td>
       <td class="mono">{{ r.natid_masked }}</td>
       <td>{{ device_name(r, link=False) if (r.hostname or r.os_label) else '-' }}</td>
-      <td>{{ 'อนุมัติ' if r.status == 'approved' else 'ปฏิเสธ' }}{% if r.decision_note %} — {{ r.decision_note }}{% endif %}</td>
+      <td>{{ 'อนุมัติ' if r.status == 'approved' else 'ปฏิเสธ' }}{% if r.decision_note %} — {{ r.decision_note }}{% endif %}
+        {% if r.net %}<div class="hint" style="color:var(--{{ {'ok': 'ok', 'wait': 'muted', 'err': 'err'}[r.net[0]] }})">{{ '⚠ ' if r.net[0] == 'err' }}{{ r.net[1] }}</div>{% endif %}</td>
       <td>{{ r.decided_by or '-' }}</td>
       <td>{{ r.decided_at.strftime('%H:%M') if r.decided_at else '-' }}</td>
     </tr>

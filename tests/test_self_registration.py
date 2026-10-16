@@ -113,8 +113,15 @@ class FakeCursor:
         elif s.startswith("select id, code, mac, hostname, os_label, natid_hash, natid_masked, created_at"):
             self._rows = [r for r in ar if _live_pending(r)]
         elif s.startswith("select ar.code, ar.natid_masked, ar.hostname, ar.os_label, ar.status"):
-            self._rows = [dict(r, decided_by="admin") for r in ar
-                          if r["status"] in ("approved", "rejected")]
+            sess = {x["id"]: x for x in ps}
+            self._rows = []
+            for r in ar:
+                if r["status"] not in ("approved", "rejected"):
+                    continue
+                x = sess.get(r.get("portal_session_id")) or {}
+                self._rows.append(dict(r, decided_by="admin", session_state=x.get("state"),
+                                       terminate_cause=x.get("terminate_cause"),
+                                       pending_until=x.get("pending_until")))
         elif s.startswith("select id, code, mac, ip, hostname, os_label, natid_hash, natid_enc"):
             self._rows = [r for r in ar if r["id"] == args[0]]
         elif s.startswith("select code, natid_masked from access_request"):
@@ -688,6 +695,22 @@ def test_requests_page_shows_device_and_approval_copies_it_to_session(fas, admin
     _approve(admin)
     (s,) = DB["portal_session"]
     assert s["hostname"] == "Somchais-iPhone" and s["os_label"] == "iPhone · iOS 17.5"
+
+
+def test_recent_requests_show_whether_network_actually_opened(fas, admin):
+    """B3 (Pi 2026-10-16): openNDS หยุด -> อนุมัติแล้วค้าง pending ตลอด หน้าเคยบอกแค่ "อนุมัติ" """
+    _register(fas)
+    _approve(admin)
+    s = DB["portal_session"][0]
+    page = lambda: admin.get("/requests").get_data(as_text=True)
+    assert "กำลังเปิดเน็ต" in page()
+    s["pending_until"] = datetime.now() - timedelta(seconds=1)
+    assert "ยังเปิดเน็ตไม่ได้" in page()
+    s.update(state="closed", terminate_cause="auth_timeout")
+    assert "เปิดเน็ตไม่สำเร็จ" in page()
+    s.update(state="authenticated", terminate_cause=None)
+    html = page()
+    assert "ออนไลน์แล้ว" in html and "เปิดเน็ตไม่" not in html
 
 
 def test_dashboard_and_recent_requests_show_device_names(fas, admin):

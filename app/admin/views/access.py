@@ -57,6 +57,24 @@ def _customer_blocked(cur, customer_id) -> bool:
     return bool(row and row["is_blocked"])
 
 
+def _net_status(r, now: datetime) -> tuple[str, str] | None:
+    """B3 (ยืนยันบน Pi 2026-10-16): อนุมัติแล้วแต่เปิดเน็ตไม่ได้ (openNDS หยุด/ndsctl ล้ม/auth_timeout) หน้านี้เคย
+    แสดงแค่ "อนุมัติ" พนักงานไม่รู้ว่าลูกค้ายังไม่มีเน็ต · คืน (ระดับ, ข้อความ) หรือ None ถ้าไม่ต้องบอกอะไรเพิ่ม"""
+    if r.get("status") != "approved":
+        return None
+    state = r.get("session_state")
+    if state == "authenticated":
+        return ("ok", "ออนไลน์แล้ว")
+    if state == "pending":
+        until = r.get("pending_until")
+        if until and until <= now:
+            return ("err", "ยังเปิดเน็ตไม่ได้ — ระบบควบคุมเน็ต (openNDS) อาจหยุดทำงาน แจ้งผู้ดูแล")
+        return ("wait", "กำลังเปิดเน็ต…")
+    if state == "closed" and r.get("terminate_cause") == "auth_timeout":
+        return ("err", "เปิดเน็ตไม่สำเร็จ — ให้ลูกค้าเปิดหน้าเข้าใช้งานแล้วขอใหม่")
+    return None
+
+
 @routes.get("/requests")
 @core.login_required
 def requests_page():
@@ -81,8 +99,12 @@ def requests_page():
                                 devices_used=used))
     recent = core.query_all(
         "SELECT ar.code, ar.natid_masked, ar.hostname, ar.os_label, ar.status, ar.decided_at, ar.decision_note, "
-        "s.username AS decided_by FROM access_request ar LEFT JOIN staff s ON s.id = ar.decided_by "
+        "s.username AS decided_by, ps.state AS session_state, ps.terminate_cause, ps.pending_until "
+        "FROM access_request ar LEFT JOIN staff s ON s.id = ar.decided_by "
+        "LEFT JOIN portal_session ps ON ps.id = ar.portal_session_id "
         "WHERE ar.status IN ('approved','rejected') ORDER BY ar.decided_at DESC LIMIT 10")
+    now = datetime.now()
+    recent = [dict(r, net=_net_status(r, now)) for r in recent]
     return render_template("requests.html", pending=pending, recent=recent,
                            hours_choices=PACKAGE_HOURS)
 
