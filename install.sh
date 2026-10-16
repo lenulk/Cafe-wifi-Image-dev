@@ -36,6 +36,10 @@ readonly BACKUP_USB_LABEL="CAFEBACKUP"            # ตั้งชื่อ USB
 readonly BACKUP_USB_MNT="/mnt/cafebackup"
 readonly CA_PUBLIC_DIR="/var/lib/${APP_NAME}-ca"   # ใบรับรอง (สาธารณะ) ของหน้าแอดมินให้เครื่องพนักงานดาวน์โหลด
 readonly BACKUP_DIR="/var/backups/${APP_NAME}"  # แก้บั๊ก H4 (เดิมไม่มี backup DB เลยในระบบ)
+# N1: mark ที่ openNDS 10.x ติดให้แพ็กเก็ตของเครื่อง trusted (0x20000) / authenticated (0x30000) ใน nds_mangle
+# -- bit 0x20000 ตรงทั้งคู่ (blocked = 0x10000 ไม่ตรง) · forward ของเราปล่อยเฉพาะแพ็กเก็ตที่มี bit นี้
+readonly NDS_FW_MARK_ALLOWED="0x00020000"
+readonly WALLED_GARDEN_FQDNS="captive.apple.com connectivitycheck.gstatic.com www.msftconnecttest.com detectportal.firefox.com nmcheck.gnome.org"
 # macvlan ฝั่งลูกค้า ซ้อนบน $NIC -- ดูเหตุผลเต็มๆ ที่ configure_network() (R11/§3.1.6 Plan B
 # ที่พิสูจน์แล้วจาก VM lab ว่าเป็นทางเดียวที่ openNDS ยอมทำงานบนโหมดสายเดียว)
 readonly CLI_IFACE="${APP_NAME}-cli0"
@@ -1576,6 +1580,8 @@ log-async=25
 address=/cafe.wifi/${client_ip}
 # หน้าแอดมิน/พนักงาน: https://admin.cafe.wifi (address=/cafe.wifi/ ครอบชื่อย่อยอยู่แล้ว ใส่ไว้ให้เห็นชัด)
 address=/admin.cafe.wifi/${client_ip}
+# N1: IP ของโดเมน walled garden เข้าชุดใน nftables ของเรา (forward ของเราปล่อยเฉพาะที่ openNDS ติด mark + ชุดนี้)
+nftset=/$(echo ${WALLED_GARDEN_FQDNS} | tr ' ' '/')/4#inet#filter#cafe_walledgarden
 DNSMASQ
 
   run_sh "touch '${LOG_DIR}/dnsmasq.log'"
@@ -1616,6 +1622,10 @@ define UPLINK_NET = ${upl_net}
 define UPLINK_GW  = ${UPLINK_GW}
 
 table inet filter {
+  # N1: ปลายทาง walled garden (โดเมนตรวจ captive portal ของ OS) -- dnsmasq ใส่ IP ให้ตอนลูกค้าถามชื่อ
+  # (nftset ใน /etc/dnsmasq.d/${APP_NAME}.conf) แบบเดียวกับชุด walledgarden ของ openNDS เอง
+  set cafe_walledgarden { type ipv4_addr; }
+
   chain input {
     type filter hook input priority filter; policy drop;
 
@@ -1690,8 +1700,14 @@ table inet filter {
     # กันลูกค้าเข้าถึงเครือข่ายส่วนตัวฝั่งอัพลิงก์ของร้าน (ปลายทางอินเทอร์เน็ตสาธารณะไม่ติดกฎนี้)
     ip saddr \$CLIENT_NET ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } drop
 
-    # ลูกค้าที่ผ่านการยืนยันแล้ว (openNDS อนุญาต MAC) ออกอินเทอร์เน็ตผ่าน uplink เส้นเดียวกันได้
-    ip saddr \$CLIENT_NET accept
+    # N1 (ยืนยันบน Pi 2026-10-16): เดิม "ip saddr \$CLIENT_NET accept" = ด่านเดียวคือกฎของ openNDS -- หยุด openNDS
+    # หรือ nft -f / install.sh ซ้ำ (flush ruleset ลบตาราง nds_*) แล้วเครื่องที่ยังไม่อนุมัติออกเน็ตได้ทันที
+    # (ลูกค้าจำลองเปิด HTTPS ภายนอกได้) = เน็ตฟรีไม่มี log ผูกตัวตน · ตอนนี้ปล่อยเฉพาะแพ็กเก็ตที่ openNDS ติด mark
+    # ว่า trusted (0x20000) หรือ authenticated (0x30000) ในตาราง nds_mangle -- ไม่มี openNDS = ไม่มี mark =
+    # ทุกคนออกไม่ได้ (ปิดไว้ก่อนเมื่อพัง) จน openNDS กลับมาคืนสิทธิ์เอง
+    ip saddr \$CLIENT_NET meta mark & ${NDS_FW_MARK_ALLOWED} == ${NDS_FW_MARK_ALLOWED} accept
+    # walled garden (ยังไม่อนุมัติก็ไปได้ -- ตรงกับ walledgarden_fqdn_list ของ openNDS)
+    ip saddr \$CLIENT_NET ip daddr @cafe_walledgarden accept
   }
 
   chain output { type filter hook output priority filter; policy accept; }
@@ -1768,6 +1784,22 @@ NFT
   run_sh "nft -f /etc/nftables.conf"
   svc enable nftables
   ok "nftables โหลดแล้ว (NAT + client isolation + DNS redirect, อิงตาม subnet)"
+  # N1: `flush ruleset` ด้านบนลบตาราง nds_* ของ openNDS ที่กำลังรันอยู่ด้วย -- forward ของเราปล่อยเฉพาะแพ็กเก็ตที่
+  # openNDS ติด mark จึงต้องให้ openNDS สร้างตารางใหม่ ไม่งั้นลูกค้าที่อนุมัติแล้วออกเน็ตไม่ได้ทั้งร้าน (เดิมกลับกัน:
+  # ทุกคนรวมคนที่ยังไม่อนุมัติออกได้) · try-restart = เฉพาะถ้ารันอยู่ ลูกค้าได้สิทธิ์คืนเองใน ~30 วิ (วัด T1 2026-10-16)
+  # และ reload/restart nftables เองภายหลัง (ช่าง/แพ็กเกจอัปเดต) ก็ต้อง restart openNDS ตามเหมือนกัน -> drop-in
+  if [[ "$INIT_SYS" == systemd ]]; then
+    write_file /etc/systemd/system/nftables.service.d/cafe-wifi-opennds.conf 0644 <<'NFTDROPIN'
+# managed by cafe-wifi installer -- N1: โหลดกฎใหม่ = ตาราง openNDS หาย -> ให้ openNDS สร้างใหม่ (ถ้ารันอยู่)
+[Service]
+ExecReload=
+ExecReload=/usr/sbin/nft -f /etc/nftables.conf
+ExecReload=-/bin/systemctl --no-block try-restart opennds.service
+ExecStartPost=-/bin/systemctl --no-block try-restart opennds.service
+NFTDROPIN
+    run_sh "systemctl daemon-reload"
+    run_sh "systemctl try-restart opennds.service 2>/dev/null || true"
+  fi
 
   # *** แก้บั๊ก (พบจาก VM lab 2026-08-28) *** conn_collector.py เขียน docstring ไว้เองว่า
   # ต้อง `sysctl -w net.netfilter.nf_conntrack_acct=1` ก่อนถึงจะได้ตัวเลข bytes จาก
@@ -2018,12 +2050,8 @@ config opennds
 	list users_to_router 'allow tcp port ${ADMIN_PORT}'
 	list users_to_router 'allow tcp port ${SSH_ALT_PORT}'
 
-	# walled garden: ต้องเปิดให้ OS ตรวจเจอ captive portal
-	list walledgarden_fqdn_list 'captive.apple.com'
-	list walledgarden_fqdn_list 'connectivitycheck.gstatic.com'
-	list walledgarden_fqdn_list 'www.msftconnecttest.com'
-	list walledgarden_fqdn_list 'detectportal.firefox.com'
-	list walledgarden_fqdn_list 'nmcheck.gnome.org'
+	# walled garden: ต้องเปิดให้ OS ตรวจเจอ captive portal (รายการเดียวกับ nftset ของ dnsmasq -- WALLED_GARDEN_FQDNS)
+$(for d in ${WALLED_GARDEN_FQDNS}; do printf '\tlist walledgarden_fqdn_list '"'%s'"'\n' "$d"; done)
 ${nds_trusted_block}
 NDS
   ok "เขียน /etc/config/opennds (รูปแบบ UCI — ตัวที่ openNDS อ่านจริง)"

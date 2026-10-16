@@ -290,3 +290,51 @@ def test_legacy_user_is_restricted_only_after_services_restart(tmp_path):
     setup = src[src.index("setup_db_users() {"):]
     setup = setup[:setup.index("\n}\n")]
     assert "db_grants_sql svc | mysql" in setup and 'mysql < "${DB_SVC_ENV_DIR}/grants.sql"' not in setup
+
+
+# ---------------------------------------------------------------- N1 ปิดไว้ก่อนเมื่อ openNDS ไม่อยู่
+def _net_files(tmp_path):
+    pre = ('INIT_SYS=systemd; DRY_RUN=0; NIC=eth0; UPLINK_CIDR=192.168.1.2/24; UPLINK_GW=192.168.1.1; '
+           'CLIENT_CIDR=10.10.0.1/24; DHCP_START=10.10.0.100; DHCP_END=10.10.0.250; SSH_ALT_PORT=40000\n'
+           'systemctl() { return 1; }; nmcli() { return 1; }; ip() { return 0; }; sysctl() { return 0; }')
+    r = call(tmp_path, "configure_network", pre=pre)
+    assert r.returncode == 0, r.stderr[-2000:]
+    nft = next(p for p in tmp_path.iterdir() if p.name.endswith("nftables.conf")).read_text(encoding="utf-8")
+    dns = next(p for p in tmp_path.iterdir() if p.name.endswith("dnsmasq.d_cafe-wifi.conf")).read_text(encoding="utf-8")
+    return nft, dns
+
+
+def test_forward_only_accepts_clients_marked_by_opennds(tmp_path):
+    """Pi 2026-10-16: หยุด openNDS หรือ nft -f -> เครื่องที่ยังไม่อนุมัติออกเน็ตได้ (HTTPS ภายนอก) เพราะ forward ปล่อยทั้งวง"""
+    nft, _ = _net_files(tmp_path)
+    fwd = nft[nft.index("chain forward"):]
+    fwd = fwd[:fwd.index("\n  }")]
+    rules = [l.strip() for l in fwd.splitlines() if l.strip() and not l.strip().startswith("#")]
+    assert "ip saddr $CLIENT_NET accept" not in rules, "ห้ามปล่อยทั้งวงลูกค้าโดยไม่ดู mark ของ openNDS"
+    assert "ip saddr $CLIENT_NET meta mark & 0x00020000 == 0x00020000 accept" in rules
+    assert "ip saddr $CLIENT_NET ip daddr @cafe_walledgarden accept" in rules
+    assert "policy drop" in fwd
+    assert "set cafe_walledgarden { type ipv4_addr; }" in nft
+
+
+def test_dnsmasq_fills_our_walled_garden_set_with_same_domains_as_opennds(tmp_path):
+    _, dns = _net_files(tmp_path)
+    line = next(l for l in dns.splitlines() if l.startswith("nftset="))
+    assert line == ("nftset=/captive.apple.com/connectivitycheck.gstatic.com/www.msftconnecttest.com/"
+                    "detectportal.firefox.com/nmcheck.gnome.org/4#inet#filter#cafe_walledgarden")
+    r = call(tmp_path, "configure_opennds", pre="INIT_SYS=systemd; DRY_RUN=0; SKIP_OPENNDS=0; SKIP_NETWORK=0")
+    assert r.returncode == 0, r.stderr[-2000:]
+    cfg = next(p for p in tmp_path.iterdir() if p.name.endswith("_etc_config_opennds")).read_text(encoding="utf-8")
+    listed = [l.split("'")[1] for l in cfg.splitlines() if "walledgarden_fqdn_list" in l]
+    assert "/".join(listed) == line.split("=", 1)[1].split("/4#")[0].strip("/")
+
+
+def test_reloading_nftables_restarts_opennds(tmp_path):
+    """N1: flush ruleset ลบตาราง nds_* -- forward แบบติด mark จะตัดลูกค้าทุกคนจนกว่า openNDS สร้างตารางใหม่"""
+    _net_files(tmp_path)
+    drop = (tmp_path / "_etc_systemd_system_nftables.service.d_cafe-wifi-opennds.conf").read_text(encoding="utf-8")
+    assert "ExecReload=\nExecReload=/usr/sbin/nft -f /etc/nftables.conf\n" in drop
+    assert "ExecReload=-/bin/systemctl --no-block try-restart opennds.service" in drop
+    assert "ExecStartPost=-/bin/systemctl --no-block try-restart opennds.service" in drop
+    cmds = (tmp_path / "cmds.log").read_text(encoding="utf-8")
+    assert cmds.index("nft -f /etc/nftables.conf") < cmds.index("try-restart opennds.service")
